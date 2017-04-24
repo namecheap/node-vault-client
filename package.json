@@ -1,0 +1,28 @@
+{
+  "name": "node-vault-client",
+  "version": "0.0.1",
+  "description": "",
+  "main": "src/VaultClient.js",
+  "scripts": {
+    "test": "mocha test/**/*.test.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "assign-deep": "^0.4.5",
+    "bluebird": "^3.5.0",
+    "config": "^1.25.1",
+    "lodash": "^4.17.4",
+    "request": "^2.81.0",
+    "request-promise": "^4.2.0",
+    "url-join": "^2.0.1"
+  },
+  "peerDependencies": {
+    "config": "1.x"
+  },
+  "devDependencies": {
+    "chai": "^3.5.0",
+    "deep-freeze": "^0.0.1",
+    "mocha": "^3.2.0"
+  }
+}
