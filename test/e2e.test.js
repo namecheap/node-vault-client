@@ -49,7 +49,7 @@ describe('E2E', function () {
         yield vaultClient.write('/secret/a', testData);
         yield vaultClient.write('/secret/b', {tst: 'ZZZ'});
 
-        process.env.NODE_CONFIG_DIR = `${__dirname}/data/config`;
+        process.env.NODE_CONFIG_DIR = `${__dirname}/data/config-base`;
         const config = require('config');
 
         expect(JSON.parse(JSON.stringify(config))).to.deep.equal({deep: {aStr: '', aInt: 0}, b: 'NOT WORKING'});
@@ -57,6 +57,21 @@ describe('E2E', function () {
         yield vaultClient.fillNodeConfig();
 
         expect(JSON.parse(JSON.stringify(config))).to.deep.equal({deep: {aStr: testData.tstStr, aInt: testData.tstInt}, b: 'ZZZ'});
+    });
+
+    it('should handle empty custom-vault-variables', function* () {
+        const testData = Object.freeze({tstStr: 'testData', tstInt: 12345});
+
+        const vaultClient = new VaultClient(this.bootOpts);
+
+        process.env.NODE_CONFIG_DIR = `${__dirname}/data/config-empty`;
+        const config = require('config');
+
+        expect(JSON.parse(JSON.stringify(config))).to.deep.equal({deep: {aStr: '', aInt: 0}, b: 'NOT WORKING'});
+
+        yield vaultClient.fillNodeConfig();
+
+        expect(JSON.parse(JSON.stringify(config))).to.deep.equal({deep: {aStr: '', aInt: 0}, b: 'NOT WORKING'});
     });
 
 });
