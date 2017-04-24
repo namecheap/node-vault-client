@@ -4,12 +4,16 @@
   "description": "",
   "engines" : { "node" : ">=5.0.0 <8.0.0" },
   "main": "src/VaultClient.js",
+  "files": ["src"],
   "scripts": {
     "test": "mocha test/**/*.test.js",
-    "test-ci": "npm install autochecker -q --no-progress && autochecker 5-wheezy 6-wheezy 7-wheezy"
+    "test-ci": "npm install autochecker -q --no-progress && autochecker 5-wheezy 6-wheezy 7-wheezy",
+    "preversion": "npm run test-ci",
+    "version": "git add -A .",
+    "postversion": "git push && git push --tags"
   },
-  "author": "",
-  "license": "ISC",
+  "author": "Vlad Fedosov <vlad.fedosov@gmail.com>",
+  "license": "UNLICENSED",
   "dependencies": {
     "assign-deep": "^0.4.5",
     "bluebird": "^3.5.0",
