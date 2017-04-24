@@ -79,7 +79,7 @@ class VaultNodeConfig {
             throw new errors.VaultError('Config file ' + fullFilename + ' should return plain object');
         }
 
-        return fileContent;
+        return _.cloneDeep(fileContent);
     }
 
     __traverse(o, func) {
