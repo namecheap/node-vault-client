@@ -25,7 +25,7 @@ module.exports = function () {
 
             if (found !== null) {
                 resolve({
-                    token: found[1],
+                    rootToken: found[1],
                     kill: () => pKiller(processRef),
                 });
             }

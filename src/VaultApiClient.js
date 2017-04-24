@@ -12,7 +12,7 @@ class VaultApiClient {
      * @param {String} [config.apiVersion='v1']
      */
     constructor(config) {
-        this.__config = _.defaultsDeep(config, {
+        this.__config = _.defaultsDeep(_.cloneDeep(config), {
             apiVersion: 'v1',
         });
     }
