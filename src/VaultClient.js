@@ -112,9 +112,9 @@ class Vault {
     read(path) {
         return this.__auth.getAuthToken().then(token => {
                 return this.__api.makeRequest('GET', path, null, {'X-Vault-Token': token});
-    }).then(res => {
-            return Lease.fromResponse(res);
-    });
+        }).then(res => {
+                return Lease.fromResponse(res);
+        });
     }
 }
 
