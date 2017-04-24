@@ -8,13 +8,13 @@ class Lease {
         leaseId,
         leaseDuration,
         renewable,
-        data = {}
+        data
     ) {
         this.__requestId = requestId;
         this.__leaseId = leaseId;
         this.__leaseDuration = leaseDuration;
         this.__renewable = renewable;
-        this.__data = data;
+        this.__data = data === undefined ? {} : data;
     }
 
     static fromResponse(response) {

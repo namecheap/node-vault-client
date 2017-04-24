@@ -2,17 +2,17 @@
   "name": "node-vault-client",
   "version": "0.0.1",
   "description": "",
+  "engines" : { "node" : ">=5.0.0 <8.0.0" },
   "main": "src/VaultClient.js",
   "scripts": {
     "test": "mocha test/**/*.test.js",
-    "test-ci": "npm update autochecker -q --no-progress && autochecker 7-wheezy"
+    "test-ci": "autochecker 5-wheezy 6-wheezy 7-wheezy"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
     "assign-deep": "^0.4.5",
     "bluebird": "^3.5.0",
-    "config": "^1.25.1",
     "lodash": "^4.17.4",
     "request": "^2.81.0",
     "request-promise": "^4.2.0",

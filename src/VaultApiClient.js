@@ -17,7 +17,10 @@ class VaultApiClient {
         });
     }
 
-    makeRequest(method, path, data = null, headers = {}) {
+    makeRequest(method, path, data, headers) {
+        data = data === undefined ? null : data;
+        headers = headers === undefined ? {} : headers;
+
         const requestOptions = {
             method: method,
             body: data === null ? undefined : data,

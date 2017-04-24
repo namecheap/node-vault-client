@@ -30,7 +30,8 @@ class VaultNodeConfig {
         let requiredData = {};
 
         this.__traverse(substitutionMap, (key, val) => {
-            const [path, value] = val.split('#');
+            const splitRes = val.split('#');
+            const path = splitRes[0], value = splitRes[1];
             if (path === undefined || value === undefined) {
                 throw new errors.InvalidArgumentsError('Invalid format of substitution value');
             }
@@ -44,7 +45,8 @@ class VaultNodeConfig {
             requiredData = _.mapValues(requiredData, (value, path) => results[path].getData());
 
             this.__traverse(substitutionMap, (key, val, obj) => {
-                const [path, value] = val.split('#');
+                const splitRes = val.split('#');
+                const path = splitRes[0], value = splitRes[1];
                 const res = requiredData[path][value];
                 if (res === undefined) {
                     throw new errors.VaultError(`Can't find substitution for "${val}"`);
