@@ -9,7 +9,6 @@ const expect = chai.expect;
 const loadVault = require('./vaultLoader');
 
 const VaultClient = require('../src/VaultClient');
-const VaultErr = require('../src/errors');
 
 describe('E2E', function () {
 

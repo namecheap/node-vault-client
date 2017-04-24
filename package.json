@@ -4,7 +4,8 @@
   "description": "",
   "main": "src/VaultClient.js",
   "scripts": {
-    "test": "mocha test/**/*.test.js"
+    "test": "mocha test/**/*.test.js",
+    "test-ci": "npm update autochecker -q --no-progress && autochecker 7-wheezy"
   },
   "author": "",
   "license": "ISC",
@@ -21,6 +22,7 @@
     "config": "1.x"
   },
   "devDependencies": {
+    "autochecker": "^0.9.2",
     "chai": "^3.5.0",
     "co-mocha": "^1.2.0",
     "deep-freeze": "^0.0.1",
