@@ -1,10 +1,14 @@
 {
   "name": "node-vault-client",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "",
-  "engines" : { "node" : ">=5.0.0 <8.0.0" },
+  "engines": {
+    "node": ">=5.0.0 <8.0.0"
+  },
   "main": "src/VaultClient.js",
-  "files": ["src"],
+  "files": [
+    "src"
+  ],
   "scripts": {
     "test": "mocha test/**/*.test.js",
     "test-ci": "npm install autochecker -q --no-progress && autochecker 5-wheezy 6-wheezy 7-wheezy",
