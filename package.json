@@ -13,8 +13,7 @@
     "test": "mocha test/**/*.test.js",
     "test-ci": "npm install autochecker -q --no-progress && autochecker 5-wheezy 6-wheezy 7-wheezy",
     "preversion": "npm run test-ci",
-    "version": "git add -A .",
-    "postversion": "git push && git push --tags"
+    "version": "git add -A ."
   },
   "author": "Vlad Fedosov <vlad.fedosov@gmail.com>",
   "license": "UNLICENSED",
