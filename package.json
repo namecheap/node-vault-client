@@ -6,7 +6,7 @@
   "main": "src/VaultClient.js",
   "scripts": {
     "test": "mocha test/**/*.test.js",
-    "test-ci": "autochecker 5-wheezy 6-wheezy 7-wheezy"
+    "test-ci": "npm install autochecker -q --no-progress && autochecker 5-wheezy 6-wheezy 7-wheezy"
   },
   "author": "",
   "license": "ISC",
