@@ -1,5 +1,7 @@
 'use strict';
 
+const lt = require('long-timeout');
+
 const AuthToken = require('./AuthToken');
 const errors = require('../errors');
 
@@ -13,6 +15,7 @@ class VaultBaseAuth {
 
         /** @type AuthToken */
         this.__authToken = null;
+        this.__refreshTimeout = null;
     }
 
     /**
@@ -31,6 +34,8 @@ class VaultBaseAuth {
 
             return this._authenticate().then(authToken => {
                 this.__authToken = authToken;
+
+                this.__setupTokenRefreshTimer(this.__authToken);
 
                 return this.__authToken;
             });
@@ -55,6 +60,28 @@ class VaultBaseAuth {
      */
     _reauthenticationAllowed() {
         return true;
+    }
+
+    __setupTokenRefreshTimer(authToken) {
+        if (this.__refreshTimeout !== null) {
+            lt.clearTimeout(this.__refreshTimeout);
+            this.__refreshTimeout = null;
+        }
+
+        if (authToken.isRenewable()) {
+            return;
+        }
+
+        this.__refreshTimeout = lt.setTimeout(() => {
+            this.__apiClient.makeRequest('GET', '/auth/token/renew-self', null, {'X-Vault-Token': authToken.getId()}).then(() => {
+                return this._getTokenEntity(authToken.getId());
+            }).then(authToken => {
+                this.__authToken = authToken;
+                this.__setupTokenRefreshTimer(authToken);
+            }).catch(err => {
+                //TODO: error logging should be added
+            });
+        }, ( authToken.getExpiresAt() - Math.floor(Date.now() / 1000) ) * 1000);
     }
 
 }

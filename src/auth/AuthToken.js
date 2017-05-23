@@ -75,23 +75,12 @@ class AuthToken {
     /**
      * @returns {boolean}
      */
-    shouldBeRefreshed() {
-        if (this.__expiresAt === null || !this.isRenewable()) {
-            return false;
-        }
-
-        return this.__expiresAt - Math.floor(Date.now() / 1000) < 120; //2 minutes till expiration
-    }
-
-    /**
-     * @returns {boolean}
-     */
     isRenewable() {
-        return this.__isRenewable;
+        return this.__isRenewable && this.getExpiresAt() !== null;
     }
 
     /**
-     * @returns {int} UNIX timestamp
+     * @returns {int|null} UNIX timestamp
      */
     getExpiresAt() {
         return this.__expiresAt;
