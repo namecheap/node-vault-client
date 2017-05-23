@@ -73,15 +73,24 @@ class VaultBaseAuth {
         }
 
         this.__refreshTimeout = lt.setTimeout(() => {
-            this.__apiClient.makeRequest('GET', '/auth/token/renew-self', null, {'X-Vault-Token': authToken.getId()}).then(() => {
-                return this._getTokenEntity(authToken.getId());
-            }).then(authToken => {
+            this.__renewToken(authToken).then(authToken => {
                 this.__authToken = authToken;
                 this.__setupTokenRefreshTimer(authToken);
             }).catch(err => {
-                //TODO: error logging should be added
+                //TODO: error logging & retry logic should be added
             });
         }, ( authToken.getExpiresAt() - Math.floor(Date.now() / 1000) ) * 1000);
+    }
+
+    /**
+     * @param {AuthToken} authToken
+     * @returns {Promise.<AuthToken>}
+     * @private
+     */
+    __renewToken(authToken) {
+        return this.__apiClient.makeRequest('GET', '/auth/token/renew-self', null, {'X-Vault-Token': authToken.getId()}).then(() => {
+            return this._getTokenEntity(authToken.getId());
+        });
     }
 
 }
