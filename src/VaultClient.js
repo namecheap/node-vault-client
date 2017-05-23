@@ -27,6 +27,8 @@ class Vault {
     constructor(options) {
         this.__api = new VaultApiClient(options.api);
 
+        /** @type {VaultBaseAuth} */
+        this.__auth = null;
         if (options.auth.type === 'appRole') {
             this.__auth = new VaultAppRoleAuth(this.__api, options.auth.config);
         } else if (options.auth.type === 'token') {
@@ -111,7 +113,7 @@ class Vault {
 
     read(path) {
         return this.__auth.getAuthToken().then(token => {
-            return this.__api.makeRequest('GET', path, null, {'X-Vault-Token': token});
+            return this.__api.makeRequest('GET', path, null, {'X-Vault-Token': token.getId()});
         }).then(res => {
             return Lease.fromResponse(res);
         });
@@ -119,7 +121,7 @@ class Vault {
 
     write(path, data) {
         return this.__auth.getAuthToken().then(token => {
-            return this.__api.makeRequest('POST', path, data, {'X-Vault-Token': token});
+            return this.__api.makeRequest('POST', path, data, {'X-Vault-Token': token.getId()});
         }).then(() => {});
     }
 }

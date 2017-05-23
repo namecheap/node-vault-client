@@ -20,8 +20,12 @@ class VaultTokenAuth extends VaultBaseAuth {
         this.__token = config.token;
     }
 
-    getAuthToken() {
-        return Promise.resolve(this.__token);
+    _authenticate() {
+        return this._getTokenEntity(this.__token);
+    }
+
+    _reauthenticationAllowed() {
+        return false;
     }
 
 }
