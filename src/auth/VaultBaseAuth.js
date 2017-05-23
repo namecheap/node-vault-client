@@ -79,7 +79,6 @@ class VaultBaseAuth {
             return;
         }
 
-        const chanceForRetry = 60; //1 minute
 
         this.__refreshTimeout = lt.setTimeout(() => {
             this.__renewToken(authToken).then(authToken => {
@@ -91,7 +90,7 @@ class VaultBaseAuth {
                 this._log.error(`Cannot refresh auth token with "${authToken.getAccessor()}" accessor. Error: ${err.message}`);
                 this._log.error(err);
             });
-        }, Math.max(( authToken.getExpiresAt() - Math.floor(Date.now() / 1000) - chanceForRetry ), 1) * 1000);
+        }, Math.max((authToken.getExpiresAt() - Math.floor(Date.now() / 1000)) / 2, 1) * 1000);
     }
 
     /**
