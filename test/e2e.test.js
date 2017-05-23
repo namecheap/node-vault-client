@@ -98,4 +98,65 @@ describe('E2E', function () {
         });
     });
 
+    describe('Auth backends', function () {
+        beforeEach(function* () {
+            yield rp({method: 'PUT', uri: `${this.bootOpts.api.url}v1/sys/policy/tst`, body: {
+                rules: 'path "*" {policy = "sudo"}',
+            }, json: true, headers: {'X-Vault-Token': this.bootOpts.auth.config.token}});
+        });
+
+        it('AppRole without secret ID', function* () {
+            const testData = {tst: 'testData', tstInt: 12345};
+
+            yield rp({method: 'POST', uri: `${this.bootOpts.api.url}v1/sys/auth/approle`, body: {
+                type: 'approle',
+            }, json: true, headers: {'X-Vault-Token': this.bootOpts.auth.config.token}});
+            yield rp({method: 'POST', uri: `${this.bootOpts.api.url}v1/auth/approle/role/tst`, body: {
+                bind_secret_id: 'false',
+                bound_cidr_list: '127.0.0.1/32',
+                policies: 'tst'
+            }, json: true, headers: {'X-Vault-Token': this.bootOpts.auth.config.token}});
+            const {data: {role_id: roleId}} = yield rp({
+                uri: `${this.bootOpts.api.url}v1/auth/approle/role/tst/role-id`, json: true,
+                headers: {'X-Vault-Token': this.bootOpts.auth.config.token}
+            });
+
+            const vaultClient = new VaultClient(_.merge({}, this.bootOpts, {auth: {type: 'appRole', config: {role_id: roleId}}}));
+
+
+            yield vaultClient.write('/secret/tst-val', testData);
+
+            const res = yield vaultClient.read('secret/tst-val');
+            expect(res.getData()).is.deep.equal(testData);
+        });
+
+        it('AppRole with secret ID', function* () {
+            const testData = {tst: 'testData', tstInt: 12345};
+
+            yield rp({method: 'POST', uri: `${this.bootOpts.api.url}v1/sys/auth/approle`, body: {
+                type: 'approle',
+            }, json: true, headers: {'X-Vault-Token': this.bootOpts.auth.config.token}});
+            yield rp({method: 'POST', uri: `${this.bootOpts.api.url}v1/auth/approle/role/tst`, body: {
+                policies: 'tst'
+            }, json: true, headers: {'X-Vault-Token': this.bootOpts.auth.config.token}});
+            const {data: {role_id: roleId}} = yield rp({
+                uri: `${this.bootOpts.api.url}v1/auth/approle/role/tst/role-id`, json: true,
+                headers: {'X-Vault-Token': this.bootOpts.auth.config.token}
+            });
+            const {data: {secret_id: secretId}} = yield rp({
+                method: 'POST',
+                uri: `${this.bootOpts.api.url}v1/auth/approle/role/tst/secret-id`, json: true,
+                headers: {'X-Vault-Token': this.bootOpts.auth.config.token}
+            });
+
+            const vaultClient = new VaultClient(_.merge({}, this.bootOpts, {auth: {type: 'appRole', config: {role_id: roleId, secret_id: secretId}}}));
+
+
+            yield vaultClient.write('/secret/tst-val', testData);
+
+            const res = yield vaultClient.read('secret/tst-val');
+            expect(res.getData()).is.deep.equal(testData);
+        });
+    });
+
 });
