@@ -1,6 +1,6 @@
 {
   "name": "node-vault-client",
-  "version": "0.0.2",
+  "version": "0.1.0",
   "description": "",
   "engines": {
     "node": ">=5.0.0 <8.0.0"
