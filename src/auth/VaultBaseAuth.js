@@ -68,18 +68,22 @@ class VaultBaseAuth {
             this.__refreshTimeout = null;
         }
 
-        if (authToken.isRenewable()) {
+        if (!authToken.isRenewable() || authToken.isExpired()) {
             return;
         }
+
+        const chanceForRetry = 60; //1 minute
 
         this.__refreshTimeout = lt.setTimeout(() => {
             this.__renewToken(authToken).then(authToken => {
                 this.__authToken = authToken;
                 this.__setupTokenRefreshTimer(authToken);
             }).catch(err => {
-                //TODO: error logging & retry logic should be added
+                this.__setupTokenRefreshTimer(authToken);
+                
+                //TODO: error logging should be added
             });
-        }, ( authToken.getExpiresAt() - Math.floor(Date.now() / 1000) ) * 1000);
+        }, Math.max(( authToken.getExpiresAt() - Math.floor(Date.now() / 1000) - chanceForRetry ), 0) * 1000);
     }
 
     /**
