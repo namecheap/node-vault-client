@@ -1,5 +1,7 @@
 'use strict';
 
+const _ = require('lodash');
+
 const Lease = require('./Lease');
 const errors = require('./errors');
 
@@ -23,20 +25,21 @@ class Vault {
      * @param {Object} options.auth
      * @param {String} options.auth.type
      * @param {Object} options.auth.config - auth configuration variables
+     * @param {Object|false} options.logger - Logger that supports "error", "info", "warn", "trace", "debug" methods. Uses `console` by default. Pass `false` to disable logging.
      */
     constructor(options) {
         this.__api = new VaultApiClient(options.api);
+        this.__log = this.__setupLogger(options.logger);
 
         /** @type {VaultBaseAuth} */
         this.__auth = null;
         if (options.auth.type === 'appRole') {
-            this.__auth = new VaultAppRoleAuth(this.__api, options.auth.config);
+            this.__auth = new VaultAppRoleAuth(this.__api, this.__log, options.auth.config);
         } else if (options.auth.type === 'token') {
-            this.__auth = new VaultTokenAuth(this.__api, options.auth.config);
+            this.__auth = new VaultTokenAuth(this.__api, this.__log, options.auth.config);
         } else {
             throw new errors.InvalidArgumentsError('Unsupported auth method');
         }
-
     }
 
     /**
@@ -123,6 +126,22 @@ class Vault {
         return this.__auth.getAuthToken().then(token => {
             return this.__api.makeRequest('POST', path, data, {'X-Vault-Token': token.getId()});
         }).then(() => {});
+    }
+
+    __setupLogger(logger) {
+        if (logger === false) {
+            return {
+                error: () => {},
+                warn: () => {},
+                info: () => {},
+                debug: () => {},
+                trace: () => {},
+            }
+        } else if (_.intersection(_.functionsIn(logger), ['error', 'warn', 'info', 'debug', 'trace']).length >= 5) {
+            return logger
+        } else {
+            return console;
+        }
     }
 }
 

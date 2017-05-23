@@ -61,6 +61,10 @@ class AuthToken {
         return this.__id;
     }
 
+    getAccessor() {
+        return this.__accessor;
+    }
+
     /**
      * @returns {boolean}
      */

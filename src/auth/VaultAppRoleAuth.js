@@ -11,8 +11,8 @@ class VaultAppRoleAuth extends VaultBaseAuth {
      * @param {String} config.role_id - RoleID of the AppRole.
      * @param {String} [config.secret_id] - required when bind_secret_id is enabled SecretID belonging to AppRole.
      */
-    constructor(apiClient, config) {
-        super(apiClient);
+    constructor(apiClient, logger, config) {
+        super(apiClient, logger);
 
         this.__roleId = config.role_id;
         this.__secretId = config.secret_id;

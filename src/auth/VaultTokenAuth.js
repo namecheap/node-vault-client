@@ -10,8 +10,8 @@ class VaultTokenAuth extends VaultBaseAuth {
      * @param {Object} config
      * @param {String} config.token
      */
-    constructor(connConfig, config) {
-        super(connConfig);
+    constructor(connConfig, logger, config) {
+        super(connConfig, logger);
 
         if (!config.token) {
             throw new errors.InvalidArgumentsError('Auth token should be provided for VaultTokenAuth');

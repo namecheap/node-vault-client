@@ -9,9 +9,12 @@ class VaultBaseAuth {
 
     /**
      * @param {VaultApiClient} apiClient
+     * @param {Object} logger
      */
-    constructor(apiClient) {
+    constructor(apiClient, logger) {
         this.__apiClient = apiClient;
+        /** @protected */
+        this._log = logger;
 
         /** @type AuthToken */
         this.__authToken = null;
@@ -85,7 +88,8 @@ class VaultBaseAuth {
             }).catch(err => {
                 this.__setupTokenRefreshTimer(authToken);
 
-                //TODO: error logging should be added
+                this._log.error(`Cannot refresh auth token with "${authToken.getAccessor()}" accessor. Error: ${err.message}`);
+                this._log.error(err);
             });
         }, Math.max(( authToken.getExpiresAt() - Math.floor(Date.now() / 1000) - chanceForRetry ), 1) * 1000);
     }
