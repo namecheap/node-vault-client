@@ -62,6 +62,10 @@ class VaultBaseAuth {
         return true;
     }
 
+    /**
+     * @param {AuthToken} authToken
+     * @private
+     */
     __setupTokenRefreshTimer(authToken) {
         if (this.__refreshTimeout !== null) {
             lt.clearTimeout(this.__refreshTimeout);
@@ -80,7 +84,7 @@ class VaultBaseAuth {
                 this.__setupTokenRefreshTimer(authToken);
             }).catch(err => {
                 this.__setupTokenRefreshTimer(authToken);
-                
+
                 //TODO: error logging should be added
             });
         }, Math.max(( authToken.getExpiresAt() - Math.floor(Date.now() / 1000) - chanceForRetry ), 0) * 1000);
