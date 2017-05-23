@@ -87,7 +87,7 @@ class VaultBaseAuth {
 
                 //TODO: error logging should be added
             });
-        }, Math.max(( authToken.getExpiresAt() - Math.floor(Date.now() / 1000) - chanceForRetry ), 0) * 1000);
+        }, Math.max(( authToken.getExpiresAt() - Math.floor(Date.now() / 1000) - chanceForRetry ), 1) * 1000);
     }
 
     /**
@@ -96,7 +96,7 @@ class VaultBaseAuth {
      * @private
      */
     __renewToken(authToken) {
-        return this.__apiClient.makeRequest('GET', '/auth/token/renew-self', null, {'X-Vault-Token': authToken.getId()}).then(() => {
+        return this.__apiClient.makeRequest('POST', '/auth/token/renew-self', null, {'X-Vault-Token': authToken.getId()}).then(() => {
             return this._getTokenEntity(authToken.getId());
         });
     }

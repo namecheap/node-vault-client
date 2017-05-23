@@ -3,6 +3,8 @@
 require('co-mocha');
 
 const deepFreeze = require('deep-freeze');
+const rp = require('request-promise');
+const _ = require('lodash');
 const chai = require('chai');
 const expect = chai.expect;
 
@@ -72,6 +74,28 @@ describe('E2E', function () {
         yield vaultClient.fillNodeConfig();
 
         expect(JSON.parse(JSON.stringify(config))).to.deep.equal({deep: {aStr: '', aInt: 0}, b: 'NOT WORKING'});
+    });
+
+    describe('Auth Token renewal', function () {
+        it('should renew token if needed', function* () {
+            this.timeout(6000);
+
+            const testData = {tst: 'testData', tstInt: 12345};
+
+            const {auth: {client_token: tmpToken}} = yield rp({method: 'POST', uri: `${this.bootOpts.api.url}v1/auth/token/create-orphan`, body: {
+                period: 2,
+                explicit_max_ttl: 10,
+            }, json: true, headers: {'X-Vault-Token': this.bootOpts.auth.config.token}});
+
+            const vaultClient = new VaultClient(_.merge({}, this.bootOpts, {auth: {config: {token: tmpToken}}}));
+
+            yield vaultClient.write('/secret/tst-val', testData);
+
+            yield new Promise(resolve => {setTimeout(() => resolve(), 2500)});
+
+            const res = yield vaultClient.read('secret/tst-val');
+            expect(res.getData()).is.deep.equal(testData);
+        });
     });
 
 });

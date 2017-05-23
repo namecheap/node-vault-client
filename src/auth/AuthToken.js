@@ -50,7 +50,7 @@ class AuthToken {
             expiresAt,
             data.explicit_max_ttl,
             data.num_uses,
-            data.renewable
+            data.renewable !== undefined ? data.renewable : false
         );
     }
 
