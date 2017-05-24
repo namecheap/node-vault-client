@@ -41,6 +41,9 @@ class VaultBaseAuth {
                 this.__setupTokenRefreshTimer(this.__authToken);
 
                 return this.__authToken;
+            }).catch(e => {
+                this.__authToken = null;
+                throw e;
             });
 
             this.__authToken = tokenPromise;
