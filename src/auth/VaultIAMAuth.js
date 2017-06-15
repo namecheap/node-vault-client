@@ -14,6 +14,7 @@ const _ = require('lodash');
  * ```bash
  * vault write auth/aws/config/client secret_key=AWS_SECRET_KEY access_key=AWS_ACCESS_KEY
  * vault write auth/aws/config/client iam_server_id_header_value=VAULT_ADDR
+ * vault write auth/aws/role/iam_name_of_role auth_type=iam bound_iam_principal_arn=arn:aws:iam::.... max_ttl=500h
  * ```
  *
  * ```js
