@@ -9,6 +9,7 @@ const VaultApiClient = require('./VaultApiClient');
 
 const VaultAppRoleAuth = require('./auth/VaultAppRoleAuth');
 const VaultTokenAuth = require('./auth/VaultTokenAuth');
+const VaultIAMAuth = require('./auth/VaultIAMAuth');
 
 const VaultNodeConfig = require('./VaultNodeConfig');
 
@@ -31,14 +32,30 @@ class Vault {
         this.__api = new VaultApiClient(options.api);
         this.__log = this.__setupLogger(options.logger);
 
-        /** @type {VaultBaseAuth} */
-        this.__auth = null;
-        if (options.auth.type === 'appRole') {
-            this.__auth = new VaultAppRoleAuth(this.__api, this.__log, options.auth.config);
-        } else if (options.auth.type === 'token') {
-            this.__auth = new VaultTokenAuth(this.__api, this.__log, options.auth.config);
-        } else {
-            throw new errors.InvalidArgumentsError('Unsupported auth method');
+        try {
+            /** @type {VaultBaseAuth} */
+            this.__auth = ({
+                'appRole': () => new VaultAppRoleAuth(
+                    this.__api,
+                    this.__log,
+                    options.auth.config
+                ),
+                'token': () => new VaultTokenAuth(
+                    this.__api,
+                    this.__log,
+                    options.auth.config
+                ),
+                'iam': () => new VaultIAMAuth(
+                    this.__api,
+                    this.__log,
+                    _.extend(
+                        {iam_server_id_header_value: options.api.url},
+                        options.auth.config
+                    )
+                )
+            })[options.auth.type]();
+        } catch (e) {
+            throw new errors.InvalidArgumentsError(`Unsupported auth (type=${options.auth.type}) method`)
         }
     }
 

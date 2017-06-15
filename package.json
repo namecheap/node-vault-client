@@ -19,6 +19,8 @@
   "license": "UNLICENSED",
   "dependencies": {
     "assign-deep": "^0.4.5",
+    "aws-sdk": "^2.67.0",
+    "aws4": "^1.6.0",
     "bluebird": "^3.5.0",
     "lodash": "^4.17.4",
     "long-timeout": "^0.1.1",
