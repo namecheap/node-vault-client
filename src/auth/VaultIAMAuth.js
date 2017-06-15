@@ -48,15 +48,15 @@ class VaultIAMAuth extends VaultBaseAuth {
      * @param {AWS.Credentials} config.credentials {@see AWS.Credentials} - Optional. If not specified, AWS.CredentialProviderChain.defaultProviders will be used.
      * @param {String} config.mount - Optional. Vault's AWS Auth Backend mount point ("aws" by default)
      */
-    constructor(api, logger, {role, iam_server_id_header_value, credentials, mount = 'aws'}) {
+    constructor(api, logger, config) {
         super(api, logger);
 
-        this.__role = role;
-        this.__iam_server_id_header_value = iam_server_id_header_value;
-        this.__mount = mount;
+        this.__role = config.role;
+        this.__iam_server_id_header_value = config.iam_server_id_header_value;
+        this.__mount = config.mount || 'aws';
         this.__credentialChain = new AWS.CredentialProviderChain(
             credentials
-                ? [credentials]
+                ? [config.credentials]
                 : AWS.CredentialProviderChain.defaultProviders
         );
     }
