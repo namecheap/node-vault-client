@@ -43,7 +43,7 @@ class VaultIAMAuth extends VaultBaseAuth {
      * @param {Object} logger
      * @param {Object} config
      * @param {String} config.role - Role name of the auth/{mount}/role/{name} backend.
-     * @param {String} [config.iam_server_id_header_value] - Optional. Header's value X-Vault-AWS-IAM-Server-ID (vault server host is used by default).
+     * @param {String} [config.iam_server_id_header_value] - Optional. Header's value X-Vault-AWS-IAM-Server-ID.
      * @param {AWS.Credentials} [config.credentials] {@see AWS.Credentials} - Optional. If not specified, AWS.CredentialProviderChain.defaultProviders will be used.
      * @param {String} mount - Vault's AWS Auth Backend mount point ("aws" by default)
      */
@@ -121,9 +121,9 @@ class VaultIAMAuth extends VaultBaseAuth {
             service: 'sts',
             method: 'POST',
             body: 'Action=GetCallerIdentity&Version=2011-06-15',
-            headers: {
+            headers: this.__iam_server_id_header_value ? {
                 'X-Vault-AWS-IAM-Server-ID': this.__iam_server_id_header_value,
-            }
+            } : {}
         }, credentials);
     }
 

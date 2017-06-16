@@ -53,10 +53,7 @@ class Vault {
             this.__auth =  new VaultIAMAuth(
                 this.__api,
                 this.__log,
-                _.extend(
-                    {iam_server_id_header_value: options.api.url},
-                    options.auth.config
-                ),
+                options.auth.config,
                 options.auth.mount || 'aws'
             );
         } else {
