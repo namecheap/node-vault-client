@@ -32,30 +32,35 @@ class Vault {
         this.__api = new VaultApiClient(options.api);
         this.__log = this.__setupLogger(options.logger);
 
-        try {
-            /** @type {VaultBaseAuth} */
-            this.__auth = ({
-                'appRole': () => new VaultAppRoleAuth(
-                    this.__api,
-                    this.__log,
+        /** @type {VaultBaseAuth} */
+        this.__auth = null;
+        if (options.auth.type === 'appRole') {
+            this.__auth = new VaultAppRoleAuth(
+                this.__api,
+                this.__log,
+                options.auth.config,
+                options.auth.mount || 'approle'
+            );
+        } else if (options.auth.type === 'token') {
+            this.__auth = new VaultTokenAuth(
+                this.__api,
+                this.__log,
+                options.auth.config,
+                options.auth.mount || 'token'
+            );
+        }
+        else if(options.auth.type === 'iam') {
+            this.__auth =  new VaultIAMAuth(
+                this.__api,
+                this.__log,
+                _.extend(
+                    {iam_server_id_header_value: options.api.url},
                     options.auth.config
                 ),
-                'token': () => new VaultTokenAuth(
-                    this.__api,
-                    this.__log,
-                    options.auth.config
-                ),
-                'iam': () => new VaultIAMAuth(
-                    this.__api,
-                    this.__log,
-                    _.extend(
-                        {iam_server_id_header_value: options.api.url},
-                        options.auth.config
-                    )
-                )
-            })[options.auth.type]();
-        } catch (e) {
-            throw new errors.InvalidArgumentsError(`Unsupported auth (type=${options.auth.type}) method`)
+                options.auth.mount || 'aws'
+            );
+        } else {
+            throw new errors.InvalidArgumentsError('Unsupported auth method');
         }
     }
 
