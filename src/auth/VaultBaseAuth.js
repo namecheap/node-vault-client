@@ -10,11 +10,13 @@ class VaultBaseAuth {
     /**
      * @param {VaultApiClient} apiClient
      * @param {Object} logger
+     * @param {String} mount - Vault's mount point
      */
-    constructor(apiClient, logger) {
+    constructor(apiClient, logger, mount) {
         this.__apiClient = apiClient;
         /** @protected */
         this._log = logger;
+        this._mount = mount;
 
         /** @type AuthToken */
         this.__authToken = null;

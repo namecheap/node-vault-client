@@ -9,6 +9,7 @@ const VaultApiClient = require('./VaultApiClient');
 
 const VaultAppRoleAuth = require('./auth/VaultAppRoleAuth');
 const VaultTokenAuth = require('./auth/VaultTokenAuth');
+const VaultIAMAuth = require('./auth/VaultIAMAuth');
 
 const VaultNodeConfig = require('./VaultNodeConfig');
 
@@ -32,14 +33,11 @@ class Vault {
         this.__log = this.__setupLogger(options.logger);
 
         /** @type {VaultBaseAuth} */
-        this.__auth = null;
-        if (options.auth.type === 'appRole') {
-            this.__auth = new VaultAppRoleAuth(this.__api, this.__log, options.auth.config);
-        } else if (options.auth.type === 'token') {
-            this.__auth = new VaultTokenAuth(this.__api, this.__log, options.auth.config);
-        } else {
-            throw new errors.InvalidArgumentsError('Unsupported auth method');
-        }
+        this.__auth = this.getAuthProvider(
+            options.auth,
+            this.__api,
+            this.__log
+        );
     }
 
     /**
@@ -103,6 +101,44 @@ class Vault {
                 }
             }
         }
+    }
+
+    /**
+     * @param {Object} authConfig
+     * @param {string} authConfig.type
+     * @param {string} authConfig.mount
+     * @param {Object} authConfig.config
+     * @param {VaultApiClient} api
+     * @param {Object|false} logger
+
+     * @return {VaultBaseAuth}
+     */
+    getAuthProvider(authConfig, api, logger) {
+        switch (authConfig.type) {
+            case 'iam':
+                return new VaultIAMAuth(
+                    api,
+                    logger,
+                    authConfig.config,
+                    authConfig.mount
+                );
+            case 'appRole':
+                return new VaultAppRoleAuth(
+                    api,
+                    logger,
+                    authConfig.config,
+                    authConfig.mount
+                );
+            case 'token':
+                return new VaultTokenAuth(
+                    api,
+                    logger,
+                    authConfig.config,
+                    authConfig.mount
+                );
+        }
+
+        throw new errors.InvalidArgumentsError('Unsupported auth method')
     }
 
     /**
