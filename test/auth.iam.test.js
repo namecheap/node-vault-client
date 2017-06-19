@@ -33,7 +33,7 @@ describe('Unit AWS auth backend :: IAM', function () {
     describe('Vault Request', function () {
         it('Should make correctly vault login request', function* () {
             const api = getApiStub();
-            
+
             const auth = new VaultIAMAuth(
                 api,
                 false,
@@ -84,38 +84,38 @@ describe('Unit AWS auth backend :: IAM', function () {
         }
 
         it('Should work correctly with {AWS.Credentials}', function* () {
-            const {auth, api} = instantiate(new AWS.Credentials('FAKE_AWS_ACCESS_KEY', 'FAKE_AWS_SECRET_KEY'));
+            const instance = instantiate(new AWS.Credentials('FAKE_AWS_ACCESS_KEY', 'FAKE_AWS_SECRET_KEY'));
 
-            yield auth._authenticate();
+            yield instance.auth._authenticate();
 
-            const args = api.makeRequest.getCall(0).args;
+            const args = instance.api.makeRequest.getCall(0).args;
             const headers = JSON.parse(base64decode(args[2].iam_request_headers));
 
             expect(headers['Authorization'][0]).to.match(getAuthorizationHeaderRegExp('FAKE_AWS_ACCESS_KEY'));
         });
 
         it('Should work correctly with {AWS.Credentials[]}', function* () {
-            const {auth, api} = instantiate([
+            const instance = instantiate([
                 new AWS.Credentials('FAKE_AWS_ACCESS_KEY2', 'FAKE_AWS_SECRET_KEY2'),
                 new AWS.Credentials('FAKE_AWS_ACCESS_KEY', 'FAKE_AWS_SECRET_KEY'),
             ]);
 
-            yield auth._authenticate();
+            yield instance.auth._authenticate();
 
-            const args = api.makeRequest.getCall(0).args;
+            const args = instance.api.makeRequest.getCall(0).args;
             const headers = JSON.parse(base64decode(args[2].iam_request_headers));
 
             expect(headers['Authorization'][0]).to.match(getAuthorizationHeaderRegExp('FAKE_AWS_ACCESS_KEY2'));
         });
 
         it('Should work correctly with AWS.Credentials Provider ({() => AWS.Credentials})', function* () {
-            const {auth, api} = instantiate(
+            const instance = instantiate(
                 [() => new AWS.Credentials('FAKE_AWS_ACCESS_KEY2', 'FAKE_AWS_SECRET_KEY2')]
             );
 
-            yield auth._authenticate();
+            yield instance.auth._authenticate();
 
-            const args = api.makeRequest.getCall(0).args;
+            const args = instance.api.makeRequest.getCall(0).args;
             const headers = JSON.parse(base64decode(args[2].iam_request_headers));
 
             expect(headers['Authorization'][0]).to.match(getAuthorizationHeaderRegExp('FAKE_AWS_ACCESS_KEY2'));
