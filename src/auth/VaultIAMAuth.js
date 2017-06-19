@@ -48,8 +48,8 @@ class VaultIAMAuth extends VaultBaseAuth {
      * @param {String} [config.iam_server_id_header_value] - Optional. Header's value X-Vault-AWS-IAM-Server-ID.
      * @param {String} mount - Vault's AWS Auth Backend mount point ("aws" by default)
      */
-    constructor(api, logger, config, mount = 'aws') {
-        super(api, logger, mount);
+    constructor(api, logger, config, mount) {
+        super(api, logger, mount || 'aws');
 
         const AWS = require('aws-sdk');
 

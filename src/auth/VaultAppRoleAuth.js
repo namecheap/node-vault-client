@@ -12,8 +12,8 @@ class VaultAppRoleAuth extends VaultBaseAuth {
      * @param {String} [config.secret_id] - required when bind_secret_id is enabled SecretID belonging to AppRole.
      * @param {String} mount - Vault's  mount point ("approle" by default)
      */
-    constructor(apiClient, logger, config, mount = 'approle') {
-        super(apiClient, logger, mount);
+    constructor(apiClient, logger, config, mount) {
+        super(apiClient, logger, mount || 'approle');
 
         this.__roleId = config.role_id;
         this.__secretId = config.secret_id;
