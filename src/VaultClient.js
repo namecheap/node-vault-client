@@ -34,11 +34,9 @@ class Vault {
 
         /** @type {VaultBaseAuth} */
         this.__auth = this.getAuthProvider(
-            options.auth.type,
+            options.auth,
             this.__api,
-            this.__log,
-            options.auth.mount,
-            options.auth.config
+            this.__log
         );
     }
 
@@ -106,35 +104,37 @@ class Vault {
     }
 
     /**
-     * @param {string} type
+     * @param {Object} authConfig
+     * @param {string} authConfig.type
+     * @param {string} authConfig.mount
+     * @param {Object} authConfig.config
      * @param {VaultApiClient} api
      * @param {Object|false} logger
-     * @param {string} mount
-     * @param {Object} config
+
      * @return {VaultBaseAuth}
      */
-    getAuthProvider(type, api, logger, mount, config) {
-        switch (type) {
+    getAuthProvider(authConfig, api, logger) {
+        switch (authConfig.type) {
             case 'iam':
                 return new VaultIAMAuth(
                     api,
                     logger,
-                    config,
-                    mount
+                    authConfig.config,
+                    authConfig.mount
                 );
             case 'appRole':
                 return new VaultAppRoleAuth(
                     api,
                     logger,
-                    config,
-                    mount
+                    authConfig.config,
+                    authConfig.mount
                 );
             case 'token':
                 return new VaultTokenAuth(
                     api,
                     logger,
-                    config,
-                    mount
+                    authConfig.config,
+                    authConfig.mount
                 );
         }
 
