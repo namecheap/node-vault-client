@@ -33,32 +33,13 @@ class Vault {
         this.__log = this.__setupLogger(options.logger);
 
         /** @type {VaultBaseAuth} */
-        this.__auth = null;
-        if (options.auth.type === 'appRole') {
-            this.__auth = new VaultAppRoleAuth(
-                this.__api,
-                this.__log,
-                options.auth.config,
-                options.auth.mount
-            );
-        } else if (options.auth.type === 'token') {
-            this.__auth = new VaultTokenAuth(
-                this.__api,
-                this.__log,
-                options.auth.config,
-                options.auth.mount
-            );
-        }
-        else if(options.auth.type === 'iam') {
-            this.__auth =  new VaultIAMAuth(
-                this.__api,
-                this.__log,
-                options.auth.config,
-                options.auth.mount
-            );
-        } else {
-            throw new errors.InvalidArgumentsError('Unsupported auth method');
-        }
+        this.__auth = this.getAuthProvider(
+            options.auth.type,
+            this.__api,
+            this.__log,
+            options.auth.mount,
+            options.auth.config
+        );
     }
 
     /**
@@ -122,6 +103,42 @@ class Vault {
                 }
             }
         }
+    }
+
+    /**
+     * @param {string} type
+     * @param {VaultApiClient} api
+     * @param {Object|false} logger
+     * @param {string} mount
+     * @param {Object} config
+     * @return {VaultBaseAuth}
+     */
+    getAuthProvider(type, api, logger, mount, config) {
+        switch (type) {
+            case 'iam':
+                return new VaultIAMAuth(
+                    api,
+                    logger,
+                    config,
+                    mount
+                );
+            case 'appRole':
+                return new VaultAppRoleAuth(
+                    api,
+                    logger,
+                    config,
+                    mount
+                );
+            case 'token':
+                return new VaultTokenAuth(
+                    api,
+                    logger,
+                    config,
+                    mount
+                );
+        }
+
+        throw new errors.InvalidArgumentsError('Unsupported auth method')
     }
 
     /**
