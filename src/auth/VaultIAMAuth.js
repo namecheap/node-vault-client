@@ -3,6 +3,7 @@
 const VaultBaseAuth = require('./VaultBaseAuth');
 const aws4 = require('aws4');
 const _ = require('lodash');
+const errors = require('../errors');
 
 /**
  * Implementation of AWS Auth Backend :: IAM Authentication Method
@@ -26,7 +27,7 @@ const _ = require('lodash');
  *           config: {
  *               role: 'my_iam_role',
  *               iam_server_id_header_value: VAULT_ADDR,   // Optional
- *               credentials: new AWS.Credentials({        // Optional
+ *               credentials: new AWS.Credentials({
  *                 accessKeyId: AWS_ACCESS_KEY,
  *                 secretAccessKey: AWS_SECRET_KEY,
  *               })
@@ -43,21 +44,28 @@ class VaultIAMAuth extends VaultBaseAuth {
      * @param {Object} logger
      * @param {Object} config
      * @param {String} config.role - Role name of the auth/{mount}/role/{name} backend.
+     * @param {AWS.Credentials|AWS.Credentials[]} config.credentials {@see AWS.CredentialProviderChain providers}
      * @param {String} [config.iam_server_id_header_value] - Optional. Header's value X-Vault-AWS-IAM-Server-ID.
-     * @param {AWS.Credentials} [config.credentials] {@see AWS.Credentials} - Optional. If not specified, AWS.CredentialProviderChain.defaultProviders will be used.
      * @param {String} mount - Vault's AWS Auth Backend mount point ("aws" by default)
      */
-    constructor(api, logger, config, mount) {
+    constructor(api, logger, config, mount = 'aws') {
         super(api, logger, mount);
 
         const AWS = require('aws-sdk');
 
         this.__role = config.role;
         this.__iam_server_id_header_value = config.iam_server_id_header_value;
+
+        if (!(config.credentials instanceof AWS.Credentials) && !_.isArray(config.credentials)) {
+            throw new errors.InvalidAWSCredentialsError('Credentials must be provided. {AWS.Credentials|AWS.Credentials[]} or function-providers, which return them.')
+        }
+
+        const credentialsProviders = _.isArray(config.credentials)
+            ? config.credentials
+            : [config.credentials];
+
         this.__credentialChain = new AWS.CredentialProviderChain(
-            config.credentials instanceof AWS.Credentials
-                ? [config.credentials]
-                : AWS.CredentialProviderChain.defaultProviders
+            credentialsProviders
         );
     }
 
@@ -105,7 +113,7 @@ class VaultIAMAuth extends VaultBaseAuth {
                 JSON.stringify(this.__headersLikeGolangStyle(stsRequest.headers))
             ),
             iam_request_body: this.__base64encode(stsRequest.body),
-            iam_request_url: this.__base64encode(`https://${stsRequest.hostname}/${stsRequest.path}`),
+            iam_request_url: this.__base64encode(`https://${stsRequest.hostname}${stsRequest.path}`),
             role: this.__role
         }
     }

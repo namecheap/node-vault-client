@@ -5,6 +5,7 @@ require('co-mocha');
 const VaultClient = require('../src/VaultClient');
 const VaultApiClient = require('../src/VaultApiClient');
 const VaultIAMAuth = require('../src/auth/VaultIAMAuth');
+const errors = require('../src/errors');
 const sinon = require('sinon');
 const chai = require('chai');
 const expect = chai.expect;
@@ -14,6 +15,13 @@ chai.use(require('sinon-chai'));
 
 describe('Unit AWS auth backend :: IAM', function () {
 
+    function base64decode(str) {
+        return new Buffer(str, 'base64').toString();
+    }
+
+    function getAuthorizationHeaderRegExp(awsAccessKey) {
+        return new RegExp(`^AWS4-HMAC-SHA256\\sCredential=${awsAccessKey}.+Signature=\\w+$`)
+    }
 
     /**
      * @returns {VaultApiClient}
@@ -24,13 +32,15 @@ describe('Unit AWS auth backend :: IAM', function () {
 
     it('Should _authenticate calls make correct vault request', function* () {
         const api = getApiStub();
+        const credentials = new AWS.Credentials('FAKE_AWS_ACCESS_KEY', 'FAKE_AWS_SECRET_KEY');
 
         const auth = new VaultIAMAuth(
             api,
             false,
             {
                 role: 'MyRole',
-                iam_server_id_header_value: 'https://vault.fake.com'
+                iam_server_id_header_value: 'https://vault.fake.com',
+                credentials: credentials
             },
             'fake_aws'
         );
@@ -45,26 +55,81 @@ describe('Unit AWS auth backend :: IAM', function () {
         expect(args[1]).to.equal('/auth/fake_aws/login');
         expect(args[2].iam_http_request_method).to.equal('POST');
         expect(args[2].role).to.equal('MyRole');
-        expect(args[2].iam_request_body).to.be.a('string');
-        expect(args[2].iam_request_headers).to.be.a('string');
-        expect(args[2].iam_request_url).to.be.a('string');
-
-        const headers = JSON.parse(new Buffer(args[2].iam_request_headers, 'base64').toString());
+        expect(base64decode(args[2].iam_request_body)).to.equal('Action=GetCallerIdentity&Version=2011-06-15');
+        expect(base64decode(args[2].iam_request_url)).to.equal('https://sts.amazonaws.com/');
+        const headers = JSON.parse(base64decode(args[2].iam_request_headers));
         expect(headers['X-Vault-AWS-IAM-Server-ID']).to.deep.equal(['https://vault.fake.com']);
+        expect(headers['Authorization'][0]).to.match(getAuthorizationHeaderRegExp('FAKE_AWS_ACCESS_KEY'));
     });
 
-    it('Should use passed credentials', function* () {
-        const credentials = new AWS.Credentials('FAKE_AWS_SUCCESS_KEY', 'FAKE_AWS_SECRET_KEY');
+    it('Should resolve {credentials[]}', function* () {
+        const api = getApiStub();
+        const credentials = new AWS.Credentials('FAKE_AWS_ACCESS_KEY', 'FAKE_AWS_SECRET_KEY');
+        const credentials2 = new AWS.Credentials('FAKE_AWS_ACCESS_KEY2', 'FAKE_AWS_SECRET_KEY2');
+
         const auth = new VaultIAMAuth(
-            getApiStub(),
+            api,
             false,
             {
                 role: 'MyRole',
-                credentials: credentials
+                iam_server_id_header_value: 'https://vault.fake.com',
+                credentials: [credentials2, credentials]
             },
             'fake_aws'
         );
 
-        expect(yield auth.__getCredentials()).to.equal(credentials)
+        api.makeRequest.withArgs('POST').resolves({auth: {client_token: 'fake_token'}});
+        sinon.stub(auth, '_getTokenEntity');
+
+        yield auth._authenticate();
+
+        const args = api.makeRequest.getCall(0).args;
+        const headers = JSON.parse(base64decode(args[2].iam_request_headers));
+        expect(headers['Authorization'][0]).to.match(getAuthorizationHeaderRegExp('FAKE_AWS_ACCESS_KEY2'));
+    });
+
+    it('Should resolve {credentials provider[]}', function* () {
+        const api = getApiStub();
+        const credentials = new AWS.Credentials('FAKE_AWS_ACCESS_KEY', 'FAKE_AWS_SECRET_KEY');
+
+        const auth = new VaultIAMAuth(
+            api,
+            false,
+            {
+                role: 'MyRole',
+                iam_server_id_header_value: 'https://vault.fake.com',
+                credentials: [() => credentials]
+            },
+            'fake_aws'
+        );
+
+        api.makeRequest.withArgs('POST').resolves({auth: {client_token: 'fake_token'}});
+        sinon.stub(auth, '_getTokenEntity');
+
+        yield auth._authenticate();
+
+        const args = api.makeRequest.getCall(0).args;
+        const headers = JSON.parse(base64decode(args[2].iam_request_headers));
+        expect(headers['Authorization'][0]).to.match(getAuthorizationHeaderRegExp('FAKE_AWS_ACCESS_KEY'));
+    });
+
+    it('Should throw InvalidAWSCredentialsError without credentials', function* () {
+
+        function instantiate(credentials) {
+            return new VaultIAMAuth(
+                getApiStub(),
+                false,
+                {
+                    role: 'MyRole',
+                    iam_server_id_header_value: 'https://vault.fake.com',
+                    credentials: credentials
+                },
+                'fake_aws'
+            );
+        }
+
+        expect(() => instantiate(null)).to.throw(errors.InvalidAWSCredentialsError);
+        expect(() => instantiate(undefined)).to.throw(errors.InvalidAWSCredentialsError);
+
     });
 });

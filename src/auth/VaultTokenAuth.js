@@ -5,13 +5,12 @@ const VaultBaseAuth = require('./VaultBaseAuth');
 class VaultTokenAuth extends VaultBaseAuth {
 
     /**
-     *
      * @param {Object} connConfig - see {@link VaultBaseAuth#constructor}
      * @param {Object} config
      * @param {String} config.token
      * @param {String} mount - Vault's  mount point ("token" by default)
      */
-    constructor(connConfig, logger, config, mount) {
+    constructor(connConfig, logger, config, mount = 'token') {
         super(connConfig, logger, mount);
 
         if (!config.token) {

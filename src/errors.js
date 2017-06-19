@@ -10,10 +10,12 @@ class VaultError extends Error {
     }
 }
 class InvalidArgumentsError extends VaultError {}
+class InvalidAWSCredentialsError extends VaultError {}
 class AuthTokenExpiredError extends VaultError {}
 
 module.exports = {
     VaultError,
     InvalidArgumentsError,
+    InvalidAWSCredentialsError,
     AuthTokenExpiredError,
 };

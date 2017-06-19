@@ -39,14 +39,14 @@ class Vault {
                 this.__api,
                 this.__log,
                 options.auth.config,
-                options.auth.mount || 'approle'
+                options.auth.mount
             );
         } else if (options.auth.type === 'token') {
             this.__auth = new VaultTokenAuth(
                 this.__api,
                 this.__log,
                 options.auth.config,
-                options.auth.mount || 'token'
+                options.auth.mount
             );
         }
         else if(options.auth.type === 'iam') {
@@ -54,7 +54,7 @@ class Vault {
                 this.__api,
                 this.__log,
                 options.auth.config,
-                options.auth.mount || 'aws'
+                options.auth.mount
             );
         } else {
             throw new errors.InvalidArgumentsError('Unsupported auth method');
