@@ -142,7 +142,7 @@ function ms4human(ms) {
         [Math.floor(sec % (60 * 60) / 60), 'm'],
         [Math.round(sec % 60), 's'],
     ]
-        .filter(([v]) => v > 0)
+        .filter((v) => v[0] > 0)
         .map((v) => v.join(''))
         .join(' ');
 }

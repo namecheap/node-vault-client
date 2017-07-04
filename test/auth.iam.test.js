@@ -2,6 +2,7 @@
 
 require('co-mocha');
 
+const _ = require('lodash');
 const VaultClient = require('../src/VaultClient');
 const VaultApiClient = require('../src/VaultApiClient');
 const VaultIAMAuth = require('../src/auth/VaultIAMAuth');
@@ -10,6 +11,7 @@ const sinon = require('sinon');
 const chai = require('chai');
 const expect = chai.expect;
 const AWS = require('aws-sdk');
+const logger = require('../src/nullLogger');
 
 chai.use(require('sinon-chai'));
 
@@ -36,7 +38,7 @@ describe('Unit AWS auth backend :: IAM', function () {
 
             const auth = new VaultIAMAuth(
                 api,
-                false,
+                logger,
                 {
                     role: 'MyRole',
                     iam_server_id_header_value: 'https://vault.fake.com',
@@ -68,7 +70,7 @@ describe('Unit AWS auth backend :: IAM', function () {
             const api = getApiStub();
             const auth = new VaultIAMAuth(
                 api,
-                false,
+                logger,
                 {
                     role: 'MyRole',
                     iam_server_id_header_value: 'https://vault.fake.com',

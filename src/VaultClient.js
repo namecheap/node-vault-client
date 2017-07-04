@@ -26,7 +26,7 @@ class Vault {
     constructor(options) {
         this.loggerFactory = this.__setupLogger(options.logger);
 
-        this.__log = this.loggerFactory(); // this.__setupLogger(options.logger);
+        this.__log = this.loggerFactory();
 
         this.__api = new VaultApiClient(
             options.api,
@@ -230,7 +230,7 @@ class Vault {
             return () => legacy;
         }
 
-        return () => legacyMapper(logger);
+        return () => legacyMapper(console);
     }
 }
 
