@@ -10,11 +10,15 @@ class VaultApiClient {
      * @param {Object} config
      * @param {String} config.url - the url of the vault server
      * @param {String} [config.apiVersion='v1']
+     * @param {Object} options
+     * @param {Object} options.logger
      */
-    constructor(config) {
+    constructor(config, options) {
         this.__config = _.defaultsDeep(_.cloneDeep(config), {
             apiVersion: 'v1',
         });
+
+        this.logger = options.logger;
     }
 
     makeRequest(method, path, data, headers) {
@@ -30,6 +34,12 @@ class VaultApiClient {
             headers,
             json: true,
         };
+
+        this.logger.debug(
+            'making request: %s %s',
+            requestOptions.method,
+            requestOptions.uri
+        );
 
         return rp(requestOptions);
     }

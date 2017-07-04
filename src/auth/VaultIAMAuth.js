@@ -73,6 +73,11 @@ class VaultIAMAuth extends VaultBaseAuth {
      * @inheritDoc
      */
     _authenticate() {
+        this._log.debug(
+            'making authentication request: role=%s',
+            this.__role
+        );
+
         return Promise.resolve()
             .then(() => this.__getCredentials())
             .then((credentials) => {
@@ -82,7 +87,13 @@ class VaultIAMAuth extends VaultBaseAuth {
                     this.__getVaultAuthRequestBody(this.__getStsRequest(credentials))
                 );
             })
-            .then((response) => this._getTokenEntity(response.auth.client_token))
+            .then((response) => {
+                this._log.debug(
+                    'receive token: %s',
+                    response.auth.client_token
+                );
+                return this._getTokenEntity(response.auth.client_token)
+            })
     }
 
     /**

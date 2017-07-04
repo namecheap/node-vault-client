@@ -5,7 +5,6 @@ const VaultBaseAuth = require('./VaultBaseAuth');
 class VaultAppRoleAuth extends VaultBaseAuth {
 
     /**
-     *
      * @param {VaultApiClient} apiClient - see {@link VaultBaseAuth#constructor}
      * @param {Object} config
      * @param {String} config.role_id - RoleID of the AppRole.
@@ -20,10 +19,18 @@ class VaultAppRoleAuth extends VaultBaseAuth {
     }
 
     _authenticate() {
+        this._log.debug(
+            'making authentication request: role_id=%s',
+            this.__roleId
+        );
         return this.__apiClient.makeRequest('POST', `/auth/${this._mount}/login`, {
             role_id: this.__roleId,
             secret_id: this.__secretId,
         }).then(res => {
+            this._log.debug(
+                'receive token: %s',
+                res.auth.client_token
+            );
             return this._getTokenEntity(res.auth.client_token);
         });
     }

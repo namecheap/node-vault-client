@@ -1,18 +1,13 @@
 'use strict';
 
 const _ = require('lodash');
-
 const Lease = require('./Lease');
 const errors = require('./errors');
-
 const VaultApiClient = require('./VaultApiClient');
-
 const VaultAppRoleAuth = require('./auth/VaultAppRoleAuth');
 const VaultTokenAuth = require('./auth/VaultTokenAuth');
 const VaultIAMAuth = require('./auth/VaultIAMAuth');
-
 const VaultNodeConfig = require('./VaultNodeConfig');
-
 const vaultInstances = {};
 
 class Vault {
@@ -26,11 +21,17 @@ class Vault {
      * @param {Object} options.auth
      * @param {String} options.auth.type
      * @param {Object} options.auth.config - auth configuration variables
-     * @param {Object|false} options.logger - Logger that supports "error", "info", "warn", "trace", "debug" methods. Uses `console` by default. Pass `false` to disable logging.
+     * @param {Object|false} options.logger - RFC 5424 compatible logger. Pass `false` to disable logging.
      */
     constructor(options) {
-        this.__api = new VaultApiClient(options.api);
-        this.__log = this.__setupLogger(options.logger);
+        this.loggerFactory = this.__setupLogger(options.logger);
+
+        this.__log = this.loggerFactory(); // this.__setupLogger(options.logger);
+
+        this.__api = new VaultApiClient(
+            options.api,
+            {logger: this.loggerFactory('api')}
+        );
 
         /** @type {VaultBaseAuth} */
         this.__auth = this.getAuthProvider(
@@ -95,8 +96,8 @@ class Vault {
         if (typeof name === 'string') {
             delete vaultInstances[name];
         } else {
-            for (let k in vaultInstances){
-                if (vaultInstances.hasOwnProperty(k)){
+            for (let k in vaultInstances) {
+                if (vaultInstances.hasOwnProperty(k)) {
                     delete vaultInstances[k];
                 }
             }
@@ -104,35 +105,58 @@ class Vault {
     }
 
     /**
+     * @protected
+     *
      * @param {Object} authConfig
      * @param {string} authConfig.type
      * @param {string} authConfig.mount
      * @param {Object} authConfig.config
      * @param {VaultApiClient} api
      * @param {Object|false} logger
-
      * @return {VaultBaseAuth}
      */
     getAuthProvider(authConfig, api, logger) {
+        logger.debug('creating vault auth method: "%s"', authConfig.type);
+
+        const authLogger = this.loggerFactory('auth');
+
         switch (authConfig.type) {
+            case 'aws_iam':
             case 'iam':
+                if (authConfig.type === 'iam') {
+                    logger.notice(
+                        'DEPRECATION: auth type "%s" is deprecated, use "%s" instead',
+                        'iam',
+                        'aws_iam'
+                    );
+                }
+
                 return new VaultIAMAuth(
                     api,
-                    logger,
+                    authLogger,
                     authConfig.config,
                     authConfig.mount
                 );
+            case 'approle':
             case 'appRole':
+                if (authConfig.type === 'appRole') {
+                    logger.notice(
+                        'DEPRECATION: auth type "%s" is deprecated, use "%s" instead',
+                        'appRole',
+                        'approle'
+                    );
+                }
+
                 return new VaultAppRoleAuth(
                     api,
-                    logger,
+                    authLogger,
                     authConfig.config,
                     authConfig.mount
                 );
             case 'token':
                 return new VaultTokenAuth(
                     api,
-                    logger,
+                    authLogger,
                     authConfig.config,
                     authConfig.mount
                 );
@@ -151,33 +175,62 @@ class Vault {
     }
 
     read(path) {
+        this.__log.debug('read secret %s', path);
         return this.__auth.getAuthToken().then(token => {
             return this.__api.makeRequest('GET', path, null, {'X-Vault-Token': token.getId()});
         }).then(res => {
+            this.__log.debug('receive secret %s', path);
             return Lease.fromResponse(res);
         });
     }
 
     write(path, data) {
+        this.__log.debug('write secret %s', path);
         return this.__auth.getAuthToken().then(token => {
             return this.__api.makeRequest('POST', path, data, {'X-Vault-Token': token.getId()});
-        }).then(() => {});
+        }).then(() => {
+            this.__log.debug('secret %s was written', path)
+        });
     }
 
     __setupLogger(logger) {
+        const rfc5424 = ['emergency', 'alert', 'critical', 'error', 'warning', 'notice', 'info', 'debug'];
+
         if (logger === false) {
-            return {
-                error: () => {},
-                warn: () => {},
-                info: () => {},
-                debug: () => {},
-                trace: () => {},
-            }
-        } else if (_.intersection(_.functionsIn(logger), ['error', 'warn', 'info', 'debug', 'trace']).length >= 5) {
-            return logger
-        } else {
-            return console;
+            const nullLogger = _.fromPairs(_.map(rfc5424, (level) => [level, _.noop]));
+            return () => nullLogger;
         }
+
+        if (_.isFunction(logger)) {
+            return logger;
+        }
+
+        if (_.intersection(_.functionsIn(logger), rfc5424).length >= rfc5424.length) {
+            return () => logger
+        }
+
+        function legacyMapper(logger) {
+            return {
+                emergency: logger.error,
+                alert: logger.error,
+                critical: logger.error,
+                error: logger.error,
+                warning: logger.warn,
+                notice: logger.info,
+                info: logger.info,
+                debug: logger.debug
+            }
+        }
+
+        if (_.intersection(_.functionsIn(logger), ['error', 'warn', 'info', 'debug', 'trace']).length >= 5) {
+            const legacy = legacyMapper(logger);
+            legacy.notice(
+                'DEPRECATION: use logger that support methods according with to RFC 5424'
+            );
+            return () => legacy;
+        }
+
+        return () => legacyMapper(logger);
     }
 }
 
