@@ -33,7 +33,7 @@ class VaultBaseAuth {
     }
 
     getAuthToken() {
-        this._log.debug('getting auth token (mount=%s)', this._mount);
+        this._log.info('getting auth token (mount=%s)', this._mount);
         if (this.__authToken === null || (this.__authToken instanceof AuthToken && this.__authToken.isExpired() && this._reauthenticationAllowed())) {
             if (this.__authToken !== null && this.__authToken.isExpired() && !this._reauthenticationAllowed()) {
                 throw new errors.AuthTokenExpiredError('Auth token has expired & cannot be refreshed since auth method doesn\'t support this.');
@@ -127,8 +127,12 @@ class VaultBaseAuth {
 
         return this.__apiClient.makeRequest('POST', '/auth/token/renew-self', null, {'X-Vault-Token': authToken.getId()})
             .then(() => {
-                this._log.debug('successfully renewed token');
+                this._log.info('successfully renewed token');
                 return this._getTokenEntity(authToken.getId());
+            })
+            .catch((reason) => {
+                this._log.error('token renew failed: %s', reason.message);
+                throw reason;
             });
     }
 }

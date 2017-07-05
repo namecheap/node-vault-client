@@ -11,9 +11,9 @@ const sinon = require('sinon');
 const chai = require('chai');
 const expect = chai.expect;
 const AWS = require('aws-sdk');
-const logger = require('../src/nullLogger');
-
 chai.use(require('sinon-chai'));
+
+const logger = _.fromPairs(_.map(['error', 'warn', 'info', 'debug', 'trace'], (prop) => [prop, _.noop]));
 
 describe('Unit AWS auth backend :: IAM', function () {
 
