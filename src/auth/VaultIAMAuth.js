@@ -73,7 +73,7 @@ class VaultIAMAuth extends VaultBaseAuth {
      * @inheritDoc
      */
     _authenticate() {
-        this._log.debug(
+        this._log.info(
             'making authentication request: role=%s',
             this.__role
         );

@@ -19,7 +19,7 @@ class VaultAppRoleAuth extends VaultBaseAuth {
     }
 
     _authenticate() {
-        this._log.debug(
+        this._log.info(
             'making authentication request: role_id=%s',
             this.__roleId
         );
