@@ -1,8 +1,7 @@
 'use strict';
 
 const lt = require('long-timeout');
-const _ = require('lodash');
-
+const prettyMs = require('pretty-ms');
 const AuthToken = require('./AuthToken');
 const errors = require('../errors');
 
@@ -113,7 +112,7 @@ class VaultBaseAuth {
 
         this._log.debug(
             'sleeping for %s',
-            ms4human(timer)
+            prettyMs(timer)
         );
     }
 
@@ -136,20 +135,5 @@ class VaultBaseAuth {
             });
     }
 }
-
-
-function ms4human(ms) {
-    const sec = ms / 1000;
-
-    return [
-        [Math.floor(sec / (60 * 60)), 'h'],
-        [Math.floor(sec % (60 * 60) / 60), 'm'],
-        [Math.round(sec % 60), 's'],
-    ]
-        .filter((v) => v[0] > 0)
-        .map((v) => v.join(''))
-        .join(' ');
-}
-
 
 module.exports = VaultBaseAuth;
