@@ -7,9 +7,7 @@ const rp = require('request-promise');
 const _ = require('lodash');
 const chai = require('chai');
 const expect = chai.expect;
-
 const loadVault = require('./vaultLoader');
-
 const VaultClient = require('../src/VaultClient');
 
 describe('E2E', function () {
@@ -19,6 +17,7 @@ describe('E2E', function () {
 
         this.bootOpts = deepFreeze({
             api: { url: 'http://127.0.0.1:8200/' },
+            logger: false,
             auth: {
                 type: 'token',
                 config: {
@@ -27,7 +26,7 @@ describe('E2E', function () {
             },
         });
     });
-    
+
     afterEach(function* () {
         yield this.vaultServer.kill();
         delete require.cache[require.resolve('config')];

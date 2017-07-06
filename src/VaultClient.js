@@ -1,18 +1,13 @@
 'use strict';
 
 const _ = require('lodash');
-
 const Lease = require('./Lease');
 const errors = require('./errors');
-
 const VaultApiClient = require('./VaultApiClient');
-
 const VaultAppRoleAuth = require('./auth/VaultAppRoleAuth');
 const VaultTokenAuth = require('./auth/VaultTokenAuth');
 const VaultIAMAuth = require('./auth/VaultIAMAuth');
-
 const VaultNodeConfig = require('./VaultNodeConfig');
-
 const vaultInstances = {};
 
 class Vault {
@@ -29,14 +24,17 @@ class Vault {
      * @param {Object|false} options.logger - Logger that supports "error", "info", "warn", "trace", "debug" methods. Uses `console` by default. Pass `false` to disable logging.
      */
     constructor(options) {
-        this.__api = new VaultApiClient(options.api);
         this.__log = this.__setupLogger(options.logger);
+
+        this.__api = new VaultApiClient(
+            options.api,
+            this.__log
+        );
 
         /** @type {VaultBaseAuth} */
         this.__auth = this.getAuthProvider(
             options.auth,
-            this.__api,
-            this.__log
+            this.__api
         );
     }
 
@@ -95,8 +93,8 @@ class Vault {
         if (typeof name === 'string') {
             delete vaultInstances[name];
         } else {
-            for (let k in vaultInstances){
-                if (vaultInstances.hasOwnProperty(k)){
+            for (let k in vaultInstances) {
+                if (vaultInstances.hasOwnProperty(k)) {
                     delete vaultInstances[k];
                 }
             }
@@ -104,35 +102,37 @@ class Vault {
     }
 
     /**
+     * @protected
+     *
      * @param {Object} authConfig
      * @param {string} authConfig.type
      * @param {string} authConfig.mount
      * @param {Object} authConfig.config
      * @param {VaultApiClient} api
-     * @param {Object|false} logger
-
      * @return {VaultBaseAuth}
      */
-    getAuthProvider(authConfig, api, logger) {
+    getAuthProvider(authConfig, api) {
+        this.__log.debug('creating vault auth method: "%s"', authConfig.type);
+
         switch (authConfig.type) {
             case 'iam':
                 return new VaultIAMAuth(
                     api,
-                    logger,
+                    this.__log,
                     authConfig.config,
                     authConfig.mount
                 );
             case 'appRole':
                 return new VaultAppRoleAuth(
                     api,
-                    logger,
+                    this.__log,
                     authConfig.config,
                     authConfig.mount
                 );
             case 'token':
                 return new VaultTokenAuth(
                     api,
-                    logger,
+                    this.__log,
                     authConfig.config,
                     authConfig.mount
                 );
@@ -151,32 +151,52 @@ class Vault {
     }
 
     read(path) {
-        return this.__auth.getAuthToken().then(token => {
-            return this.__api.makeRequest('GET', path, null, {'X-Vault-Token': token.getId()});
-        }).then(res => {
-            return Lease.fromResponse(res);
-        });
+        this.__log.debug('read secret %s', path);
+        return this.__auth.getAuthToken()
+            .then(token => this.__api.makeRequest('GET', path, null, {'X-Vault-Token': token.getId()}))
+            .then(res => {
+                this.__log.debug('receive secret %s', path);
+                return Lease.fromResponse(res);
+            })
+            .catch((reason) => {
+                this.__log.error('read secret failed: %s', reason.message);
+                throw reason;
+            });
     }
 
     write(path, data) {
-        return this.__auth.getAuthToken().then(token => {
-            return this.__api.makeRequest('POST', path, data, {'X-Vault-Token': token.getId()});
-        }).then(() => {});
+        this.__log.debug('write secret %s', path);
+        return this.__auth.getAuthToken()
+            .then((token) => this.__api.makeRequest('POST', path, data, {'X-Vault-Token': token.getId()}))
+            .then(() => {
+                this.__log.debug('secret %s was written', path);
+            })
+            .catch((reason) => {
+                this.__log.error('write secret failed: %s', reason.message);
+                throw reason;
+            });
     }
 
     __setupLogger(logger) {
         if (logger === false) {
             return {
-                error: () => {},
-                warn: () => {},
-                info: () => {},
-                debug: () => {},
-                trace: () => {},
+                error: _.noop,
+                warn: _.noop,
+                info: _.noop,
+                debug: _.noop,
+                trace: _.noop,
             }
         } else if (_.intersection(_.functionsIn(logger), ['error', 'warn', 'info', 'debug', 'trace']).length >= 5) {
             return logger
         } else {
-            return console;
+            return {
+                error: console.error,
+                warn: console.warn,
+                info: console.info,
+                trace: console.trace,
+                // avoid output sensitive information
+                debug: _.noop
+            };
         }
     }
 }

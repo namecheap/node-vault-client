@@ -11,6 +11,7 @@ describe('Unit tests', function () {
 
     const bootOpts = deepFreeze({
         api: { url: 'https://example.com/' },
+        logger: false,
         auth: {
             type: 'token',
             config: {
