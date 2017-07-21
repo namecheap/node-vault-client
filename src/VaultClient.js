@@ -168,8 +168,9 @@ class Vault {
         this.__log.debug('write secret %s', path);
         return this.__auth.getAuthToken()
             .then((token) => this.__api.makeRequest('POST', path, data, {'X-Vault-Token': token.getId()}))
-            .then(() => {
+            .then((response) => {
                 this.__log.debug('secret %s was written', path);
+                return response;
             })
             .catch((reason) => {
                 this.__log.error('write secret failed: %s', reason.message);
