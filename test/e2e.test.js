@@ -43,6 +43,18 @@ describe('E2E', function () {
         expect(res.getData()).is.deep.equal(testData);
     });
 
+    it('Write for ssh backend should return response', function *() {
+        const vaultClient = new VaultClient(this.bootOpts);
+        yield vaultClient.write('/sys/mounts/ssh', {type: 'ssh'});
+        yield vaultClient.write('/ssh/roles/otp_key_role', {key_type: 'otp', default_user: 'ubuntu', cidr_list: '127.0.0.0/24'});
+        const response = yield vaultClient.write('/ssh/creds/otp_key_role', {ip: '127.0.0.1'});
+
+        expect(response.data.ip).to.equal('127.0.0.1');
+        expect(response.data.key_type).to.equal('otp');
+        expect(response.data.key).a('string');
+        expect(response.data.username).to.equal('ubuntu');
+    });
+
     it('should fill node-config', function* () {
         const testData = Object.freeze({tstStr: 'testData', tstInt: 12345});
 
