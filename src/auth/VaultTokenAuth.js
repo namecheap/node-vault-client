@@ -1,6 +1,7 @@
 'use strict';
 
 const VaultBaseAuth = require('./VaultBaseAuth');
+const errors = require('../errors');
 
 class VaultTokenAuth extends VaultBaseAuth {
 
