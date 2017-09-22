@@ -58,7 +58,6 @@ node('master') {
                 if (currentBuild.result == 'UNSTABLE') {
                     error 'Tests failed.'
                 }
-
             }
         }
 
