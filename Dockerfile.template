@@ -1,0 +1,15 @@
+FROM node:$NODE_VERSION-alpine
+
+RUN apk add --update unzip curl && rm -rf /var/cache/apk/*
+RUN curl -L 'https://releases.hashicorp.com/vault/$VAULT_VERSION/vault_$VAULT_VERSION_linux_amd64.zip' > /tmp/vault.zip && \
+    unzip /tmp/vault.zip -d /tmp && \
+    mv /tmp/vault /usr/local/bin/vault && \
+    chmod 0755 /usr/local/bin/vault
+
+WORKDIR /app
+
+COPY . .
+
+RUN npm install -q --no-progress && npm install -q --no-progress config
+
+CMD ["npm", "run", "test-ci"]

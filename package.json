@@ -11,8 +11,7 @@
   ],
   "scripts": {
     "test": "mocha test/**/*.test.js",
-    "test-ci": "npm install autochecker -q --no-progress && autochecker 5-wheezy 6-wheezy 7-wheezy",
-    "preversion": "npm run test-ci",
+    "test-ci": "MOCHA_FILE=./report/mocha.xml mocha test/**/*.test.js --reporter mocha-junit-reporter",
     "version": "git add -A ."
   },
   "author": "Vlad Fedosov <vlad.fedosov@gmail.com>",
@@ -39,6 +38,7 @@
     "co-mocha": "^1.2.0",
     "deep-freeze": "^0.0.1",
     "mocha": "^3.2.0",
+    "mocha-junit-reporter": "^1.13.0",
     "sinon": "^2.3.4",
     "sinon-chai": "^2.11.0"
   }
