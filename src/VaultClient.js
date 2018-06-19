@@ -164,6 +164,20 @@ class Vault {
             });
     }
 
+    list(path) {
+        this.__log.debug('list secrets %s', path);
+        return this.__auth.getAuthToken()
+            .then(token => this.__api.makeRequest('LIST', path, null, {'X-Vault-Token': token.getId()}))
+            .then(res => {
+                this.__log.debug('got secrets list %s', path);
+                return Lease.fromResponse(res);
+            })
+            .catch((reason) => {
+                this.__log.error('list secrets failed: %s', reason.message);
+                throw reason;
+            });
+    }
+
     write(path, data) {
         this.__log.debug('write secret %s', path);
         return this.__auth.getAuthToken()
