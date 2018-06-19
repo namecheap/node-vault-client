@@ -14,11 +14,19 @@ def VERSIONS_MATRIX = [
                 vault: '0.7.2'
         ],
         [
+                node : '10',
+                vault: '0.7.2'
+        ],
+        [
                 node : '6',
                 vault: '0.8.2'
         ],
         [
                 node : '8',
+                vault: '0.8.2'
+        ],
+        [
+                node : '10',
                 vault: '0.8.2'
         ],
         [
@@ -27,6 +35,10 @@ def VERSIONS_MATRIX = [
         ],
         [
                 node : '8',
+                vault: '0.9.6'
+        ],
+        [
+                node : '10',
                 vault: '0.9.6'
         ]
 ]
