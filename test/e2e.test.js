@@ -41,6 +41,9 @@ describe('E2E', function () {
 
         const res = yield vaultClient.read('secret/tst-val');
         expect(res.getData()).is.deep.equal(testData);
+
+        const list = yield vaultClient.list('secret');
+        expect(list.getData()).is.deep.equal({keys: ['tst-val']});
     });
 
     it('Write for ssh backend should return response', function *() {
