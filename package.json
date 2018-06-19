@@ -3,7 +3,7 @@
   "version": "0.3.2",
   "description": "",
   "engines": {
-    "node": ">=5.0.0 <8.0.0"
+    "node": ">=6.0.0"
   },
   "main": "src/VaultClient.js",
   "files": [
