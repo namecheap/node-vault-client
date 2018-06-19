@@ -20,6 +20,14 @@ def VERSIONS_MATRIX = [
         [
                 node : '8',
                 vault: '0.8.2'
+        ],
+        [
+                node : '6',
+                vault: '0.9.6'
+        ],
+        [
+                node : '8',
+                vault: '0.9.6'
         ]
 ]
 
