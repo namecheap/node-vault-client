@@ -5,6 +5,7 @@ const Lease = require('./Lease');
 const errors = require('./errors');
 const VaultApiClient = require('./VaultApiClient');
 const VaultAppRoleAuth = require('./auth/VaultAppRoleAuth');
+const VaultKubernetesAuth = require('./auth/VaultKubernetesAuth');
 const VaultTokenAuth = require('./auth/VaultTokenAuth');
 const VaultIAMAuth = require('./auth/VaultIAMAuth');
 const VaultNodeConfig = require('./VaultNodeConfig');
@@ -117,6 +118,13 @@ class Vault {
         switch (authConfig.type) {
             case 'iam':
                 return new VaultIAMAuth(
+                    api,
+                    this.__log,
+                    authConfig.config,
+                    authConfig.mount
+                );
+            case 'kubernetes': 
+                return new VaultKubernetesAuth(
                     api,
                     this.__log,
                     authConfig.config,
