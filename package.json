@@ -15,7 +15,7 @@
     "version": "git add -A ."
   },
   "author": "Vlad Fedosov <vlad.fedosov@gmail.com>",
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "dependencies": {
     "assign-deep": "^0.4.5",
     "aws4": "^1.6.0",
