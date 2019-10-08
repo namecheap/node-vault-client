@@ -1,7 +1,8 @@
 {
   "name": "node-vault-client",
   "version": "0.3.3",
-  "description": "",
+  "description": "A Vault Client implemented in pure javascript for HashiCorp Vault. It supports variety of Auth Backends and performs lease renewal for issued auth token.",
+  "repository": "github:namecheap/node-vault-client",
   "engines": {
     "node": ">=6.0.0"
   },
@@ -11,7 +12,6 @@
   ],
   "scripts": {
     "test": "mocha test/**/*.test.js",
-    "test-ci": "MOCHA_FILE=./report/mocha.xml mocha test/**/*.test.js --reporter mocha-junit-reporter",
     "version": "git add -A ."
   },
   "author": "Vlad Fedosov <vlad.fedosov@gmail.com>",

@@ -10,10 +10,11 @@ const VaultIAMAuth = require('./auth/VaultIAMAuth');
 const VaultNodeConfig = require('./VaultNodeConfig');
 const vaultInstances = {};
 
-class Vault {
+class VaultClient {
 
     /**
      * Client constructor function.
+     *
      * @param {Object} options
      * @param {Object} options.api
      * @param {String} options.api.url - the url of the vault server
@@ -31,8 +32,11 @@ class Vault {
             this.__log
         );
 
-        /** @type {VaultBaseAuth} */
-        this.__auth = this.getAuthProvider(
+        /**
+         * @type {VaultBaseAuth}
+         * @private
+         */
+        this.__auth = this.__getAuthProvider(
             options.auth,
             this.__api
         );
@@ -44,7 +48,7 @@ class Vault {
      * The instance will be stored in a local hash. Calling Vault.boot multiple
      * times with the same name will return the same instance.
      *
-     * @param {String} name
+     * @param {String} name - Vault instance name
      * @param {Object} [options] - options for {@link Vault#constructor}.
      * @return Vault
      */
@@ -55,7 +59,7 @@ class Vault {
 
         let instance = vaultInstances[name];
         if (instance === undefined) {
-            vaultInstances[name] = instance = new Vault(options);
+            vaultInstances[name] = instance = new VaultClient(options);
 
             return instance;
         }
@@ -69,7 +73,7 @@ class Vault {
      * The instance will be stored in a local hash. Calling Vault.pop multiple
      * times with the same name will return the same instance.
      *
-     * @param {String} name
+     * @param {String} name - Vault instance name
      * @return Vault
      */
     static get(name) {
@@ -87,7 +91,7 @@ class Vault {
      *
      * If no name passed all named instances will be cleared.
      *
-     * @param {String} [name]
+     * @param {String} [name] - Vault instance name, all instances will be cleared if no name were passed
      */
     static clear(name) {
         if (typeof name === 'string') {
@@ -110,8 +114,9 @@ class Vault {
      * @param {Object} authConfig.config
      * @param {VaultApiClient} api
      * @return {VaultBaseAuth}
+     * @private
      */
-    getAuthProvider(authConfig, api) {
+    __getAuthProvider(authConfig, api) {
         this.__log.debug('creating vault auth method: "%s"', authConfig.type);
 
         switch (authConfig.type) {
@@ -150,6 +155,11 @@ class Vault {
         return vaultConf.populate();
     }
 
+    /**
+     * Read secret from Vault
+     * @param {string} path - path to the secret
+     * @returns {Promise<Lease>}
+     */
     read(path) {
         this.__log.debug('read secret %s', path);
         return this.__auth.getAuthToken()
@@ -164,6 +174,12 @@ class Vault {
             });
     }
 
+    /**
+     * Retrieves secrets list
+     *
+     * @param {string} path - path to the secret
+     * @returns {Promise<Lease>}
+     */
     list(path) {
         this.__log.debug('list secrets %s', path);
         return this.__auth.getAuthToken()
@@ -178,6 +194,13 @@ class Vault {
             });
     }
 
+    /**
+     * Writes data to Vault
+     *
+     * @param path - path used to write data
+     * @param {object} data - data to write
+     * @returns {Promise<T | never>}
+     */
     write(path, data) {
         this.__log.debug('write secret %s', path);
         return this.__auth.getAuthToken()
@@ -192,6 +215,9 @@ class Vault {
             });
     }
 
+    /**
+     * @private
+     */
     __setupLogger(logger) {
         if (logger === false) {
             return {
@@ -216,4 +242,4 @@ class Vault {
     }
 }
 
-module.exports = Vault;
+module.exports = VaultClient;
