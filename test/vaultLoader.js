@@ -20,11 +20,17 @@ module.exports = function () {
     return new Promise(function (resolve, reject) {
         const processRef = child_process.spawn('/usr/local/bin/vault', ['server', '-dev']);
 
+        let dataAcc = '';
         processRef.stdout.on('data', function(data) {
-            data = data.toString(); //we receive binary data here
-            const found = data.match(/^Root Token: ([a-z0-9\-]+)$/mi);
+            if (dataAcc === null) {
+                return;
+            }
+
+            dataAcc += data.toString(); //we receive binary data here
+            const found = dataAcc.match(/Root Token: ([a-z0-9\-]+)\n/i);
 
             if (found !== null) {
+                dataAcc = null;
                 resolve({
                     rootToken: found[1],
                     kill: () => pKiller(processRef),
