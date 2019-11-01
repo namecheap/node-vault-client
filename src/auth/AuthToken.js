@@ -1,9 +1,4 @@
-'use strict';
-
-const _ = require('lodash');
-
 class AuthToken {
-
     /**
      *
      * @param {string} id
@@ -21,7 +16,7 @@ class AuthToken {
         expiresAt,
         explicitMaxTtl,
         numUses,
-        isRenewable
+        isRenewable,
     ) {
         this.__id = id;
         this.__accessor = accessor;
@@ -33,7 +28,7 @@ class AuthToken {
     }
 
     static fromResponse(response) {
-        const data = response.data;
+        const { data } = response;
 
         let expiresAt = null;
         if (data.ttl !== 0) {
@@ -50,7 +45,7 @@ class AuthToken {
             expiresAt,
             data.explicit_max_ttl,
             data.num_uses,
-            data.renewable !== undefined ? data.renewable : false
+            data.renewable !== undefined ? data.renewable : false,
         );
     }
 

@@ -1,12 +1,9 @@
-'use strict';
-
 const lt = require('long-timeout');
 const prettyMs = require('pretty-ms');
 const AuthToken = require('./AuthToken');
-const errors = require('../errors');
+const AuthTokenExpiredError = require('../errors/auth.token.expired.error');
 
 class VaultBaseAuth {
-
     /**
      * @param {VaultApiClient} apiClient
      * @param {Object} logger
@@ -34,24 +31,24 @@ class VaultBaseAuth {
     getAuthToken() {
         if (this.__authToken === null || (this.__authToken instanceof AuthToken && this.__authToken.isExpired() && this._reauthenticationAllowed())) {
             if (this.__authToken !== null && this.__authToken.isExpired() && !this._reauthenticationAllowed()) {
-                throw new errors.AuthTokenExpiredError('Auth token has expired & cannot be refreshed since auth method doesn\'t support this.');
+                throw new AuthTokenExpiredError('Auth token has expired & cannot be refreshed since auth method doesn\'t support this.');
             }
 
             this._log.info('getting auth token (mount=%s)', this._mount);
 
-            const tokenPromise = this._authenticate().then(authToken => {
+            const tokenPromise = this._authenticate().then((authToken) => {
                 this.__authToken = authToken;
 
                 if (this.__authToken.isRenewable()) {
                     this._log.debug(
                         'setting refresh timer for token %s',
-                        authToken.getId()
+                        authToken.getId(),
                     );
                     this.__setupTokenRefreshTimer(this.__authToken);
                 }
 
                 return this.__authToken;
-            }).catch(e => {
+            }).catch((e) => {
                 this.__authToken = null;
                 throw e;
             });
@@ -69,10 +66,8 @@ class VaultBaseAuth {
      * @returns {Promise<AuthToken>}
      */
     _getTokenEntity(tokenId) {
-        return this.__apiClient.makeRequest('GET', '/auth/token/lookup-self', null, {'X-Vault-Token': tokenId})
-            .then(res => {
-                return AuthToken.fromResponse(res);
-            });
+        return this.__apiClient.makeRequest('GET', '/auth/token/lookup-self', null, { 'X-Vault-Token': tokenId })
+            .then((res) => AuthToken.fromResponse(res));
     }
 
     /**
@@ -100,20 +95,22 @@ class VaultBaseAuth {
         const timer = Math.max((authToken.getExpiresAt() - Math.floor(Date.now() / 1000)) / 2, 1) * 1000;
 
         this.__refreshTimeout = lt.setTimeout(() => {
-            this.__renewToken(authToken).then(authToken => {
-                this.__authToken = authToken;
-                this.__setupTokenRefreshTimer(authToken);
-            }).catch(err => {
-                this.__setupTokenRefreshTimer(authToken);
+            this.__renewToken(authToken)
+                .then((token) => {
+                    this.__authToken = token;
+                    this.__setupTokenRefreshTimer(token);
+                })
+                .catch((err) => {
+                    this.__setupTokenRefreshTimer(authToken);
 
-                this._log.error(`Cannot refresh auth token with "${authToken.getAccessor()}" accessor. Error: ${err.message}`);
-                this._log.error(err);
-            });
+                    this._log.error(`Cannot refresh auth token with "${authToken.getAccessor()}" accessor. Error: ${err.message}`);
+                    this._log.error(err);
+                });
         }, timer);
 
         this._log.debug(
             'sleeping for %s',
-            prettyMs(timer)
+            prettyMs(timer),
         );
     }
 
@@ -125,7 +122,7 @@ class VaultBaseAuth {
     __renewToken(authToken) {
         this._log.debug('renewing vault token');
 
-        return this.__apiClient.makeRequest('POST', '/auth/token/renew-self', null, {'X-Vault-Token': authToken.getId()})
+        return this.__apiClient.makeRequest('POST', '/auth/token/renew-self', null, { 'X-Vault-Token': authToken.getId() })
             .then(() => {
                 this._log.info('successfully renewed token');
                 return this._getTokenEntity(authToken.getId());

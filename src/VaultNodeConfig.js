@@ -1,22 +1,19 @@
-'use strict';
-
 const path = require('path');
-const fs = require('fs');
 const Bluebird = require('bluebird');
 const _ = require('lodash');
 const assignDeep = require('assign-deep');
 
-const errors = require('./errors');
+const VaultError = require('./errors/vault.error');
+const InvalidArgumentsError = require('./errors/invalid.arguments.error');
 
 class VaultNodeConfig {
-
     constructor(vault) {
         this.__vault = vault;
 
         try {
             require.resolve('config');
-        } catch(e) {
-            throw new errors.VaultError(`NPM package "config" isn't installed`);
+        } catch (e) {
+            throw new VaultError('NPM package "config" isn\'t installed');
         }
 
         this.__nodeConfig = require('config');
@@ -31,28 +28,30 @@ class VaultNodeConfig {
 
         this.__traverse(substitutionMap, (key, val) => {
             const splitRes = val.split('#');
-            const path = splitRes[0], value = splitRes[1];
-            if (path === undefined || value === undefined) {
-                throw new errors.InvalidArgumentsError('Invalid format of substitution value');
+            const pathToFile = splitRes[0]; const
+                value = splitRes[1];
+            if (pathToFile === undefined || value === undefined) {
+                throw new InvalidArgumentsError('Invalid format of substitution value');
             }
 
-            requiredData[path] = null;
+            requiredData[pathToFile] = null;
         });
 
-        let promises = _.mapValues(requiredData, (value, path) => this.__vault.read(path));
+        const promises = _.mapValues(requiredData, (value, pathConf) => this.__vault.read(pathConf));
 
-        return Bluebird.props(promises).then(results => {
-            requiredData = _.mapValues(requiredData, (value, path) => results[path].getData());
+        return Bluebird.props(promises).then((results) => {
+            requiredData = _.mapValues(requiredData, (value, pathToFile) => results[pathToFile].getData());
 
             this.__traverse(substitutionMap, (key, val, obj) => {
                 const splitRes = val.split('#');
-                const path = splitRes[0], value = splitRes[1];
-                const res = requiredData[path][value];
+                const pathToFile = splitRes[0]; const
+                    value = splitRes[1];
+                const res = requiredData[pathToFile][value];
                 if (res === undefined) {
-                    throw new errors.VaultError(`Can't find substitution for "${val}"`);
+                    throw new VaultError(`Can't find substitution for "${val}"`);
                 }
 
-                obj[key] = requiredData[path][value];
+                obj[key] = requiredData[pathToFile][value];
             });
 
             return assignDeep(this.__nodeConfig, substitutionMap);
@@ -63,40 +62,40 @@ class VaultNodeConfig {
      * @private
      */
     __getSubstitutionMap() {
-        let config_dir = this.__nodeConfig.util.initParam('NODE_CONFIG_DIR', path.join( process.cwd(), 'config') );
-        if (config_dir.indexOf('.') === 0) {
-            config_dir = path.join(process.cwd() , config_dir);
+        let configDir = this.__nodeConfig.util.initParam('NODE_CONFIG_DIR', path.join(process.cwd(), 'config'));
+        if (configDir.indexOf('.') === 0) {
+            configDir = path.join(process.cwd(), configDir);
         }
 
-        const fullFilename = path.join(config_dir, 'custom-vault-variables.js');
+        const fullFilename = path.join(configDir, 'custom-vault-variables.js');
 
         let fileContent;
         try {
             fileContent = require(fullFilename);
         } catch (e) {
-            throw new errors.VaultError('Config file ' + fullFilename + ' cannot be read');
+            throw new VaultError(`Config file ${fullFilename} cannot be read`);
         }
 
         if (!_.isPlainObject(fileContent)) {
-            throw new errors.VaultError('Config file ' + fullFilename + ' should return plain object');
+            throw new VaultError(`Config file ${fullFilename} should return plain object`);
         }
 
         return _.cloneDeep(fileContent);
     }
 
     __traverse(o, func) {
-        for (let i in o) {
+        for (const i in o) {
             if (!o.hasOwnProperty(i)) {
                 continue;
             }
 
-            if (o[i] !== null && typeof(o[i]) === "object") {
-                //going one step down in the object tree!!
+            if (o[i] !== null && typeof (o[i]) === 'object') {
+                // going one step down in the object tree!!
                 this.__traverse(o[i], func);
             } else if (typeof o[i] === 'string') {
                 func(i, o[i], o);
             } else {
-                throw new errors.InvalidArgumentsError('Illegal key type for substitution map');
+                throw new InvalidArgumentsError('Illegal key type for substitution map');
             }
         }
     }
