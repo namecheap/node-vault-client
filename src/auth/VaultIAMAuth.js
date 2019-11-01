@@ -1,9 +1,8 @@
-'use strict';
-
-const VaultBaseAuth = require('./VaultBaseAuth');
+const AWS = require('aws-sdk');
 const aws4 = require('aws4');
 const _ = require('lodash');
-const errors = require('../errors');
+const VaultBaseAuth = require('./VaultBaseAuth');
+const InvalidAWSCredentialsError = require('../errors/invalid.aws.credentials.error');
 
 /**
  * Implementation of AWS Auth Backend :: IAM Authentication Method
@@ -51,13 +50,13 @@ class VaultIAMAuth extends VaultBaseAuth {
     constructor(api, logger, config, mount) {
         super(api, logger, mount || 'aws');
 
-        const AWS = require('aws-sdk');
-
         this.__role = config.role;
         this.__iam_server_id_header_value = config.iam_server_id_header_value;
 
         if (!(config.credentials instanceof AWS.Credentials) && !_.isArray(config.credentials)) {
-            throw new errors.InvalidAWSCredentialsError('Credentials must be provided. {AWS.Credentials|AWS.Credentials[]} or function-providers, which return them.')
+            throw new InvalidAWSCredentialsError(
+                'Credentials must be provided. {AWS.Credentials|AWS.Credentials[]} or function-providers, which return them.',
+            );
         }
 
         const credentialsProviders = _.isArray(config.credentials)
@@ -65,7 +64,7 @@ class VaultIAMAuth extends VaultBaseAuth {
             : [config.credentials];
 
         this.__credentialChain = new AWS.CredentialProviderChain(
-            credentialsProviders
+            credentialsProviders,
         );
     }
 
@@ -75,25 +74,23 @@ class VaultIAMAuth extends VaultBaseAuth {
     _authenticate() {
         this._log.info(
             'making authentication request: role=%s',
-            this.__role
+            this.__role,
         );
 
         return Promise.resolve()
             .then(() => this.__getCredentials())
-            .then((credentials) => {
-                return this.__apiClient.makeRequest(
-                    'POST',
-                    `/auth/${this._mount}/login`,
-                    this.__getVaultAuthRequestBody(this.__getStsRequest(credentials))
-                );
-            })
+            .then((credentials) => this.__apiClient.makeRequest(
+                'POST',
+                `/auth/${this._mount}/login`,
+                this.__getVaultAuthRequestBody(this.__getStsRequest(credentials)),
+            ))
             .then((response) => {
                 this._log.debug(
                     'receive token: %s',
-                    response.auth.client_token
+                    response.auth.client_token,
                 );
-                return this._getTokenEntity(response.auth.client_token)
-            })
+                return this._getTokenEntity(response.auth.client_token);
+            });
     }
 
     /**
@@ -103,11 +100,7 @@ class VaultIAMAuth extends VaultBaseAuth {
      * @private
      */
     __getCredentials() {
-        return new Promise((resolve, reject) =>
-            this.__credentialChain.resolve((err, credentials) =>
-                err ? reject(err) : resolve(credentials)
-            )
-        );
+        return new Promise((resolve, reject) => this.__credentialChain.resolve((err, credentials) => (err ? reject(err) : resolve(credentials))));
     }
 
     /**
@@ -121,12 +114,12 @@ class VaultIAMAuth extends VaultBaseAuth {
         return {
             iam_http_request_method: stsRequest.method,
             iam_request_headers: this.__base64encode(
-                JSON.stringify(this.__headersLikeGolangStyle(stsRequest.headers))
+                JSON.stringify(this.__headersLikeGolangStyle(stsRequest.headers)),
             ),
             iam_request_body: this.__base64encode(stsRequest.body),
             iam_request_url: this.__base64encode(`https://${stsRequest.hostname}${stsRequest.path}`),
-            role: this.__role
-        }
+            role: this.__role,
+        };
     }
 
     /**
@@ -142,7 +135,7 @@ class VaultIAMAuth extends VaultBaseAuth {
             body: 'Action=GetCallerIdentity&Version=2011-06-15',
             headers: this.__iam_server_id_header_value ? {
                 'X-Vault-AWS-IAM-Server-ID': this.__iam_server_id_header_value,
-            } : {}
+            } : {},
         }, credentials);
     }
 
@@ -151,7 +144,7 @@ class VaultIAMAuth extends VaultBaseAuth {
      * @private
      */
     __base64encode(string) {
-        return new Buffer(string).toString('base64')
+        return new Buffer(string).toString('base64');
     }
 
     /**

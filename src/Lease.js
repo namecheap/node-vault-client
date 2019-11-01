@@ -1,4 +1,3 @@
-'use strict';
 
 const _ = require('lodash');
 
@@ -8,7 +7,7 @@ class Lease {
         leaseId,
         leaseDuration,
         renewable,
-        data
+        data,
     ) {
         this.__requestId = requestId;
         this.__leaseId = leaseId;
@@ -23,7 +22,7 @@ class Lease {
             response.lease_id,
             response.lease_duration,
             response.renewable,
-            response.data
+            response.data,
         );
     }
 

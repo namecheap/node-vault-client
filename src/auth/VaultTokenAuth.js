@@ -1,10 +1,7 @@
-'use strict';
-
 const VaultBaseAuth = require('./VaultBaseAuth');
-const errors = require('../errors');
+const InvalidArgumentsError = require('../errors/invalid.arguments.error');
 
 class VaultTokenAuth extends VaultBaseAuth {
-
     /**
      * @param {Object} connConfig - see {@link VaultBaseAuth#constructor}
      * @param {Object} config
@@ -15,7 +12,7 @@ class VaultTokenAuth extends VaultBaseAuth {
         super(connConfig, logger, mount || 'token');
 
         if (!config.token) {
-            throw new errors.InvalidArgumentsError('Auth token should be provided for VaultTokenAuth');
+            throw new InvalidArgumentsError('Auth token should be provided for VaultTokenAuth');
         }
 
         this.__token = config.token;
@@ -28,7 +25,6 @@ class VaultTokenAuth extends VaultBaseAuth {
     _reauthenticationAllowed() {
         return false;
     }
-
 }
 
 module.exports = VaultTokenAuth;

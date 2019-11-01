@@ -1,17 +1,15 @@
-'use strict';
-
 const _ = require('lodash');
 const Lease = require('./Lease');
-const errors = require('./errors');
+const InvalidArgumentsError = require('./errors/invalid.arguments.error');
 const VaultApiClient = require('./VaultApiClient');
 const VaultAppRoleAuth = require('./auth/VaultAppRoleAuth');
 const VaultTokenAuth = require('./auth/VaultTokenAuth');
 const VaultIAMAuth = require('./auth/VaultIAMAuth');
 const VaultNodeConfig = require('./VaultNodeConfig');
+
 const vaultInstances = {};
 
 class VaultClient {
-
     /**
      * Client constructor function.
      *
@@ -29,7 +27,7 @@ class VaultClient {
 
         this.__api = new VaultApiClient(
             options.api,
-            this.__log
+            this.__log,
         );
 
         /**
@@ -38,7 +36,7 @@ class VaultClient {
          */
         this.__auth = this.__getAuthProvider(
             options.auth,
-            this.__api
+            this.__api,
         );
     }
 
@@ -54,17 +52,17 @@ class VaultClient {
      */
     static boot(name, options) {
         if (options === undefined) {
-            throw new errors.InvalidArgumentsError('Options should be provided');
+            throw new InvalidArgumentsError('Options should be provided');
         }
 
         let instance = vaultInstances[name];
         if (instance === undefined) {
-            vaultInstances[name] = instance = new VaultClient(options);
-
+            instance = new VaultClient(options);
+            vaultInstances[name] = instance;
             return instance;
         }
 
-        throw new errors.InvalidArgumentsError('Instance with such name already booted');
+        throw new InvalidArgumentsError('Instance with such name already booted');
     }
 
     /**
@@ -77,10 +75,10 @@ class VaultClient {
      * @return Vault
      */
     static get(name) {
-        let instance = vaultInstances[name];
+        const instance = vaultInstances[name];
 
         if (instance === undefined) {
-            throw new errors.InvalidArgumentsError('Invalid instance name');
+            throw new InvalidArgumentsError('Invalid instance name');
         }
 
         return instance;
@@ -97,7 +95,7 @@ class VaultClient {
         if (typeof name === 'string') {
             delete vaultInstances[name];
         } else {
-            for (let k in vaultInstances) {
+            for (const k in vaultInstances) {
                 if (vaultInstances.hasOwnProperty(k)) {
                     delete vaultInstances[k];
                 }
@@ -120,30 +118,30 @@ class VaultClient {
         this.__log.debug('creating vault auth method: "%s"', authConfig.type);
 
         switch (authConfig.type) {
-            case 'iam':
-                return new VaultIAMAuth(
-                    api,
-                    this.__log,
-                    authConfig.config,
-                    authConfig.mount
-                );
-            case 'appRole':
-                return new VaultAppRoleAuth(
-                    api,
-                    this.__log,
-                    authConfig.config,
-                    authConfig.mount
-                );
-            case 'token':
-                return new VaultTokenAuth(
-                    api,
-                    this.__log,
-                    authConfig.config,
-                    authConfig.mount
-                );
+        case 'iam':
+            return new VaultIAMAuth(
+                api,
+                this.__log,
+                authConfig.config,
+                authConfig.mount,
+            );
+        case 'appRole':
+            return new VaultAppRoleAuth(
+                api,
+                this.__log,
+                authConfig.config,
+                authConfig.mount,
+            );
+        case 'token':
+            return new VaultTokenAuth(
+                api,
+                this.__log,
+                authConfig.config,
+                authConfig.mount,
+            );
+        default:
+            throw new InvalidArgumentsError('Unsupported auth method');
         }
-
-        throw new errors.InvalidArgumentsError('Unsupported auth method')
     }
 
     /**
@@ -163,8 +161,8 @@ class VaultClient {
     read(path) {
         this.__log.debug('read secret %s', path);
         return this.__auth.getAuthToken()
-            .then(token => this.__api.makeRequest('GET', path, null, {'X-Vault-Token': token.getId()}))
-            .then(res => {
+            .then((token) => this.__api.makeRequest('GET', path, null, { 'X-Vault-Token': token.getId() }))
+            .then((res) => {
                 this.__log.debug('receive secret %s', path);
                 return Lease.fromResponse(res);
             })
@@ -183,8 +181,8 @@ class VaultClient {
     list(path) {
         this.__log.debug('list secrets %s', path);
         return this.__auth.getAuthToken()
-            .then(token => this.__api.makeRequest('LIST', path, null, {'X-Vault-Token': token.getId()}))
-            .then(res => {
+            .then((token) => this.__api.makeRequest('LIST', path, null, { 'X-Vault-Token': token.getId() }))
+            .then((res) => {
                 this.__log.debug('got secrets list %s', path);
                 return Lease.fromResponse(res);
             })
@@ -204,7 +202,7 @@ class VaultClient {
     write(path, data) {
         this.__log.debug('write secret %s', path);
         return this.__auth.getAuthToken()
-            .then((token) => this.__api.makeRequest('POST', path, data, {'X-Vault-Token': token.getId()}))
+            .then((token) => this.__api.makeRequest('POST', path, data, { 'X-Vault-Token': token.getId() }))
             .then((response) => {
                 this.__log.debug('secret %s was written', path);
                 return response;
@@ -226,19 +224,18 @@ class VaultClient {
                 info: _.noop,
                 debug: _.noop,
                 trace: _.noop,
-            }
-        } else if (_.intersection(_.functionsIn(logger), ['error', 'warn', 'info', 'debug', 'trace']).length >= 5) {
-            return logger
-        } else {
-            return {
-                error: console.error,
-                warn: console.warn,
-                info: console.info,
-                trace: console.trace,
-                // avoid output sensitive information
-                debug: _.noop
             };
+        } if (_.intersection(_.functionsIn(logger), ['error', 'warn', 'info', 'debug', 'trace']).length >= 5) {
+            return logger;
         }
+        return {
+            error: console.error,
+            warn: console.warn,
+            info: console.info,
+            trace: console.trace,
+            // avoid output sensitive information
+            debug: _.noop,
+        };
     }
 }
 
