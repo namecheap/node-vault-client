@@ -6,6 +6,7 @@ const VaultAppRoleAuth = require('./auth/VaultAppRoleAuth');
 const VaultTokenAuth = require('./auth/VaultTokenAuth');
 const VaultIAMAuth = require('./auth/VaultIAMAuth');
 const VaultNodeConfig = require('./VaultNodeConfig');
+const VaultKubernetesAuth = require('./auth/VaultKubernetesAuth');
 
 const vaultInstances = {};
 
@@ -134,6 +135,13 @@ class VaultClient {
             );
         case 'token':
             return new VaultTokenAuth(
+                api,
+                this.__log,
+                authConfig.config,
+                authConfig.mount,
+            );
+        case 'kubernetes':
+            return new VaultKubernetesAuth(
                 api,
                 this.__log,
                 authConfig.config,
