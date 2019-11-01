@@ -6,7 +6,7 @@ const _ = require('lodash');
 const VaultClient = require('../src/VaultClient');
 const VaultApiClient = require('../src/VaultApiClient');
 const VaultIAMAuth = require('../src/auth/VaultIAMAuth');
-const errors = require('../src/errors');
+const InvalidAWSCredentialsError = require('../src/errors/invalid.aws.credentials.error');
 const sinon = require('sinon');
 const chai = require('chai');
 const expect = chai.expect;
@@ -124,8 +124,8 @@ describe('Unit AWS auth backend :: IAM', function () {
         });
 
         it('Should throw InvalidAWSCredentialsError without credentials', function* () {
-            expect(() => instantiate(null)).to.throw(errors.InvalidAWSCredentialsError);
-            expect(() => instantiate(undefined)).to.throw(errors.InvalidAWSCredentialsError);
+            expect(() => instantiate(null)).to.throw(InvalidAWSCredentialsError);
+            expect(() => instantiate(undefined)).to.throw(InvalidAWSCredentialsError);
         });
     });
 });
