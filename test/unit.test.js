@@ -5,7 +5,7 @@ const chai = require('chai');
 const expect = chai.expect;
 
 const VaultClient = require('../src/VaultClient');
-const InvalidArgumentsError = require('../src/errors/invalid.arguments.error');
+const VaultErr = require('../src/errors');
 
 describe('Unit tests', function () {
 
@@ -27,7 +27,7 @@ describe('Unit tests', function () {
 
         expect(VaultClient.get('tst')).to.equal(i);
 
-        expect(() => VaultClient.boot('tst', bootOpts)).to.throw(InvalidArgumentsError, 'Instance with such name already booted');
+        expect(() => VaultClient.boot('tst', bootOpts)).to.throw(VaultErr.InvalidArgumentsError, 'Instance with such name already booted');
 
 
         const i2 = VaultClient.boot('tst2', bootOpts);
