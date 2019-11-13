@@ -6,6 +6,8 @@ env:
   - VAULT_VERSION=0.7.2
   - VAULT_VERSION=0.8.2
   - VAULT_VERSION=0.9.6
+  - VAULT_VERSION=1.0.1
+  - VAULT_VERSION=1.2.4
 before_install:
   - sudo apt-get install -y unzip curl
   - curl -fL "https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_amd64.zip" > /tmp/vault.zip
