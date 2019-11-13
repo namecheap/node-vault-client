@@ -16,4 +16,4 @@ install:
   - npm install
   - npm install config
 script:
-  - travis_wait 20 npm test
+  - npm test
