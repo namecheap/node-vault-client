@@ -11,8 +11,6 @@
     "src"
   ],
   "scripts": {
-    "lint": "eslint src/**",
-    "lint:fix": "eslint src/** --fix",
     "test": "mocha test/**/*.test.js",
     "version": "git add -A ."
   },
@@ -38,10 +36,7 @@
     "chai": "^3.5.0",
     "co-mocha": "^1.2.2",
     "deep-freeze": "^0.0.1",
-    "eslint": "^6.6.0",
-    "eslint-config-airbnb-base": "^14.0.0",
-    "eslint-plugin-import": "^2.18.2",
-    "mocha": "^6.2.2",
+    "mocha": "^3.5.3",
     "sinon": "^2.4.1",
     "sinon-chai": "^2.14.0"
   }

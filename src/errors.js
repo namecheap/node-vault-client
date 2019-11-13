@@ -1,7 +1,17 @@
-const VaultError = require('./errors/vault.error');
-const InvalidArgumentsError = require('./errors/invalid.arguments.error');
-const InvalidAWSCredentialsError = require('./errors/invalid.aws.credentials.error');
-const AuthTokenExpiredError = require('./errors/auth.token.expired.error');
+'use strict';
+
+class VaultError extends Error {
+    constructor(message, error) {
+        super(message);
+        this.name = this.constructor.name;
+        this.message = message;
+
+        Error.captureStackTrace(this, this.constructor.name);
+    }
+}
+class InvalidArgumentsError extends VaultError {}
+class InvalidAWSCredentialsError extends InvalidArgumentsError {}
+class AuthTokenExpiredError extends VaultError {}
 
 module.exports = {
     VaultError,

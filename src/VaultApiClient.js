@@ -1,9 +1,11 @@
+'use strict';
 
 const rp = require('request-promise');
 const urljoin = require('url-join');
 const _ = require('lodash');
 
 class VaultApiClient {
+
     /**
      * @param {Object} config
      * @param {String} config.url - the url of the vault server
@@ -23,7 +25,7 @@ class VaultApiClient {
         headers = headers === undefined ? {} : headers;
 
         const requestOptions = {
-            method,
+            method: method,
             body: data === null ? undefined : data,
             uri: urljoin(this.__config.url, this.__config.apiVersion, path),
             followRedirects: true,
@@ -35,7 +37,7 @@ class VaultApiClient {
         this._logger.debug(
             'making request: %s %s',
             requestOptions.method,
-            requestOptions.uri,
+            requestOptions.uri
         );
 
         return rp(requestOptions)
@@ -43,7 +45,8 @@ class VaultApiClient {
                 this._logger.debug('%s %s response body:\n%s',
                     requestOptions.method,
                     requestOptions.uri,
-                    JSON.stringify(response, null, ' '));
+                    JSON.stringify(response, null, ' ')
+                );
                 return response;
             });
     }
