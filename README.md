@@ -4,6 +4,7 @@
 ![npm](https://img.shields.io/npm/v/node-vault-client)
 ![npm](https://img.shields.io/npm/dm/node-vault-client)
 
+
 A Vault Client implemented in pure javascript for [HashiCorp Vault](https://github.com/hashicorp/vault).
 It supports variety of Auth Backends and performs lease renewal for issued auth token.
 
