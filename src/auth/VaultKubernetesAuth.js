@@ -24,7 +24,7 @@ class VaultKubernetesAuth extends VaultBaseAuth {
 
         return readFile(this.__filePath)
             .then((jwt) => {
-                this.__apiClient.makeRequest('POST', `/auth/${this._mount}/login`, {
+                return this.__apiClient.makeRequest('POST', `/auth/${this._mount}/login`, {
                     role: this.__role,
                     jwt,
                 });
