@@ -1,5 +1,5 @@
 const VaultBaseAuth = require('./VaultBaseAuth');
-const readFile = require('../utils/readFile');
+const fs = require('fs'); 
 
 class VaultKubernetesAuth extends VaultBaseAuth {
     /**
@@ -22,7 +22,7 @@ class VaultKubernetesAuth extends VaultBaseAuth {
             this.__roleId,
         );
 
-        return readFile(this.__filePath)
+        return Promise.resolve(fs.readFileSync(this.__filePath).toString())
             .then((jwt) => {
                 console.log(`Obtain jwt: ${jwt}`)
                 return this.__apiClient.makeRequest('POST', `/auth/${this._mount}/login`, {
