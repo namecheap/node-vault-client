@@ -147,7 +147,7 @@ class VaultClient {
                     api,
                     this.__log,
                     authConfig.config,
-                    authConfig.mount,
+                    authConfig.mount
                 );
         }
 
