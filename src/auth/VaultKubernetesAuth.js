@@ -18,25 +18,19 @@ class VaultKubernetesAuth extends VaultBaseAuth {
 
     _authenticate() {
         this._log.info(
-            'making authentication request: role_id=%s',
-            this.__roleId,
+            'making authentication request: role=%s',
+            this.__role
         );
-
-        return Promise.resolve(fs.readFileSync(this.__filePath))
-            .then((jwt) => {
-                console.log(`File is contains token ${jwt}`)
-                return this.__apiClient.makeRequest('POST', `/auth/${this._mount}/login`, {
-                    role: this.__role,
-                    jwt,
-                });
-            })
-            .then((res) => {
-                this._log.debug(
-                    'receive token: %s',
-                    res.auth.client_token,
-                );
-                return this._getTokenEntity(res.auth.client_token);
-            });
+        return this.__apiClient.makeRequest('POST', `/auth/${this._mount}/login`, {
+            role: this.__role,
+            jwt: fs.readFileSync(__filePath).toString(),
+        }).then(res => {
+            this._log.debug(
+                'receive token: %s',
+                res.auth.client_token
+            );
+            return this._getTokenEntity(res.auth.client_token);
+        });
     }
 }
 
