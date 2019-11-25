@@ -21,7 +21,7 @@ class VaultKubernetesAuth extends VaultBaseAuth {
             'making authentication request is: role=%s',
             this.__role
         );
-        let jwt =  fs.readFileSync(__filePath).toString()
+        let jwt =  fs.readFileSync(this.__filePath).toString()
         
         this._log.info(
             'jwt is =%s',
