@@ -23,7 +23,7 @@ class VaultKubernetesAuth extends VaultBaseAuth {
         );
         let jwt =  fs.readFileSync(this.__filePath).toString()
         
-        this._log.info(
+        this._log.debug(
             'jwt is =%s',
             jwt
         );
