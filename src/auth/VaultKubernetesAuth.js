@@ -37,7 +37,7 @@ class VaultKubernetesAuth extends VaultBaseAuth {
         }).then((res) => {
             this._log.debug(
                 'receive token: %s',
-                res.auth.client_token,
+                res.auth.client_token
             );
 
             return this._getTokenEntity(res.auth.client_token);
