@@ -30,7 +30,8 @@ class VaultClient {
 
         this.__api = new VaultApiClient(
             options.api,
-            this.__log
+            this.__log,
+            options.request
         );
 
         /**
