@@ -1,6 +1,6 @@
 {
   "name": "node-vault-client-axios",
-  "version": "0.5.6",
+  "version": "0.6.0",
   "description": "A Vault Client implemented in pure javascript for HashiCorp Vault. It supports variety of Auth Backends and performs lease renewal for issued auth token.",
   "repository": "github:mhassan1/node-vault-client",
   "engines": {
