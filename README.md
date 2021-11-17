@@ -1,15 +1,13 @@
-# Node.js Vault Client
-
-[![Build Status](https://travis-ci.org/namecheap/node-vault-client.svg?branch=master)](https://travis-ci.org/namecheap/node-vault-client)
-![npm](https://img.shields.io/npm/v/node-vault-client)
-![npm](https://img.shields.io/npm/dm/node-vault-client)
+# Node.js Vault Client (`node-vault-client-axios`)
 
 A Vault Client implemented in pure javascript for [HashiCorp Vault](https://github.com/hashicorp/vault).
-It supports variety of Auth Backends and performs lease renewal for issued auth token.
+It supports a variety of Auth Backends and performs lease renewal for issued auth token.
+
+This is a fork of [node-vault-client](https://github.com/namecheap/node-vault-client).
 
 ## Install
 ```
-npm install --save node-vault-client
+npm install --save node-vault-client-axios
 ```
 
 ## Example
