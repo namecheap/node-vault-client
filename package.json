@@ -28,8 +28,8 @@
     "url-join": "^2.0.5"
   },
   "peerDependencies": {
-    "config": "1.x",
-    "aws-sdk": "^2.67.0"
+    "aws-sdk": "^2.67.0",
+    "config": "1.x"
   },
   "peerDependenciesMeta": {
     "config": {
@@ -40,12 +40,11 @@
     }
   },
   "devDependencies": {
-    "aws-sdk": "^2.544.0",
-    "chai": "^3.5.0",
-    "co-mocha": "^1.2.2",
+    "aws-sdk": "^2.1030.0",
+    "chai": "^4.3.4",
     "deep-freeze": "^0.0.1",
-    "mocha": "^3.5.3",
-    "sinon": "^2.4.1",
-    "sinon-chai": "^2.14.0"
+    "mocha": "^9.1.3",
+    "sinon": "^4.5.0",
+    "sinon-chai": "^3.7.0"
   }
 }

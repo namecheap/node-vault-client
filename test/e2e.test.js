@@ -1,7 +1,5 @@
 'use strict';
 
-require('co-mocha');
-
 const deepFreeze = require('deep-freeze');
 const axios = require('axios');
 const _ = require('lodash');

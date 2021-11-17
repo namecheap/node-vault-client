@@ -1,7 +1,5 @@
 'use strict';
 
-require('co-mocha');
-
 const _ = require('lodash');
 const VaultClient = require('../src/VaultClient');
 const VaultApiClient = require('../src/VaultApiClient');
