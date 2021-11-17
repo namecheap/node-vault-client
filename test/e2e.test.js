@@ -3,7 +3,7 @@
 require('co-mocha');
 
 const deepFreeze = require('deep-freeze');
-const rp = require('request-promise');
+const axios = require('axios');
 const _ = require('lodash');
 const chai = require('chai');
 const expect = chai.expect;
@@ -96,10 +96,10 @@ describe('E2E', function () {
 
             const testData = {tst: 'testData', tstInt: 12345};
 
-            let tmpToken = yield rp({method: 'POST', uri: `${this.bootOpts.api.url}v1/auth/token/create-orphan`, body: {
+            let { data: tmpToken } = yield axios.request({method: 'POST', url: `${this.bootOpts.api.url}v1/auth/token/create-orphan`, data: {
                 period: 2,
                 explicit_max_ttl: 10,
-            }, json: true, headers: {'X-Vault-Token': this.bootOpts.auth.config.token}});
+            }, headers: {'X-Vault-Token': this.bootOpts.auth.config.token}});
             tmpToken = tmpToken.auth.client_token;
 
             const vaultClient = new VaultClient(_.merge({}, this.bootOpts, {auth: {config: {token: tmpToken}}}));
@@ -115,29 +115,29 @@ describe('E2E', function () {
 
     describe('Auth backends', function () {
         beforeEach(function* () {
-            yield rp({method: 'PUT', uri: `${this.bootOpts.api.url}v1/sys/policy/tst`, body: {
+            yield axios.request({method: 'PUT', url: `${this.bootOpts.api.url}v1/sys/policy/tst`, data: {
                 rules: 'path "*" {policy = "sudo"}',
-            }, json: true, headers: {'X-Vault-Token': this.bootOpts.auth.config.token}});
+            }, headers: {'X-Vault-Token': this.bootOpts.auth.config.token}});
         });
 
         describe('AppRole', function () {
             beforeEach(function* () {
-                yield rp({method: 'POST', uri: `${this.bootOpts.api.url}v1/sys/auth/approle`, body: {
+                yield axios.request({method: 'POST', url: `${this.bootOpts.api.url}v1/sys/auth/approle`, data: {
                     type: 'approle',
-                }, json: true, headers: {'X-Vault-Token': this.bootOpts.auth.config.token}});
+                }, headers: {'X-Vault-Token': this.bootOpts.auth.config.token}});
             });
 
             it('without secret ID', function* () {
                 const testData = {tst: 'testData', tstInt: 12345};
 
 
-                yield rp({method: 'POST', uri: `${this.bootOpts.api.url}v1/auth/approle/role/tst`, body: {
+                yield axios.request({method: 'POST', url: `${this.bootOpts.api.url}v1/auth/approle/role/tst`, data: {
                     bind_secret_id: 'false',
                     bound_cidr_list: '127.0.0.1/32',
                     policies: 'tst'
-                }, json: true, headers: {'X-Vault-Token': this.bootOpts.auth.config.token}});
-                let roleId = yield rp({
-                    uri: `${this.bootOpts.api.url}v1/auth/approle/role/tst/role-id`, json: true,
+                }, headers: {'X-Vault-Token': this.bootOpts.auth.config.token}});
+                let { data: roleId } = yield axios.request({
+                    url: `${this.bootOpts.api.url}v1/auth/approle/role/tst/role-id`,
                     headers: {'X-Vault-Token': this.bootOpts.auth.config.token}
                 });
                 roleId = roleId.data.role_id;
@@ -154,17 +154,17 @@ describe('E2E', function () {
             it('with secret ID', function* () {
                 const testData = {tst: 'testData', tstInt: 12345};
 
-                yield rp({method: 'POST', uri: `${this.bootOpts.api.url}v1/auth/approle/role/tst`, body: {
+                yield axios.request({method: 'POST', url: `${this.bootOpts.api.url}v1/auth/approle/role/tst`, data: {
                     policies: 'tst'
-                }, json: true, headers: {'X-Vault-Token': this.bootOpts.auth.config.token}});
-                let roleId =  yield rp({
-                    uri: `${this.bootOpts.api.url}v1/auth/approle/role/tst/role-id`, json: true,
+                }, headers: {'X-Vault-Token': this.bootOpts.auth.config.token}});
+                let { data: roleId } =  yield axios.request({
+                    url: `${this.bootOpts.api.url}v1/auth/approle/role/tst/role-id`,
                     headers: {'X-Vault-Token': this.bootOpts.auth.config.token}
                 });
                 roleId = roleId.data.role_id;
-                let secretId = yield rp({
+                let { data: secretId } = yield axios.request({
                     method: 'POST',
-                    uri: `${this.bootOpts.api.url}v1/auth/approle/role/tst/secret-id`, json: true,
+                    url: `${this.bootOpts.api.url}v1/auth/approle/role/tst/secret-id`,
                     headers: {'X-Vault-Token': this.bootOpts.auth.config.token}
                 });
                 secretId = secretId.data.secret_id;

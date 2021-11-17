@@ -15,7 +15,7 @@ npm install --save node-vault-client
 ## Example
 
 ```javascript
-const VaultClient = require('node-vault-client');
+const VaultClient = require('node-vault-client-axios');
 
 const vaultClient = VaultClient.boot('main', {
     api: { url: 'https://vault.example.com:8200/' },
