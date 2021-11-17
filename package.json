@@ -7,6 +7,7 @@
     "node": ">=6.0.0"
   },
   "main": "src/VaultClient.js",
+  "types": "src/VaultClient.d.ts",
   "files": [
     "src"
   ],
