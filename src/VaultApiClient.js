@@ -1,6 +1,6 @@
 'use strict';
 
-const rp = require('request-promise');
+const axios = require('axios');
 const urljoin = require('url-join');
 const _ = require('lodash');
 
@@ -26,28 +26,25 @@ class VaultApiClient {
 
         const requestOptions = {
             method: method,
-            body: data === null ? undefined : data,
-            uri: urljoin(this.__config.url, this.__config.apiVersion, path),
-            followRedirects: true,
-            followAllRedirects: true,
+            data: data === null ? undefined : data,
+            url: urljoin(this.__config.url, this.__config.apiVersion, path),
             headers,
-            json: true,
         };
 
         this._logger.debug(
             'making request: %s %s',
             requestOptions.method,
-            requestOptions.uri
+            requestOptions.url
         );
 
-        return rp(requestOptions)
+        return axios.request(requestOptions)
             .then((response) => {
                 this._logger.debug('%s %s response body:\n%s',
                     requestOptions.method,
-                    requestOptions.uri,
-                    JSON.stringify(response, null, ' ')
+                    requestOptions.url,
+                    JSON.stringify(response.data, null, ' ')
                 );
-                return response;
+                return response.data;
             });
     }
 }
