@@ -7,8 +7,8 @@ export type Vault = {
   list: (path: string) => Promise<Lease>
 }
 
-type VaultClient = {
-  boot: (name: string, options: any) => Vault
+declare class VaultClient {
+  static boot: (name: string, options: any) => Vault
 }
 
 export default VaultClient
