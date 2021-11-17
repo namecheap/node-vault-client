@@ -31,6 +31,14 @@
     "config": "1.x",
     "aws-sdk": "^2.67.0"
   },
+  "peerDependenciesMeta": {
+    "config": {
+      "optional": true
+    },
+    "aws-sdk": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "aws-sdk": "^2.544.0",
     "chai": "^3.5.0",
