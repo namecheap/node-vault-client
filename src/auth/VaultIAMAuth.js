@@ -27,6 +27,7 @@ const errors = require('../errors');
  *           config: {
  *               role: 'my_iam_role',
  *               iam_server_id_header_value: VAULT_ADDR,   // Optional
+ *               namespace: 'some_namespace',              // Optional
  *               credentials: new AWS.Credentials({
  *                 accessKeyId: AWS_ACCESS_KEY,
  *                 secretAccessKey: AWS_SECRET_KEY,
@@ -55,6 +56,7 @@ class VaultIAMAuth extends VaultBaseAuth {
 
         this.__role = config.role;
         this.__iam_server_id_header_value = config.iam_server_id_header_value;
+        this.__namespace = config.namespace;
 
         if (!(config.credentials instanceof AWS.Credentials) && !_.isArray(config.credentials)) {
             throw new errors.InvalidAWSCredentialsError('Credentials must be provided. {AWS.Credentials|AWS.Credentials[]} or function-providers, which return them.')
@@ -78,13 +80,23 @@ class VaultIAMAuth extends VaultBaseAuth {
             this.__role
         );
 
+        var headers = {};
+
+        if (this.__namespace) {
+            headers = {
+                'X-Vault-Namespace': this.__namespace,
+            }
+        }
+
+
         return Promise.resolve()
             .then(() => this.__getCredentials())
             .then((credentials) => {
                 return this.__apiClient.makeRequest(
                     'POST',
                     `/auth/${this._mount}/login`,
-                    this.__getVaultAuthRequestBody(this.__getStsRequest(credentials))
+                    this.__getVaultAuthRequestBody(this.__getStsRequest(credentials)),
+                    headers
                 );
             })
             .then((response) => {

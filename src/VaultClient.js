@@ -41,6 +41,8 @@ class VaultClient {
             options.auth,
             this.__api
         );
+
+        this.__namespace = options.auth.config.namespace;
     }
 
     /**
@@ -163,6 +165,17 @@ class VaultClient {
         return vaultConf.populate();
     }
 
+    getHeaders() {
+        if (this.__namespace) {
+            return {
+                'X-Vault-Token': token.getId(),
+                'X-Vault-Namespace': this.__namespace
+            }
+        }
+
+        return {'X-Vault-Token': token.getId()}
+    }
+
     /**
      * Read secret from Vault
      * @param {string} path - path to the secret
@@ -171,7 +184,7 @@ class VaultClient {
     read(path) {
         this.__log.debug('read secret %s', path);
         return this.__auth.getAuthToken()
-            .then(token => this.__api.makeRequest('GET', path, null, {'X-Vault-Token': token.getId()}))
+            .then(token => this.__api.makeRequest('GET', path, null, this.getHeaders()))
             .then(res => {
                 this.__log.debug('receive secret %s', path);
                 return Lease.fromResponse(res);
@@ -191,7 +204,7 @@ class VaultClient {
     list(path) {
         this.__log.debug('list secrets %s', path);
         return this.__auth.getAuthToken()
-            .then(token => this.__api.makeRequest('LIST', path, null, {'X-Vault-Token': token.getId()}))
+            .then(token => this.__api.makeRequest('LIST', path, null, this.getHeaders()))
             .then(res => {
                 this.__log.debug('got secrets list %s', path);
                 return Lease.fromResponse(res);
@@ -212,7 +225,7 @@ class VaultClient {
     write(path, data) {
         this.__log.debug('write secret %s', path);
         return this.__auth.getAuthToken()
-            .then((token) => this.__api.makeRequest('POST', path, data, {'X-Vault-Token': token.getId()}))
+            .then((token) => this.__api.makeRequest('POST', path, data, this.getHeaders()))
             .then((response) => {
                 this.__log.debug('secret %s was written', path);
                 return response;
