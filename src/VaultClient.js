@@ -165,7 +165,7 @@ class VaultClient {
         return vaultConf.populate();
     }
 
-    getHeaders() {
+    getHeaders(token) {
         if (this.__namespace) {
             return {
                 'X-Vault-Token': token.getId(),
@@ -184,7 +184,7 @@ class VaultClient {
     read(path) {
         this.__log.debug('read secret %s', path);
         return this.__auth.getAuthToken()
-            .then(token => this.__api.makeRequest('GET', path, null, this.getHeaders()))
+            .then(token => this.__api.makeRequest('GET', path, null, this.getHeaders(token)))
             .then(res => {
                 this.__log.debug('receive secret %s', path);
                 return Lease.fromResponse(res);
@@ -204,7 +204,7 @@ class VaultClient {
     list(path) {
         this.__log.debug('list secrets %s', path);
         return this.__auth.getAuthToken()
-            .then(token => this.__api.makeRequest('LIST', path, null, this.getHeaders()))
+            .then(token => this.__api.makeRequest('LIST', path, null, this.getHeaders(token)))
             .then(res => {
                 this.__log.debug('got secrets list %s', path);
                 return Lease.fromResponse(res);
@@ -225,7 +225,7 @@ class VaultClient {
     write(path, data) {
         this.__log.debug('write secret %s', path);
         return this.__auth.getAuthToken()
-            .then((token) => this.__api.makeRequest('POST', path, data, this.getHeaders()))
+            .then((token) => this.__api.makeRequest('POST', path, data, this.getHeaders(token)))
             .then((response) => {
                 this.__log.debug('secret %s was written', path);
                 return response;
