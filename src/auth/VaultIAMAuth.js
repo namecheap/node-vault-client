@@ -2,6 +2,7 @@
 
 const VaultBaseAuth = require('./VaultBaseAuth');
 const aws4 = require('aws4');
+const { fromNodeProviderChain } = require('@aws-sdk/credential-providers');
 const _ = require('lodash');
 const errors = require('../errors');
 
@@ -28,47 +29,44 @@ const errors = require('../errors');
  *               role: 'my_iam_role',
  *               iam_server_id_header_value: VAULT_ADDR,   // Optional
  *               namespace: 'some_namespace',              // Optional
- *               credentials: new AWS.Credentials({
+ *               credentials: {                            // Optional
  *                 accessKeyId: AWS_ACCESS_KEY,
  *                 secretAccessKey: AWS_SECRET_KEY,
- *               })
+ *               },
  *           }
  *       }
  *   })
- *
  * ```
  *
  */
 class VaultIAMAuth extends VaultBaseAuth {
     /**
+     * @typedef AWSCredentials
+     * @property {String} accessKeyId
+     * @property {String} secretAccessKey
+     *
+     * @typedef {Object} VaultIAMAuthConfig
+     * @property {String} role - Role name of the auth/{mount}/role/{name} backend.
+     * @property [AWSCredentials] [credentials] - Optional. AWS Credentials
+     * @property {String} [iam_server_id_header_value] - Optional. Header's value X-Vault-AWS-IAM-Server-ID.
+     *
      * @param {VaultApiClient} api - see {@link VaultBaseAuth#constructor}
      * @param {Object} logger
-     * @param {Object} config
-     * @param {String} config.role - Role name of the auth/{mount}/role/{name} backend.
-     * @param {AWS.Credentials|AWS.Credentials[]} config.credentials {@see AWS.CredentialProviderChain providers}
-     * @param {String} [config.iam_server_id_header_value] - Optional. Header's value X-Vault-AWS-IAM-Server-ID.
+     * @param {VaultIAMAuthConfig} config
      * @param {String} mount - Vault's AWS Auth Backend mount point ("aws" by default)
      */
     constructor(api, logger, config, mount) {
         super(api, logger, mount || 'aws');
 
-        const AWS = require('aws-sdk');
-
         this.__role = config.role;
         this.__iam_server_id_header_value = config.iam_server_id_header_value;
         this.__namespace = config.namespace;
 
-        if (!(config.credentials instanceof AWS.Credentials) && !_.isArray(config.credentials)) {
-            throw new errors.InvalidAWSCredentialsError('Credentials must be provided. {AWS.Credentials|AWS.Credentials[]} or function-providers, which return them.')
-        }
 
-        const credentialsProviders = _.isArray(config.credentials)
-            ? config.credentials
-            : [config.credentials];
+        const { credentials } = config;
+        this._validateCredentialsConfig(credentials);
 
-        this.__credentialChain = new AWS.CredentialProviderChain(
-            credentialsProviders
-        );
+        this.__credentialChain = credentials ? () => Promise.resolve(credentials) : fromNodeProviderChain();
     }
 
     /**
@@ -109,17 +107,13 @@ class VaultIAMAuth extends VaultBaseAuth {
     }
 
     /**
-     * Credentials resolved by {@see AWS.CredentialProviderChain}
+     * Credentials resolved by {@see @aws-sdk/credential-providers}
      *
-     * @returns {Promise<AWS.Credentials>}
+     * @returns {Promise<AwsCredentialIdentity>}
      * @private
      */
     __getCredentials() {
-        return new Promise((resolve, reject) =>
-            this.__credentialChain.resolve((err, credentials) =>
-                err ? reject(err) : resolve(credentials)
-            )
-        );
+        return this.__credentialChain();
     }
 
     /**
@@ -176,6 +170,17 @@ class VaultIAMAuth extends VaultBaseAuth {
      */
     __headersLikeGolangStyle(headers) {
         return _.mapValues(headers, (value) => [`${value}`]);
+    }
+
+    _validateCredentialsConfig(credentials) {
+        if (Array.isArray(credentials)) {
+            throw new errors.InvalidAWSCredentialsError('Invalid AWS credentials provided in config. See CHANGELOG if migating from 0.x.x');
+        }
+        if (credentials && typeof credentials === 'object') {
+            if (!credentials.secretAccessKey || !credentials.accessKeyId) {
+                throw new errors.InvalidAWSCredentialsError('Invalid AWS credentials provided in config: accessKeyId and secretAccessKey are required.');
+            }
+        }
     }
 }
 
