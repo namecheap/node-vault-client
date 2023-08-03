@@ -1,10 +1,10 @@
 {
   "name": "node-vault-client",
-  "version": "0.6.1",
+  "version": "1.0.0",
   "description": "A Vault Client implemented in pure javascript for HashiCorp Vault. It supports variety of Auth Backends and performs lease renewal for issued auth token.",
   "repository": "github:namecheap/node-vault-client",
   "engines": {
-    "node": ">=6.0.0"
+    "node": ">=14.0.0"
   },
   "main": "src/VaultClient.js",
   "files": [
@@ -17,6 +17,7 @@
   "author": "Namecheap <opensource@namecheap.com>",
   "license": "Apache-2.0",
   "dependencies": {
+    "@aws-sdk/credential-providers": "^3.382.0",
     "assign-deep": "^1.0.1",
     "aws4": "^1.8.0",
     "bluebird": "^3.7.0",
@@ -28,11 +29,9 @@
     "url-join": "^2.0.5"
   },
   "peerDependencies": {
-    "config": ">=1 <4",
-    "aws-sdk": "^2.67.0"
+    "config": ">=1 <4"
   },
   "devDependencies": {
-    "aws-sdk": "^2.544.0",
     "chai": "^3.5.0",
     "co-mocha": "^1.2.2",
     "deep-freeze": "^0.0.1",
