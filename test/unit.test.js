@@ -27,7 +27,7 @@ describe('Unit tests', function () {
 
         expect(VaultClient.get('tst')).to.equal(i);
 
-        expect(() => VaultClient.boot('tst', bootOpts)).to.throw(VaultErr.InvalidArgumentsError, 'Instance with such name already booted');
+        expect(VaultClient.boot('tst')).to.equal(i);
 
 
         const i2 = VaultClient.boot('tst2', bootOpts);
