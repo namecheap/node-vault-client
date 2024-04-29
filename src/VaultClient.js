@@ -63,11 +63,8 @@ class VaultClient {
         let instance = vaultInstances[name];
         if (instance === undefined) {
             vaultInstances[name] = instance = new VaultClient(options);
-
-            return instance;
         }
-
-        throw new errors.InvalidArgumentsError('Instance with such name already booted');
+        return instance;
     }
 
     /**
