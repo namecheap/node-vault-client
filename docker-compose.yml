@@ -1,0 +1,10 @@
+services:
+  vault-server:
+    image: vault:1.13.3
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: 8274d2a1-c80c-ff56-c6ed-1b99f7bcea78
+    command: [ "server", "-dev-kv-v1" ]
+    cap_add:
+      - IPC_LOCK
+    ports:
+      - 127.0.0.1:8200:8200
