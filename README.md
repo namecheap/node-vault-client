@@ -1,6 +1,5 @@
 # Node.js Vault Client
 
-[![Build Status](https://travis-ci.org/namecheap/node-vault-client.svg?branch=master)](https://travis-ci.org/namecheap/node-vault-client)
 ![npm](https://img.shields.io/npm/v/node-vault-client)
 ![npm](https://img.shields.io/npm/dm/node-vault-client)
 
