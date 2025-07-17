@@ -17,16 +17,6 @@ const logger = _.fromPairs(
 );
 
 describe("AppRole auth backend", function () {
-  function base64decode(str) {
-    return Buffer.from(str, "base64").toString();
-  }
-
-  function getAuthorizationHeaderRegExp(awsAccessKey) {
-    return new RegExp(
-      `^AWS4-HMAC-SHA256\\sCredential=${awsAccessKey}.+Signature=\\w+$`,
-    );
-  }
-
   /**
    * @returns {VaultApiClient}
    */
