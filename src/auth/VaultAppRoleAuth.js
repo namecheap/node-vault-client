@@ -16,6 +16,7 @@ class VaultAppRoleAuth extends VaultBaseAuth {
 
         this.__roleId = config.role_id;
         this.__secretId = config.secret_id;
+        this.__namespace = config.namespace;
     }
 
     _authenticate() {
@@ -23,10 +24,16 @@ class VaultAppRoleAuth extends VaultBaseAuth {
             'making authentication request: role_id=%s',
             this.__roleId
         );
+
+        const headers = {};
+        if (this.__namespace) {
+            headers['X-Vault-Namespace'] = this.__namespace;
+        }
+
         return this.__apiClient.makeRequest('POST', `/auth/${this._mount}/login`, {
             role_id: this.__roleId,
             secret_id: this.__secretId,
-        }).then(res => {
+        }, headers).then(res => {
             this._log.debug(
                 'receive token: %s',
                 res.auth.client_token
