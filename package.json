@@ -13,8 +13,20 @@
     "src"
   ],
   "scripts": {
-    "test": "mocha test/**/*.test.js",
+    "test": "mocha \"test/**/*.test.js\"",
+    "test:unit": "mocha \"test/*.test.js\"",
+    "coverage": "c8 npm run test:unit",
     "version": "git add -A ."
+  },
+  "c8": {
+    "include": [
+      "src/**/*.js"
+    ],
+    "reporter": [
+      "text",
+      "html"
+    ],
+    "all": true
   },
   "author": "Namecheap <opensource@namecheap.com>",
   "license": "Apache-2.0",
@@ -34,6 +46,7 @@
     "config": ">=1 <4"
   },
   "devDependencies": {
+    "c8": "^11.0.0",
     "chai": "^3.5.0",
     "co-mocha": "^1.2.2",
     "deep-freeze": "^0.0.1",

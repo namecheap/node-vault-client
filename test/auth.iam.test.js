@@ -108,6 +108,32 @@ describe('Unit AWS auth backend :: IAM', function () {
                 expect(headers['Authorization'][0]).to.match(getAuthorizationHeaderRegExp('FAKE_AWS_ACCESS_KEY'));
             });
         })
+
+        it('Should set the namespace header when configured', function* () {
+            const api = getApiStub();
+
+            const auth = new VaultIAMAuth(
+                api,
+                logger,
+                {
+                    role: 'MyRole',
+                    namespace: 'ns1',
+                    credentials: {
+                        accessKeyId: 'FAKE_AWS_ACCESS_KEY',
+                        secretAccessKey: 'FAKE_AWS_SECRET_KEY',
+                    },
+                },
+                'fake_aws'
+            );
+
+            api.makeRequest.withArgs('POST').resolves({auth: {client_token: 'fake_token'}});
+            sinon.stub(auth, '_getTokenEntity');
+
+            yield auth._authenticate();
+
+            const args = api.makeRequest.getCall(0).args;
+            expect(args[3]).to.deep.equal({'X-Vault-Namespace': 'ns1'});
+        });
     });
 
     describe('Credentials', function () {
