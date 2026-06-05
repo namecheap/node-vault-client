@@ -101,7 +101,7 @@ class VaultClient {
             delete vaultInstances[name];
         } else {
             for (let k in vaultInstances) {
-                if (vaultInstances.hasOwnProperty(k)) {
+                if (Object.hasOwn(vaultInstances, k)) {
                     delete vaultInstances[k];
                 }
             }

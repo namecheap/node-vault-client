@@ -68,7 +68,7 @@ class VaultApiClient {
                 if (text) {
                     try {
                         body = JSON.parse(text);
-                    } catch (e) {
+                    } catch {
                         body = text;
                     }
                 }

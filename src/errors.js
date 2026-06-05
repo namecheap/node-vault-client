@@ -1,7 +1,7 @@
 'use strict';
 
 class VaultError extends Error {
-    constructor(message, error) {
+    constructor(message) {
         super(message);
         this.name = this.constructor.name;
         this.message = message;
