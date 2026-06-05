@@ -51,10 +51,10 @@ describe('Unit tests', function () {
         VaultClient.clear('primaryClient');
 
         expect(VaultClient.get('secondaryClient')).to.equal(secondaryClient);
-        expect(() => VaultClient.get('primaryClient')).to.throw('Invalid instance name');
+        expect(() => VaultClient.get('primaryClient')).to.throw(Error, 'Invalid instance name');
 
         VaultClient.clear('secondaryClient');
-        expect(() => VaultClient.get('secondaryClient')).to.throw('Invalid instance name');
+        expect(() => VaultClient.get('secondaryClient')).to.throw(Error, 'Invalid instance name');
     });
 
 });
