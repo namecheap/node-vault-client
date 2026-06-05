@@ -16,7 +16,7 @@ const logger = _.fromPairs(_.map(['error', 'warn', 'info', 'debug', 'trace'], (p
 describe('Unit AWS auth backend :: IAM', function () {
 
     function base64decode(str) {
-        return new Buffer(str, 'base64').toString();
+        return Buffer.from(str, 'base64').toString();
     }
 
     function getAuthorizationHeaderRegExp(awsAccessKey) {
@@ -184,5 +184,15 @@ describe('Unit AWS auth backend :: IAM', function () {
         it('Should throw InvalidAWSCredentialsError if credentials are an array', () => {
             expect(() => instantiate([])).to.throw(errors.InvalidAWSCredentialsError);
         })
+    });
+
+    describe('base64 encoding', function () {
+        it('encodes via Buffer.from (no deprecated new Buffer) and round-trips', function () {
+            const auth = new VaultIAMAuth(getApiStub(), logger, { role: 'MyRole' }, 'aws');
+            const input = 'Action=GetCallerIdentity&Version=2011-06-15';
+            const encoded = auth.__base64encode(input);
+            expect(encoded).to.equal(Buffer.from(input).toString('base64'));
+            expect(base64decode(encoded)).to.equal(input);
+        });
     });
 });
