@@ -27,7 +27,7 @@ class VaultApiClient {
 
         const options = {
             method: method,
-            headers: Object.assign({}, headers),
+            headers: Object.assign({ Accept: 'application/json' }, headers),
             redirect: 'follow',
         };
         if (data !== null) {

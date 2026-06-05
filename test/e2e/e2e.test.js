@@ -10,12 +10,15 @@ const chai = require('chai');
 async function rp(opts) {
     const response = await fetch(opts.uri, {
         method: opts.method || 'GET',
-        headers: Object.assign({}, opts.headers, opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        headers: Object.assign({ Accept: 'application/json' }, opts.headers, opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
         body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
         redirect: 'follow',
     });
     const text = await response.text();
-    const data = text ? JSON.parse(text) : undefined;
+    let data;
+    if (text) {
+        try { data = JSON.parse(text); } catch (e) { data = text; }
+    }
     if (!response.ok) {
         const error = new Error(`${response.status} - ${text}`);
         error.statusCode = response.status;
