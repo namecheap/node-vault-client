@@ -56,7 +56,11 @@ describe('Vault API conformance', function () {
             });
         });
 
-        after(function (done) { server.close(done); });
+        after(function (done) {
+            // fetch (undici) keeps sockets alive in a pool; drop them so close() returns
+            server.closeAllConnections();
+            server.close(done);
+        });
 
         it('prefixes the documented /v1 API version on the wire', function () {
             const api = new VaultApiClient({ url: baseUrl }, logger);
