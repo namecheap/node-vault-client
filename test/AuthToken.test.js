@@ -58,6 +58,66 @@ describe('AuthToken', function () {
         });
     });
 
+    describe('.fromResponse() expire_time handling', function () {
+        const epoch = (s) => Math.floor(Date.parse(s) / 1000);
+        function build(dataOverrides) {
+            return AuthToken.fromResponse({
+                data: Object.assign({
+                    id: 'tok-id',
+                    accessor: 'tok-accessor',
+                    creation_time: 1000,
+                    ttl: 3600,
+                    explicit_max_ttl: 0,
+                    num_uses: 0,
+                    renewable: true,
+                }, dataOverrides),
+            });
+        }
+
+        it('prefers the authoritative expire_time over creation_time + ttl', function () {
+            const token = build({ creation_time: 1000, ttl: 3600, expire_time: '2030-01-01T00:00:00Z' });
+            expect(token.getExpiresAt()).to.equal(epoch('2030-01-01T00:00:00Z') - 60);
+        });
+
+        it('does not subtract the margin when the remaining ttl is below the latency', function () {
+            const token = build({ ttl: 30, expire_time: '2030-01-01T00:00:00Z' });
+            expect(token.getExpiresAt()).to.equal(epoch('2030-01-01T00:00:00Z'));
+        });
+
+        it('uses expire_time for a token looked up long after issuance (the fix)', function () {
+            // Aged token: created long ago, only 100s of ttl remaining. The old code
+            // returned creation_time + remaining_ttl (wrong); the fix uses expire_time.
+            const token = build({ creation_time: 1000, ttl: 100, expire_time: '2031-06-01T12:00:00Z' });
+            expect(token.getExpiresAt()).to.equal(epoch('2031-06-01T12:00:00Z') - 60);
+            expect(token.getExpiresAt()).to.not.equal(1000 + 100);
+        });
+
+        it('parses Vault RFC3339 with nanoseconds and a timezone offset', function () {
+            const token = build({ ttl: 3600, expire_time: '2030-05-19T11:35:54.466476215-04:00' });
+            expect(token.getExpiresAt()).to.equal(epoch('2030-05-19T11:35:54.466476215-04:00') - 60);
+        });
+
+        it('falls back to creation_time + ttl when expire_time is absent', function () {
+            const token = build({ creation_time: 1000, ttl: 3600 });
+            expect(token.getExpiresAt()).to.equal(1000 + (3600 - 60));
+        });
+
+        it('falls back when expire_time is an empty string', function () {
+            const token = build({ creation_time: 1000, ttl: 3600, expire_time: '' });
+            expect(token.getExpiresAt()).to.equal(1000 + (3600 - 60));
+        });
+
+        it('falls back when expire_time is the Vault zero value', function () {
+            const token = build({ creation_time: 1000, ttl: 3600, expire_time: '0001-01-01T00:00:00Z' });
+            expect(token.getExpiresAt()).to.equal(1000 + (3600 - 60));
+        });
+
+        it('never expires when ttl is 0, even if expire_time is present', function () {
+            const token = build({ ttl: 0, expire_time: '2030-01-01T00:00:00Z' });
+            expect(token.getExpiresAt()).to.equal(null);
+        });
+    });
+
     describe('#isExpired()', function () {
         it('is never expired when there is no expiry', function () {
             const token = new AuthToken('id', 'acc', 0, null, 0, 0, false);
