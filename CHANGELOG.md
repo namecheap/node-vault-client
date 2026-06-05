@@ -1,5 +1,10 @@
 # Unreleased
 
+- Fix a process that never exits after reading with a renewable token. The background
+  token-refresh timer (`long-timeout`) kept the Node.js event loop alive with no way to stop
+  it. Add `VaultClient#close()` (and `VaultBaseAuth#cancelTokenRefresh()`) to cancel the timer
+  so short-lived scripts can exit; `VaultClient.clear()` now also closes the instances it
+  removes. Default behavior is unchanged — long-running servers keep renewing as before. Closes #31.
 - Add `api.requestOptions`, shallow-merged into every underlying `fetch()` request. Enables
   routing traffic through a proxy/SOCKS agent and trusting a self-signed / internal-CA Vault by
   passing an undici `dispatcher`. Closes #37 and #29.

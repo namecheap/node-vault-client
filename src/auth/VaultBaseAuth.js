@@ -69,6 +69,24 @@ class VaultBaseAuth {
     }
 
     /**
+     * Cancel any pending token-refresh timer.
+     *
+     * When a renewable token is fetched the client arms a `long-timeout` timer to renew it
+     * before it expires. That timer keeps the Node.js event loop alive, so a short-lived
+     * script never exits on its own. Call this (or {@link VaultClient#close}) once you are
+     * done with the client to release the event loop. Safe to call when no timer is armed
+     * and safe to call multiple times.
+     *
+     * @returns {void}
+     */
+    cancelTokenRefresh() {
+        if (this.__refreshTimeout !== null) {
+            lt.clearTimeout(this.__refreshTimeout);
+            this.__refreshTimeout = null;
+        }
+    }
+
+    /**
      * @protected
      * @returns {Promise<AuthToken>}
      */
