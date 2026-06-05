@@ -41,10 +41,11 @@
     "url-join": "^2.0.5"
   },
   "peerDependencies": {
-    "config": ">=1 <4"
+    "config": "^3.3.12"
   },
   "overrides": {
-    "serialize-javascript": "^7.0.5"
+    "serialize-javascript": "^7.0.5",
+    "glob": "^13.0.0"
   },
   "devDependencies": {
     "c8": "^11.0.0",
