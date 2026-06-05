@@ -9,6 +9,7 @@ chai.use(require('sinon-chai'));
 const VaultApiClient = require('../src/VaultApiClient');
 const VaultBaseAuth = require('../src/auth/VaultBaseAuth');
 const AuthToken = require('../src/auth/AuthToken');
+const errors = require('../src/errors');
 
 const logger = _.fromPairs(_.map(['error', 'warn', 'info', 'debug', 'trace'], (p) => [p, _.noop]));
 
@@ -104,22 +105,24 @@ describe('VaultBaseAuth', function () {
                 });
         });
 
-        // Documents current behaviour: when reauth is disallowed (e.g. token auth) an
-        // expired token is returned as-is. The AuthTokenExpiredError branch in the
-        // source is in fact unreachable given a deterministic _reauthenticationAllowed().
-        it('returns the expired token without re-authenticating when reauth is disallowed', function () {
+        // When reauth is disallowed (e.g. token auth) and the cached token has expired,
+        // getAuthToken rejects with AuthTokenExpiredError instead of silently handing
+        // back the expired token.
+        it('rejects with AuthTokenExpiredError when the cached token expired and reauth is disallowed', function () {
             const expired = new AuthToken('old', 'acc', 0, nowSec() - 100, 0, 0, false);
             const authStub = sinon.stub().resolves(expired);
             const auth = new TestAuth(apiStub(), 'mount', { authStub, reauth: false });
 
             return auth.getAuthToken()
                 .then((t1) => {
-                    expect(t1).to.equal(expired);
-                    return auth.getAuthToken();
-                })
-                .then((t2) => {
-                    expect(t2).to.equal(expired);
-                    expect(authStub).to.have.been.calledOnce;
+                    expect(t1).to.equal(expired); // first call authenticates & caches
+                    return auth.getAuthToken().then(
+                        () => { throw new Error('expected rejection'); },
+                        (err) => {
+                            expect(err).to.be.instanceOf(errors.AuthTokenExpiredError);
+                            expect(authStub).to.have.been.calledOnce; // did NOT re-authenticate
+                        }
+                    );
                 });
         });
 

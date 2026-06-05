@@ -275,22 +275,20 @@ describe('Vault API conformance', function () {
     });
 
     // -----------------------------------------------------------------------
-    // DEVIATION (documented here, not fixed): token expiry reconstruction.
+    // Token expiry.
     //
     // Vault's lookup-self response documents `expire_time` (RFC3339) as the
     // authoritative absolute expiry, alongside `creation_time` (unix seconds, when
     // the token was CREATED) and `ttl` (REMAINING seconds, counting down at lookup).
     //
-    // AuthToken.fromResponse ignores `expire_time` and reconstructs:
-    //     expiresAt = (last_renewal_time || creation_time) + (ttl - 60s margin)
-    //
-    // This is only accurate when lookup-self runs right after issuance/renewal
-    // (which is exactly this client's flow: login -> lookup-self, renew -> lookup-self).
-    // For a token looked up long after issuance it would be wrong, because it adds the
-    // *remaining* ttl to the *creation* time instead of using `expire_time`.
+    // AuthToken.fromResponse derives the expiry from `expire_time` (minus a 60s
+    // network-latency safety margin), falling back to
+    // `(last_renewal_time || creation_time) + ttl` only for responses that don't
+    // carry `expire_time`. Using `expire_time` is correct regardless of how long
+    // after issuance the lookup happens.
     // -----------------------------------------------------------------------
-    describe('token expiry reconstruction (current behaviour)', function () {
-        it('derives expiry from creation_time + ttl - 60s and ignores expire_time', function () {
+    describe('token expiry', function () {
+        it('derives expiry from the documented expire_time (minus the safety margin)', function () {
             const token = AuthToken.fromResponse({
                 data: {
                     id: 's.token',
@@ -298,14 +296,14 @@ describe('Vault API conformance', function () {
                     creation_time: 1600000000,
                     creation_ttl: 2764800,
                     ttl: 2764790,                       // remaining at lookup
-                    expire_time: '2020-10-16T00:00:00Z', // authoritative per docs — NOT used by the client
+                    expire_time: '2020-10-16T00:00:00Z', // authoritative per docs
                     explicit_max_ttl: 0,
                     num_uses: 0,
                     renewable: true,
                 },
             });
-            // 1600000000 + (2764790 - 60)
-            expect(token.getExpiresAt()).to.equal(1600000000 + (2764790 - 60));
+            // expire_time epoch (1602806400) minus the 60s margin, NOT creation_time + ttl
+            expect(token.getExpiresAt()).to.equal(Math.floor(Date.parse('2020-10-16T00:00:00Z') / 1000) - 60);
             expect(token.isRenewable()).to.equal(true);
         });
 
