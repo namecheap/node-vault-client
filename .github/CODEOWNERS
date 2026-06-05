@@ -1,0 +1,9 @@
+# Code owners for node-vault-client.
+#
+# GitHub automatically requests a review from the owners listed here when a
+# pull request changes matching files. With "Require review from Code Owners"
+# enabled in branch protection, their approval becomes mandatory before merge.
+#
+# The catch-all pattern below makes @wRLSS the default reviewer for every PR.
+
+* @wRLSS
