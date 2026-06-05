@@ -16,23 +16,26 @@ describe('Unit tests', function () {
     });
 
     it('should correctly boot/get/clear VaultClient instance', () => {
-        const client = VaultClient.boot('tst', bootOpts);
+        const client = VaultClient.boot('primaryClient', bootOpts);
 
         expect(client).to.be.instanceOf(VaultClient);
 
-        expect(VaultClient.get('tst')).to.equal(client);
+        expect(VaultClient.get('primaryClient')).to.equal(client);
 
-        expect(VaultClient.boot('tst', bootOpts)).to.equal(client);
+        expect(VaultClient.boot('primaryClient', bootOpts)).to.equal(client);
 
 
-        const secondClient = VaultClient.boot('tst2', bootOpts);
-        VaultClient.clear('tst');
+        const secondClient = VaultClient.boot('secondaryClient', bootOpts);
+        VaultClient.clear('primaryClient');
 
-        const recreatedClient = VaultClient.boot('tst', bootOpts);
+        const recreatedClient = VaultClient.boot('primaryClient', bootOpts);
         expect(recreatedClient).to.be.instanceOf(VaultClient);
         expect(recreatedClient).to.not.equal(client);
 
-        expect(VaultClient.get('tst2')).to.equal(secondClient);
+        expect(VaultClient.get('secondaryClient')).to.equal(secondClient);
+
+        VaultClient.clear('secondaryClient');
+        expect(() => VaultClient.get('secondaryClient')).to.throw();
     });
 
 });
