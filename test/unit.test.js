@@ -21,22 +21,23 @@ describe('Unit tests', function () {
     });
 
     it('should correctly boot/get/clear VaultClient instance', () => {
-        const i = VaultClient.boot('tst', bootOpts);
+        const client = VaultClient.boot('tst', bootOpts);
 
-        expect(i).to.be.instanceOf(VaultClient);
+        expect(client).to.be.instanceOf(VaultClient);
 
-        expect(VaultClient.get('tst')).to.equal(i);
+        expect(VaultClient.get('tst')).to.equal(client);
 
-        expect(VaultClient.boot('tst', bootOpts)).to.equal(i);
+        expect(VaultClient.boot('tst', bootOpts)).to.equal(client);
 
 
-        const i2 = VaultClient.boot('tst2', bootOpts);
+        const secondClient = VaultClient.boot('tst2', bootOpts);
         VaultClient.clear('tst');
 
-        const inew = VaultClient.boot('tst', bootOpts);
-        expect(inew).to.be.instanceOf(VaultClient);
+        const recreatedClient = VaultClient.boot('tst', bootOpts);
+        expect(recreatedClient).to.be.instanceOf(VaultClient);
+        expect(recreatedClient).to.not.equal(client);
 
-        expect(VaultClient.get('tst2')).to.equal(i2);
+        expect(VaultClient.get('tst2')).to.equal(secondClient);
     });
 
 

@@ -9,10 +9,10 @@ class VaultTokenAuth extends VaultBaseAuth {
      * @param {Object} connConfig - see {@link VaultBaseAuth#constructor}
      * @param {Object} config
      * @param {String} config.token
-     * @param {String} mount - Vault's  mount point ("token" by default)
+     * @param {String} mount - Vault's mount point ("token" by default)
      */
-    constructor(connConfig, logger, config, mount) {
-        super(connConfig, logger, mount || 'token');
+    constructor(apiClient, logger, config, mount) {
+        super(apiClient, logger, mount || 'token');
 
         if (!config.token) {
             throw new errors.InvalidArgumentsError('Auth token should be provided for VaultTokenAuth');

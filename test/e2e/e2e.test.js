@@ -92,8 +92,6 @@ describe('E2E', function () {
     });
 
     it('should handle empty custom-vault-variables', async function () {
-        const testData = Object.freeze({tstStr: 'testData', tstInt: 12345});
-
         const vaultClient = new VaultClient(this.bootOpts);
 
         process.env.NODE_CONFIG_DIR = `${__dirname}/../data/config-empty`;
