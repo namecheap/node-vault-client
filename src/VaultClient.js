@@ -98,13 +98,35 @@ class VaultClient {
      */
     static clear(name) {
         if (typeof name === 'string') {
-            delete vaultInstances[name];
+            const instance = vaultInstances[name];
+            if (instance !== undefined) {
+                instance.close();
+                delete vaultInstances[name];
+            }
         } else {
             for (let k in vaultInstances) {
                 if (Object.hasOwn(vaultInstances, k)) {
+                    vaultInstances[k].close();
                     delete vaultInstances[k];
                 }
             }
+        }
+    }
+
+    /**
+     * Release resources held by this client.
+     *
+     * Cancels the background auth-token refresh timer that keeps the Node.js event loop
+     * alive for renewable tokens. Call this once you are done with the client so a
+     * short-lived script can exit on its own. Safe to call when no timer is armed and
+     * safe to call multiple times. After calling `close()` the client may still be used;
+     * the next operation that fetches a renewable token will arm a new refresh timer.
+     *
+     * @returns {void}
+     */
+    close() {
+        if (this.__auth && typeof this.__auth.cancelTokenRefresh === 'function') {
+            this.__auth.cancelTokenRefresh();
         }
     }
 

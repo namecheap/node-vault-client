@@ -48,6 +48,7 @@ vaultClient.read('secret/tst').then(v => {
         * [.read(path)](#VaultClient+read) ⇒ <code>Promise.&lt;Lease&gt;</code>
         * [.list(path)](#VaultClient+list) ⇒ <code>Promise.&lt;Lease&gt;</code>
         * [.write(path, data)](#VaultClient+write) ⇒ <code>Promise.&lt;(T\|never)&gt;</code>
+        * [.close()](#VaultClient+close)
     * _static_
         * [.boot(name, [options])](#VaultClient.boot) ⇒
         * [.get(name)](#VaultClient.get) ⇒
@@ -141,6 +142,27 @@ Writes data to Vault
 | --- | --- | --- |
 | path |  | path used to write data |
 | data | <code>object</code> | data to write |
+
+<a name="VaultClient+close"></a>
+
+#### vaultClient.close()
+Release resources held by this client.
+
+This client performs lease renewal for renewable auth tokens by arming a background timer.
+That timer keeps the Node.js event loop alive, so a short-lived script (e.g. a one-off
+`read`) never exits on its own. Call `close()` once you are done with the client to cancel
+the timer and let the process exit. It is null-safe and safe to call multiple times. The
+client may still be used afterwards — the next operation that fetches a renewable token
+will arm a new refresh timer.
+
+```javascript
+const vaultClient = VaultClient.boot('main', { /* ... */ });
+const secret = await vaultClient.read('secret/tst');
+console.log(secret);
+vaultClient.close(); // process can now exit
+```
+
+**Kind**: instance method of [<code>VaultClient</code>](#VaultClient)  
 
 <a name="VaultClient.boot"></a>
 

@@ -189,6 +189,34 @@ describe('VaultBaseAuth', function () {
                 });
         });
 
+        it('cancelTokenRefresh() clears the armed timer so no further renewal fires', function () {
+            const renewable = new AuthToken('rid', 'racc', 0, 100, 0, 0, true);
+            const api = apiStub();
+            api.makeRequest.resolves({});
+            const auth = new TestAuth(api, 'mount', { authStub: sinon.stub().resolves(renewable) });
+            sinon.stub(auth, '_getTokenEntity').resolves(nonRenewableToken('rid2'));
+
+            return auth.getAuthToken()
+                .then(() => {
+                    expect(auth.__refreshTimeout).to.not.equal(null);
+                    auth.cancelTokenRefresh();
+                    expect(auth.__refreshTimeout).to.equal(null);
+                    // Advancing well past the original renewal point must not trigger a renewal.
+                    clock.tick(200000);
+                    return flush();
+                })
+                .then(() => {
+                    expect(api.makeRequest).to.not.have.been.called;
+                });
+        });
+
+        it('cancelTokenRefresh() is a no-op when no timer is armed and is safe to call twice', function () {
+            const auth = new TestAuth(apiStub(), 'mount');
+            expect(auth.__refreshTimeout).to.equal(null);
+            expect(() => { auth.cancelTokenRefresh(); auth.cancelTokenRefresh(); }).to.not.throw();
+            expect(auth.__refreshTimeout).to.equal(null);
+        });
+
         it('logs and reschedules when a renewal fails', function () {
             const renewable = new AuthToken('rid', 'racc', 0, 100, 0, 0, true);
             const api = apiStub();

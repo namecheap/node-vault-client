@@ -65,6 +65,43 @@ describe('VaultClient', function () {
         });
     });
 
+    describe('#close()', function () {
+        it('delegates to the auth provider\'s cancelTokenRefresh', function () {
+            const client = new VaultClient(bootOpts());
+            const cancel = sinon.stub();
+            client.__auth = { cancelTokenRefresh: cancel };
+            client.close();
+            expect(cancel).to.have.been.calledOnce;
+        });
+
+        it('is null-safe when the auth provider lacks cancelTokenRefresh', function () {
+            const client = new VaultClient(bootOpts());
+            client.__auth = {};
+            expect(() => client.close()).to.not.throw();
+            client.__auth = null;
+            expect(() => client.close()).to.not.throw();
+        });
+    });
+
+    describe('static clear() releases timers', function () {
+        it('calls close() on a single named instance before removing it', function () {
+            const i = VaultClient.boot('a', bootOpts());
+            const spy = sinon.spy(i, 'close');
+            VaultClient.clear('a');
+            expect(spy).to.have.been.calledOnce;
+        });
+
+        it('calls close() on every instance when clearing all', function () {
+            const a = VaultClient.boot('a', bootOpts());
+            const b = VaultClient.boot('b', bootOpts());
+            const sa = sinon.spy(a, 'close');
+            const sb = sinon.spy(b, 'close');
+            VaultClient.clear();
+            expect(sa).to.have.been.calledOnce;
+            expect(sb).to.have.been.calledOnce;
+        });
+    });
+
     describe('auth provider selection', function () {
         const cases = [
             ['token', { token: 'tok' }, VaultTokenAuth],
