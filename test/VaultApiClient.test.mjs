@@ -1,13 +1,11 @@
-'use strict';
+import http from 'http';
+import _ from 'lodash';
+import sinon from 'sinon';
+import { expect, use } from 'chai';
+import sinonChai from 'sinon-chai';
+import VaultApiClient from '../src/VaultApiClient.js';
 
-const http = require('http');
-const _ = require('lodash');
-const sinon = require('sinon');
-const chai = require('chai');
-const expect = chai.expect;
-chai.use(require('sinon-chai'));
-
-const VaultApiClient = require('../src/VaultApiClient');
+use(sinonChai);
 
 const logger = _.fromPairs(_.map(['error', 'warn', 'info', 'debug', 'trace'], (prop) => [prop, _.noop]));
 
@@ -38,7 +36,6 @@ describe('VaultApiClient', function () {
     });
 
     after(function (done) {
-        // fetch (undici) keeps sockets alive in a pool; drop them so close() returns
         server.closeAllConnections();
         server.close(done);
     });
@@ -96,7 +93,6 @@ describe('VaultApiClient', function () {
             const api = new VaultApiClient({ url: baseUrl }, _.assign({}, logger, { debug }));
             return api.makeRequest('GET', '/secret/foo').then(() => {
                 expect(debug).to.have.been.calledWith('making request: %s %s', 'GET', `${baseUrl}/v1/secret/foo`);
-                // second debug call logs the response body
                 expect(debug.callCount).to.be.at.least(2);
             });
         });
@@ -146,7 +142,6 @@ describe('VaultApiClient', function () {
                 expect(fetchStub).to.have.been.calledOnce;
                 const options = fetchStub.firstCall.args[1];
                 expect(options.dispatcher).to.equal(dispatcher);
-                // request semantics still win over requestOptions
                 expect(options.method).to.equal('GET');
                 expect(options.headers.Accept).to.equal('application/json');
             }).finally(() => fetchStub.restore());

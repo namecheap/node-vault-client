@@ -1,19 +1,17 @@
-'use strict';
+import _ from 'lodash';
+import sinon from 'sinon';
+import { expect, use } from 'chai';
+import sinonChai from 'sinon-chai';
+import VaultClient from '../src/VaultClient.js';
+import VaultNodeConfig from '../src/VaultNodeConfig.js';
+import Lease from '../src/Lease.js';
+import VaultTokenAuth from '../src/auth/VaultTokenAuth.js';
+import VaultAppRoleAuth from '../src/auth/VaultAppRoleAuth.js';
+import VaultIAMAuth from '../src/auth/VaultIAMAuth.js';
+import VaultKubernetesAuth from '../src/auth/VaultKubernetesAuth.js';
+import errors from '../src/errors.js';
 
-const _ = require('lodash');
-const sinon = require('sinon');
-const chai = require('chai');
-const expect = chai.expect;
-chai.use(require('sinon-chai'));
-
-const VaultClient = require('../src/VaultClient');
-const VaultNodeConfig = require('../src/VaultNodeConfig');
-const Lease = require('../src/Lease');
-const VaultTokenAuth = require('../src/auth/VaultTokenAuth');
-const VaultAppRoleAuth = require('../src/auth/VaultAppRoleAuth');
-const VaultIAMAuth = require('../src/auth/VaultIAMAuth');
-const VaultKubernetesAuth = require('../src/auth/VaultKubernetesAuth');
-const errors = require('../src/errors');
+use(sinonChai);
 
 function bootOpts(overrides) {
     return _.merge({
@@ -62,6 +60,43 @@ describe('VaultClient', function () {
             VaultClient.clear();
             expect(() => VaultClient.get('a')).to.throw();
             expect(() => VaultClient.get('b')).to.throw();
+        });
+    });
+
+    describe('#close()', function () {
+        it('delegates to the auth provider\'s cancelTokenRefresh', function () {
+            const client = new VaultClient(bootOpts());
+            const cancel = sinon.stub();
+            client.__auth = { cancelTokenRefresh: cancel };
+            client.close();
+            expect(cancel).to.have.been.calledOnce;
+        });
+
+        it('is null-safe when the auth provider lacks cancelTokenRefresh', function () {
+            const client = new VaultClient(bootOpts());
+            client.__auth = {};
+            expect(() => client.close()).to.not.throw();
+            client.__auth = null;
+            expect(() => client.close()).to.not.throw();
+        });
+    });
+
+    describe('static clear() releases timers', function () {
+        it('calls close() on a single named instance before removing it', function () {
+            const i = VaultClient.boot('a', bootOpts());
+            const spy = sinon.spy(i, 'close');
+            VaultClient.clear('a');
+            expect(spy).to.have.been.calledOnce;
+        });
+
+        it('calls close() on every instance when clearing all', function () {
+            const a = VaultClient.boot('a', bootOpts());
+            const b = VaultClient.boot('b', bootOpts());
+            const sa = sinon.spy(a, 'close');
+            const sb = sinon.spy(b, 'close');
+            VaultClient.clear();
+            expect(sa).to.have.been.calledOnce;
+            expect(sb).to.have.been.calledOnce;
         });
     });
 

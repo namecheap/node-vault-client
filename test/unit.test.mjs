@@ -1,11 +1,6 @@
-'use strict';
-
-const deepFreeze = require('deep-freeze');
-const chai = require('chai');
-const expect = chai.expect;
-
-const VaultClient = require('../src/VaultClient');
-const VaultErr = require('../src/errors');
+import deepFreeze from 'deep-freeze';
+import { expect } from 'chai';
+import VaultClient from '../src/VaultClient.js';
 
 describe('Unit tests', function () {
 
@@ -39,7 +34,5 @@ describe('Unit tests', function () {
 
         expect(VaultClient.get('tst2')).to.equal(secondClient);
     });
-
-
 
 });

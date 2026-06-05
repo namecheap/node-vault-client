@@ -1,15 +1,13 @@
-'use strict';
+import _ from 'lodash';
+import sinon from 'sinon';
+import { expect, use } from 'chai';
+import sinonChai from 'sinon-chai';
+import VaultApiClient from '../src/VaultApiClient.js';
+import VaultBaseAuth from '../src/auth/VaultBaseAuth.js';
+import AuthToken from '../src/auth/AuthToken.js';
+import errors from '../src/errors.js';
 
-const _ = require('lodash');
-const sinon = require('sinon');
-const chai = require('chai');
-const expect = chai.expect;
-chai.use(require('sinon-chai'));
-
-const VaultApiClient = require('../src/VaultApiClient');
-const VaultBaseAuth = require('../src/auth/VaultBaseAuth');
-const AuthToken = require('../src/auth/AuthToken');
-const errors = require('../src/errors');
+use(sinonChai);
 
 const logger = _.fromPairs(_.map(['error', 'warn', 'info', 'debug', 'trace'], (p) => [p, _.noop]));
 
@@ -19,7 +17,6 @@ function apiStub() {
 
 const nowSec = () => Math.floor(Date.now() / 1000);
 
-// Minimal concrete subclass so we can drive the abstract base class behaviour.
 class TestAuth extends VaultBaseAuth {
     constructor(api, mount, opts) {
         super(api, logger, mount);
@@ -105,9 +102,6 @@ describe('VaultBaseAuth', function () {
                 });
         });
 
-        // When reauth is disallowed (e.g. token auth) and the cached token has expired,
-        // getAuthToken rejects with AuthTokenExpiredError instead of silently handing
-        // back the expired token.
         it('rejects with AuthTokenExpiredError when the cached token expired and reauth is disallowed', function () {
             const expired = new AuthToken('old', 'acc', 0, nowSec() - 100, 0, 0, false);
             const authStub = sinon.stub().resolves(expired);
@@ -115,12 +109,12 @@ describe('VaultBaseAuth', function () {
 
             return auth.getAuthToken()
                 .then((t1) => {
-                    expect(t1).to.equal(expired); // first call authenticates & caches
+                    expect(t1).to.equal(expired);
                     return auth.getAuthToken().then(
                         () => { throw new Error('expected rejection'); },
                         (err) => {
                             expect(err).to.be.instanceOf(errors.AuthTokenExpiredError);
-                            expect(authStub).to.have.been.calledOnce; // did NOT re-authenticate
+                            expect(authStub).to.have.been.calledOnce;
                         }
                     );
                 });
@@ -169,9 +163,8 @@ describe('VaultBaseAuth', function () {
         });
 
         it('schedules and performs a renewal for a renewable token', function () {
-            // fake "now" == 0; expiresAt == 100s => timer == ((100-0)/2)*1000 == 50000ms
             const renewable = new AuthToken('rid', 'racc', 0, 100, 0, 0, true);
-            const renewed = nonRenewableToken('rid2'); // non-renewable so the loop stops
+            const renewed = nonRenewableToken('rid2');
             const api = apiStub();
             api.makeRequest.resolves({});
             const auth = new TestAuth(api, 'mount', { authStub: sinon.stub().resolves(renewable) });
@@ -187,6 +180,34 @@ describe('VaultBaseAuth', function () {
                     expect(api.makeRequest).to.have.been.calledWith('POST', '/auth/token/renew-self', null, { 'X-Vault-Token': 'rid' });
                     expect(auth._getTokenEntity).to.have.been.calledWith('rid');
                 });
+        });
+
+        it('cancelTokenRefresh() clears the armed timer so no further renewal fires', function () {
+            const renewable = new AuthToken('rid', 'racc', 0, 100, 0, 0, true);
+            const api = apiStub();
+            api.makeRequest.resolves({});
+            const auth = new TestAuth(api, 'mount', { authStub: sinon.stub().resolves(renewable) });
+            sinon.stub(auth, '_getTokenEntity').resolves(nonRenewableToken('rid2'));
+
+            return auth.getAuthToken()
+                .then(() => {
+                    expect(auth.__refreshTimeout).to.not.equal(null);
+                    auth.cancelTokenRefresh();
+                    expect(auth.__refreshTimeout).to.equal(null);
+                    // Advancing well past the original renewal point must not trigger a renewal.
+                    clock.tick(200000);
+                    return flush();
+                })
+                .then(() => {
+                    expect(api.makeRequest).to.not.have.been.called;
+                });
+        });
+
+        it('cancelTokenRefresh() is a no-op when no timer is armed and is safe to call twice', function () {
+            const auth = new TestAuth(apiStub(), 'mount');
+            expect(auth.__refreshTimeout).to.equal(null);
+            expect(() => { auth.cancelTokenRefresh(); auth.cancelTokenRefresh(); }).to.not.throw();
+            expect(auth.__refreshTimeout).to.equal(null);
         });
 
         it('logs and reschedules when a renewal fails', function () {

@@ -1,15 +1,14 @@
-'use strict';
-
 // Silence node-config's "no configuration directory" warning during the run.
 process.env.SUPPRESS_NO_CONFIG_WARNING = 'true';
 
-const path = require('path');
-const sinon = require('sinon');
-const chai = require('chai');
-const expect = chai.expect;
+import path from 'path';
+import { fileURLToPath } from 'url';
+import sinon from 'sinon';
+import { expect } from 'chai';
+import VaultNodeConfig from '../src/VaultNodeConfig.js';
+import errors from '../src/errors.js';
 
-const VaultNodeConfig = require('../src/VaultNodeConfig');
-const errors = require('../src/errors');
+const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
 const CONFIG_BASE = path.join(__dirname, 'data', 'config-base');
 const CONFIG_NOT_OBJECT = path.join(__dirname, 'data', 'config-not-object');

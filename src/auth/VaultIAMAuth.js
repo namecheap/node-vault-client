@@ -29,6 +29,7 @@ const errors = require('../errors');
  *               role: 'my_iam_role',
  *               iam_server_id_header_value: VAULT_ADDR,   // Optional
  *               namespace: 'some_namespace',              // Optional
+ *               region: 'eu-central-1',                   // Optional. AWS STS region.
  *               credentials: {                            // Optional
  *                 accessKeyId: AWS_ACCESS_KEY,
  *                 secretAccessKey: AWS_SECRET_KEY,
@@ -47,8 +48,14 @@ class VaultIAMAuth extends VaultBaseAuth {
      *
      * @typedef {Object} VaultIAMAuthConfig
      * @property {String} role - Role name of the auth/{mount}/role/{name} backend.
-     * @property [AWSCredentials] [credentials] - Optional. AWS Credentials
+     * @property {AWSCredentials} [credentials] - Optional. AWS Credentials
+     * @property {String} [namespace] - Optional. Vault namespace, sent as the X-Vault-Namespace header.
      * @property {String} [iam_server_id_header_value] - Optional. Header's value X-Vault-AWS-IAM-Server-ID.
+     * @property {String} [region] - Optional. AWS region used to sign the STS GetCallerIdentity
+     *   request. When set, the request is signed against the regional STS endpoint
+     *   (`sts.<region>.amazonaws.com`) and the SigV4 credential scope is bound to that region.
+     *   When omitted, the global endpoint (`sts.amazonaws.com`, scope `us-east-1`) is used,
+     *   preserving the previous default behavior.
      *
      * @param {VaultApiClient} api - see {@link VaultBaseAuth#constructor}
      * @param {Object} logger
@@ -61,6 +68,7 @@ class VaultIAMAuth extends VaultBaseAuth {
         this.__role = config.role;
         this.__iam_server_id_header_value = config.iam_server_id_header_value;
         this.__namespace = config.namespace;
+        this.__region = config.region;
 
 
         const { credentials } = config;
@@ -130,7 +138,11 @@ class VaultIAMAuth extends VaultBaseAuth {
                 JSON.stringify(this.__headersLikeGolangStyle(stsRequest.headers))
             ),
             iam_request_body: this.__base64encode(stsRequest.body),
-            iam_request_url: this.__base64encode(`https://${stsRequest.hostname}${stsRequest.path}`),
+            // `aws4` populates `hostname` for the default (global) endpoint, but
+            // `host` when an explicit host is supplied (regional endpoint). Use
+            // whichever is present so the URL sent to Vault matches the signed
+            // Host header.
+            iam_request_url: this.__base64encode(`https://${stsRequest.host || stsRequest.hostname}${stsRequest.path}`),
             role: this.__role
         }
     }
@@ -142,14 +154,27 @@ class VaultIAMAuth extends VaultBaseAuth {
      * @private
      */
     __getStsRequest(credentials) {
-        return aws4.sign({
+        const request = {
             service: 'sts',
             method: 'POST',
             body: 'Action=GetCallerIdentity&Version=2011-06-15',
             headers: this.__iam_server_id_header_value ? {
                 'X-Vault-AWS-IAM-Server-ID': this.__iam_server_id_header_value,
             } : {}
-        }, credentials);
+        };
+
+        // When a region is configured, sign the request against the regional STS
+        // endpoint. Both the SigV4 credential scope (via `region`) and the signed
+        // Host header / request URL (via `host`) must reference the same region,
+        // otherwise Vault's STS replay fails with `SignatureDoesNotMatch`.
+        // When omitted, `aws4` defaults to the global endpoint (`sts.amazonaws.com`,
+        // scope `us-east-1`), preserving the previous behavior.
+        if (this.__region) {
+            request.region = this.__region;
+            request.host = `sts.${this.__region}.amazonaws.com`;
+        }
+
+        return aws4.sign(request, credentials);
     }
 
     /**
