@@ -65,10 +65,44 @@ Client constructor function.
 | options.api | <code>Object</code> |  |  |
 | options.api.url | <code>String</code> |  | the url of the vault server |
 | [options.api.apiVersion] | <code>String</code> | `v1` |  |
+| [options.api.requestOptions] | <code>Object</code> |  | extra options merged into every HTTP request (see [Custom transport](#custom-transport-proxy--self-signed-tls)) |
 | options.auth | <code>Object</code> |  |  |
 | options.auth.type | <code>String</code> |  |  |
 | options.auth.config | <code>Object</code> |  | auth configuration variables |
 | options.logger | <code>Object</code> | `false` |  | Logger that supports "error", "info", "warn", "trace", "debug" methods. Uses `console` by default. Pass `false` to disable logging. |
+
+##### Custom transport (proxy / self-signed TLS)
+
+`options.api.requestOptions` is shallow-merged into every underlying `fetch()` call, so you
+can route traffic through a proxy/SOCKS agent or trust a self-signed / internal-CA Vault.
+Pass an [undici](https://undici.nodejs.org/) `dispatcher` (request semantics like `method`
+and `body` always win; `headers` are merged with per-request headers taking precedence):
+
+```javascript
+const { Agent, ProxyAgent } = require('undici');
+
+// Trust an internal/self-signed CA (preferred over disabling verification)
+const vaultClient = VaultClient.boot('main', {
+    api: {
+        url: 'https://vault.internal:8200/',
+        requestOptions: {
+            dispatcher: new Agent({ connect: { ca: require('fs').readFileSync('/etc/ssl/internal-ca.pem') } }),
+        },
+    },
+    auth: { type: 'token', config: { token: '...' } },
+});
+
+// Route through an HTTP proxy / SOCKS agent
+const proxied = VaultClient.boot('proxied', {
+    api: { url: 'https://vault.example.com:8200/', requestOptions: { dispatcher: new ProxyAgent('http://proxy:8080') } },
+    auth: { type: 'token', config: { token: '...' } },
+});
+```
+
+For the self-signed-CA case you can also use the process-wide `NODE_EXTRA_CA_CERTS=/path/ca.pem`
+env var with no code change. Only disable verification
+(`new Agent({ connect: { rejectUnauthorized: false } })`) in throwaway/dev setups — it removes
+MITM protection.
 
 #### vaultClient.fillNodeConfig()
 Populates Vault's values to NPM "config" module
