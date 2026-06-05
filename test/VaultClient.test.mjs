@@ -1,19 +1,17 @@
-'use strict';
+import _ from 'lodash';
+import sinon from 'sinon';
+import { expect, use } from 'chai';
+import sinonChai from 'sinon-chai';
+import VaultClient from '../src/VaultClient.js';
+import VaultNodeConfig from '../src/VaultNodeConfig.js';
+import Lease from '../src/Lease.js';
+import VaultTokenAuth from '../src/auth/VaultTokenAuth.js';
+import VaultAppRoleAuth from '../src/auth/VaultAppRoleAuth.js';
+import VaultIAMAuth from '../src/auth/VaultIAMAuth.js';
+import VaultKubernetesAuth from '../src/auth/VaultKubernetesAuth.js';
+import errors from '../src/errors.js';
 
-const _ = require('lodash');
-const sinon = require('sinon');
-const chai = require('chai');
-const expect = chai.expect;
-chai.use(require('sinon-chai'));
-
-const VaultClient = require('../src/VaultClient');
-const VaultNodeConfig = require('../src/VaultNodeConfig');
-const Lease = require('../src/Lease');
-const VaultTokenAuth = require('../src/auth/VaultTokenAuth');
-const VaultAppRoleAuth = require('../src/auth/VaultAppRoleAuth');
-const VaultIAMAuth = require('../src/auth/VaultIAMAuth');
-const VaultKubernetesAuth = require('../src/auth/VaultKubernetesAuth');
-const errors = require('../src/errors');
+use(sinonChai);
 
 function bootOpts(overrides) {
     return _.merge({

@@ -1,9 +1,5 @@
-'use strict';
-
-const chai = require('chai');
-const expect = chai.expect;
-
-const errors = require('../src/errors');
+import { expect } from 'chai';
+import errors from '../src/errors.js';
 
 describe('errors', function () {
     it('exposes the expected error classes', function () {
