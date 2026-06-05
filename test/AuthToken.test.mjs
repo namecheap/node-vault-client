@@ -1,9 +1,5 @@
-'use strict';
-
-const chai = require('chai');
-const expect = chai.expect;
-
-const AuthToken = require('../src/auth/AuthToken');
+import { expect } from 'chai';
+import AuthToken from '../src/auth/AuthToken.js';
 
 const nowSec = () => Math.floor(Date.now() / 1000);
 
@@ -85,8 +81,6 @@ describe('AuthToken', function () {
         });
 
         it('uses expire_time for a token looked up long after issuance (the fix)', function () {
-            // Aged token: created long ago, only 100s of ttl remaining. The old code
-            // returned creation_time + remaining_ttl (wrong); the fix uses expire_time.
             const token = build({ creation_time: 1000, ttl: 100, expire_time: '2031-06-01T12:00:00Z' });
             expect(token.getExpiresAt()).to.equal(epoch('2031-06-01T12:00:00Z') - 60);
             expect(token.getExpiresAt()).to.not.equal(1000 + 100);

@@ -1,9 +1,5 @@
-'use strict';
-
-const chai = require('chai');
-const expect = chai.expect;
-
-const Lease = require('../src/Lease');
+import { expect } from 'chai';
+import Lease from '../src/Lease.js';
 
 describe('Lease', function () {
     const response = {

@@ -1,15 +1,13 @@
-'use strict';
+import fs from 'fs';
+import _ from 'lodash';
+import sinon from 'sinon';
+import { expect, use } from 'chai';
+import sinonChai from 'sinon-chai';
+import VaultApiClient from '../src/VaultApiClient.js';
+import VaultKubernetesAuth from '../src/auth/VaultKubernetesAuth.js';
+import AuthToken from '../src/auth/AuthToken.js';
 
-const fs = require('fs');
-const _ = require('lodash');
-const sinon = require('sinon');
-const chai = require('chai');
-const expect = chai.expect;
-chai.use(require('sinon-chai'));
-
-const VaultApiClient = require('../src/VaultApiClient');
-const VaultKubernetesAuth = require('../src/auth/VaultKubernetesAuth');
-const AuthToken = require('../src/auth/AuthToken');
+use(sinonChai);
 
 const logger = _.fromPairs(_.map(['error', 'warn', 'info', 'debug', 'trace'], (p) => [p, _.noop]));
 
