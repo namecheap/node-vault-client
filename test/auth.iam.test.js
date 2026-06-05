@@ -108,6 +108,75 @@ describe('Unit AWS auth backend :: IAM', function () {
             });
         })
 
+        it('Should target the regional STS endpoint and scope the signature to the region when `region` is set', async function () {
+            const api = getApiStub();
+
+            const auth = new VaultIAMAuth(
+                api,
+                logger,
+                {
+                    role: 'MyRole',
+                    iam_server_id_header_value: 'https://vault.fake.com',
+                    region: 'eu-central-1',
+                    credentials: {
+                        accessKeyId: 'FAKE_AWS_ACCESS_KEY',
+                        secretAccessKey: 'FAKE_AWS_SECRET_KEY',
+                    },
+                },
+                'fake_aws'
+            );
+
+            api.makeRequest.withArgs('POST').resolves({auth: {client_token: 'fake_token'}});
+            sinon.stub(auth, '_getTokenEntity');
+
+            await auth._authenticate();
+
+            const args = api.makeRequest.getCall(0).args;
+
+            // URL sent to Vault must point at the regional endpoint.
+            expect(base64decode(args[2].iam_request_url)).to.equal('https://sts.eu-central-1.amazonaws.com/');
+
+            const headers = JSON.parse(base64decode(args[2].iam_request_headers));
+
+            // Signed Host header must match the URL (otherwise Vault's STS replay fails).
+            expect(headers['Host']).to.deep.equal(['sts.eu-central-1.amazonaws.com']);
+
+            // SigV4 credential scope must be bound to the configured region.
+            expect(headers['Authorization'][0]).to.match(getAuthorizationHeaderRegExp('FAKE_AWS_ACCESS_KEY'));
+            expect(headers['Authorization'][0]).to.contain('/eu-central-1/sts/aws4_request');
+        });
+
+        it('Should preserve the global STS endpoint and us-east-1 scope when `region` is omitted', async function () {
+            const api = getApiStub();
+
+            const auth = new VaultIAMAuth(
+                api,
+                logger,
+                {
+                    role: 'MyRole',
+                    iam_server_id_header_value: 'https://vault.fake.com',
+                    credentials: {
+                        accessKeyId: 'FAKE_AWS_ACCESS_KEY',
+                        secretAccessKey: 'FAKE_AWS_SECRET_KEY',
+                    },
+                },
+                'fake_aws'
+            );
+
+            api.makeRequest.withArgs('POST').resolves({auth: {client_token: 'fake_token'}});
+            sinon.stub(auth, '_getTokenEntity');
+
+            await auth._authenticate();
+
+            const args = api.makeRequest.getCall(0).args;
+
+            expect(base64decode(args[2].iam_request_url)).to.equal('https://sts.amazonaws.com/');
+
+            const headers = JSON.parse(base64decode(args[2].iam_request_headers));
+            expect(headers['Authorization'][0]).to.match(getAuthorizationHeaderRegExp('FAKE_AWS_ACCESS_KEY'));
+            expect(headers['Authorization'][0]).to.contain('/us-east-1/sts/aws4_request');
+        });
+
         it('Should set the namespace header when configured', async function () {
             const api = getApiStub();
 
