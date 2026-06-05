@@ -32,11 +32,15 @@ class VaultBaseAuth {
     }
 
     getAuthToken() {
-        if (this.__authToken === null || (this.__authToken instanceof AuthToken && this.__authToken.isExpired() && this._reauthenticationAllowed())) {
-            if (this.__authToken !== null && this.__authToken.isExpired() && !this._reauthenticationAllowed()) {
-                throw new errors.AuthTokenExpiredError('Auth token has expired & cannot be refreshed since auth method doesn\'t support this.');
-            }
+        const tokenExpired = this.__authToken instanceof AuthToken && this.__authToken.isExpired();
 
+        if (tokenExpired && !this._reauthenticationAllowed()) {
+            return Promise.reject(new errors.AuthTokenExpiredError(
+                'Auth token has expired & cannot be refreshed since auth method doesn\'t support this.'
+            ));
+        }
+
+        if (this.__authToken === null || tokenExpired) {
             this._log.info('getting auth token (mount=%s)', this._mount);
 
             const tokenPromise = this._authenticate().then(authToken => {
