@@ -1,7 +1,10 @@
 # Node.js Vault Client
 
-![npm](https://img.shields.io/npm/v/node-vault-client)
-![npm](https://img.shields.io/npm/dm/node-vault-client)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/namecheap/node-vault-client/pipeline.yaml?branch=master&style=flat-square)](https://github.com/namecheap/node-vault-client/actions/workflows/pipeline.yaml)
+[![Download Status](https://img.shields.io/npm/dm/node-vault-client.svg?style=flat-square)](https://www.npmjs.com/package/node-vault-client)
+[![NPM Version](https://img.shields.io/npm/v/node-vault-client?style=flat-square)](https://www.npmjs.com/package/node-vault-client)
+[![License](https://img.shields.io/npm/l/node-vault-client?style=flat-square)](https://github.com/namecheap/node-vault-client/blob/master/LICENSE.txt)
+[![Dependency Status](https://img.shields.io/librariesio/release/npm/node-vault-client.svg?style=flat-square)](https://libraries.io/npm/node-vault-client/)
 
 A Vault Client implemented in pure javascript for [HashiCorp Vault](https://github.com/hashicorp/vault).
 It supports variety of Auth Backends and performs lease renewal for issued auth token.
