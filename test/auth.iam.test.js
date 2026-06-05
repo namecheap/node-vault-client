@@ -1,6 +1,5 @@
 'use strict';
 
-require('co-mocha');
 
 const _ = require('lodash');
 const VaultClient = require('../src/VaultClient');
@@ -32,7 +31,7 @@ describe('Unit AWS auth backend :: IAM', function () {
     }
 
     describe('Vault Request', function () {
-        it('Should make correctly vault login request', function* () {
+        it('Should make correctly vault login request', async function () {
             const api = getApiStub();
 
             const auth = new VaultIAMAuth(
@@ -52,7 +51,7 @@ describe('Unit AWS auth backend :: IAM', function () {
             api.makeRequest.withArgs('POST').resolves({auth: {client_token: 'fake_token'}});
             sinon.stub(auth, '_getTokenEntity');
 
-            yield auth._authenticate();
+            await auth._authenticate();
 
             const args = api.makeRequest.getCall(0).args;
             expect(args[0]).to.equal('POST');
@@ -78,7 +77,7 @@ describe('Unit AWS auth backend :: IAM', function () {
                 process.env.AWS_SECRET_ACCESS_KEY = originalSecretAccessKey;
                 process.env.AWS_ACCESS_KEY_ID = originalAccessKeyId;
             })
-            it('should take AWS credentials from environment variables when not passed explicitly', function* () {
+            it('should take AWS credentials from environment variables when not passed explicitly', async function () {
                 const api = getApiStub();
 
                 const auth = new VaultIAMAuth(
@@ -94,7 +93,7 @@ describe('Unit AWS auth backend :: IAM', function () {
                 api.makeRequest.withArgs('POST').resolves({auth: {client_token: 'fake_token'}});
                 sinon.stub(auth, '_getTokenEntity');
 
-                yield auth._authenticate();
+                await auth._authenticate();
 
                 const args = api.makeRequest.getCall(0).args;
                 expect(args[0]).to.equal('POST');
@@ -109,7 +108,7 @@ describe('Unit AWS auth backend :: IAM', function () {
             });
         })
 
-        it('Should set the namespace header when configured', function* () {
+        it('Should set the namespace header when configured', async function () {
             const api = getApiStub();
 
             const auth = new VaultIAMAuth(
@@ -129,7 +128,7 @@ describe('Unit AWS auth backend :: IAM', function () {
             api.makeRequest.withArgs('POST').resolves({auth: {client_token: 'fake_token'}});
             sinon.stub(auth, '_getTokenEntity');
 
-            yield auth._authenticate();
+            await auth._authenticate();
 
             const args = api.makeRequest.getCall(0).args;
             expect(args[3]).to.deep.equal({'X-Vault-Namespace': 'ns1'});
@@ -156,13 +155,13 @@ describe('Unit AWS auth backend :: IAM', function () {
             return {api, auth};
         }
 
-        it('Should work correctly with explicitly passed AWS credentials', function* () {
+        it('Should work correctly with explicitly passed AWS credentials', async function () {
             const instance = instantiate({
                 accessKeyId: 'FAKE_AWS_ACCESS_KEY',
                 secretAccessKey: 'FAKE_AWS_SECRET_KEY',
             });
 
-            yield instance.auth._authenticate();
+            await instance.auth._authenticate();
 
             const args = instance.api.makeRequest.getCall(0).args;
             const headers = JSON.parse(base64decode(args[2].iam_request_headers));
