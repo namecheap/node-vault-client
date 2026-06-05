@@ -119,5 +119,43 @@ describe('VaultApiClient', function () {
                 (err) => { expect(err.statusCode).to.equal(500); }
             );
         });
+
+        it('merges config.requestOptions.headers, with per-request headers taking precedence', function () {
+            const api = new VaultApiClient({
+                url: baseUrl,
+                requestOptions: { headers: { 'X-Custom': 'from-config', 'X-Vault-Token': 'config-tok' } },
+            }, logger);
+            return api.makeRequest('GET', '/secret/foo', null, { 'X-Vault-Token': 'call-tok' }).then(() => {
+                expect(lastRequest.headers['x-custom']).to.equal('from-config');
+                expect(lastRequest.headers['x-vault-token']).to.equal('call-tok');
+                expect(lastRequest.headers['accept']).to.equal('application/json');
+            });
+        });
+
+        it('forwards config.requestOptions (e.g. a custom dispatcher) into the fetch call', function () {
+            const dispatcher = { __sentinel: 'my-dispatcher' };
+            const fetchStub = sinon.stub(global, 'fetch').resolves(
+                new Response(JSON.stringify({ ok: true }), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                })
+            );
+            const api = new VaultApiClient({ url: baseUrl, requestOptions: { dispatcher } }, logger);
+            return api.makeRequest('GET', '/secret/foo').then((res) => {
+                expect(res).to.deep.equal({ ok: true });
+                expect(fetchStub).to.have.been.calledOnce;
+                const options = fetchStub.firstCall.args[1];
+                expect(options.dispatcher).to.equal(dispatcher);
+                // request semantics still win over requestOptions
+                expect(options.method).to.equal('GET');
+                expect(options.headers.Accept).to.equal('application/json');
+            }).finally(() => fetchStub.restore());
+        });
+
+        it('keeps a live requestOptions.dispatcher by reference (does not deep-clone it)', function () {
+            const dispatcher = { __sentinel: true };
+            const api = new VaultApiClient({ url: baseUrl, requestOptions: { dispatcher } }, logger);
+            expect(api.__config.requestOptions.dispatcher).to.equal(dispatcher);
+        });
     });
 });

@@ -1,3 +1,9 @@
+# Unreleased
+
+- Add `api.requestOptions`, shallow-merged into every underlying `fetch()` request. Enables
+  routing traffic through a proxy/SOCKS agent and trusting a self-signed / internal-CA Vault by
+  passing an undici `dispatcher`. Closes #37 and #29.
+
 # 1.0.0. Release notes (2023-08-02)
 
 - `aws-sdk` is no longer a peer dependency

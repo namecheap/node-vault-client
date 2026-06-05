@@ -9,12 +9,24 @@ class VaultApiClient {
      * @param {Object} config
      * @param {String} config.url - the url of the vault server
      * @param {String} [config.apiVersion='v1']
+     * @param {Object} [config.requestOptions] - extra options shallow-merged into every
+     *      `fetch()` call. Use it to inject an undici `dispatcher` for a proxy/SOCKS agent
+     *      or for custom TLS trust (self-signed / internal CA). Request-specific fields
+     *      (`method`, `body`) always take precedence; `headers` are merged with the
+     *      per-request headers winning. Stored by reference (not deep-cloned) so live
+     *      objects such as a Dispatcher keep their prototype and remain usable.
      * @param {Object} logger
      */
     constructor(config, logger) {
-        this.__config = _.defaultsDeep(_.cloneDeep(config), {
+        const requestOptions = config && config.requestOptions;
+
+        this.__config = _.defaultsDeep(_.cloneDeep(_.omit(config, ['requestOptions'])), {
             apiVersion: 'v1',
         });
+
+        if (requestOptions !== undefined) {
+            this.__config.requestOptions = requestOptions;
+        }
 
         this._logger = logger;
     }
@@ -25,11 +37,20 @@ class VaultApiClient {
 
         const uri = urljoin(this.__config.url, this.__config.apiVersion, path);
 
-        const options = {
-            method: method,
-            headers: Object.assign({ Accept: 'application/json' }, headers),
-            redirect: 'follow',
-        };
+        const requestOptions = this.__config.requestOptions || {};
+
+        const options = Object.assign(
+            { redirect: 'follow' },
+            requestOptions,
+            {
+                method: method,
+                headers: Object.assign(
+                    { Accept: 'application/json' },
+                    requestOptions.headers,
+                    headers
+                ),
+            }
+        );
         if (data !== null) {
             options.body = JSON.stringify(data);
             options.headers['Content-Type'] = 'application/json';
