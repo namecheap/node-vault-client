@@ -35,6 +35,10 @@ describe('Unit tests', function () {
         expect(VaultClient.get('primaryClient')).to.equal(client);
     });
 
+    it('should throw when getting a client that was never booted', () => {
+        expect(() => VaultClient.get('neverBootedClient')).to.throw(Error, 'Invalid instance name');
+    });
+
     it('should clear a client and allow re-creation', () => {
         const client = VaultClient.boot('primaryClient', bootOpts);
         VaultClient.clear('primaryClient');
