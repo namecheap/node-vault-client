@@ -13,7 +13,7 @@
     "src"
   ],
   "scripts": {
-    "test": "mocha \"test/**/*.test.js\"",
+    "test": "mocha --exit \"test/**/*.test.js\"",
     "test:unit": "mocha \"test/*.test.js\"",
     "coverage": "c8 npm run test:unit",
     "version": "git add -A ."
