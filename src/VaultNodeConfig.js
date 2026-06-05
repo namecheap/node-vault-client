@@ -1,7 +1,6 @@
 'use strict';
 
 const path = require('path');
-const fs = require('fs');
 const Bluebird = require('bluebird');
 const _ = require('lodash');
 const assignDeep = require('assign-deep');
@@ -15,7 +14,7 @@ class VaultNodeConfig {
 
         try {
             require.resolve('config');
-        } catch(e) {
+        } catch {
             throw new errors.VaultError(`NPM package "config" isn't installed`);
         }
 
@@ -73,7 +72,7 @@ class VaultNodeConfig {
         let fileContent;
         try {
             fileContent = require(fullFilename);
-        } catch (e) {
+        } catch {
             throw new errors.VaultError('Config file ' + fullFilename + ' cannot be read');
         }
 
@@ -86,7 +85,7 @@ class VaultNodeConfig {
 
     __traverse(o, func) {
         for (let i in o) {
-            if (!o.hasOwnProperty(i)) {
+            if (!Object.hasOwn(o, i)) {
                 continue;
             }
 
