@@ -1,43 +1,30 @@
-'use strict';
-
 /**
  * Conformance tests: validate the client against the documented HashiCorp Vault HTTP API.
- *
- * Each assertion is cross-referenced with the official Vault API documentation
- * (developer.hashicorp.com/vault/api-docs). These tests pin the on-the-wire contract
- * the client produces (HTTP verb, path, request body keys, headers) and the response
- * fields it consumes, so a regression against the documented Vault API fails loudly.
- *
- * NOTE: these are intentionally test-only. They document current behaviour (including the
- * token-expiry deviation called out at the bottom); they do not change src/.
  */
 
-const http = require('http');
-const _ = require('lodash');
-const sinon = require('sinon');
-const chai = require('chai');
-const expect = chai.expect;
-chai.use(require('sinon-chai'));
+import http from 'http';
+import fs from 'fs';
+import _ from 'lodash';
+import sinon from 'sinon';
+import { expect, use } from 'chai';
+import sinonChai from 'sinon-chai';
+import VaultClient from '../src/VaultClient.js';
+import VaultApiClient from '../src/VaultApiClient.js';
+import VaultBaseAuth from '../src/auth/VaultBaseAuth.js';
+import VaultAppRoleAuth from '../src/auth/VaultAppRoleAuth.js';
+import VaultIAMAuth from '../src/auth/VaultIAMAuth.js';
+import VaultKubernetesAuth from '../src/auth/VaultKubernetesAuth.js';
+import VaultTokenAuth from '../src/auth/VaultTokenAuth.js';
+import AuthToken from '../src/auth/AuthToken.js';
+import Lease from '../src/Lease.js';
 
-const VaultClient = require('../src/VaultClient');
-const VaultApiClient = require('../src/VaultApiClient');
-const VaultBaseAuth = require('../src/auth/VaultBaseAuth');
-const VaultAppRoleAuth = require('../src/auth/VaultAppRoleAuth');
-const VaultIAMAuth = require('../src/auth/VaultIAMAuth');
-const VaultKubernetesAuth = require('../src/auth/VaultKubernetesAuth');
-const VaultTokenAuth = require('../src/auth/VaultTokenAuth');
-const AuthToken = require('../src/auth/AuthToken');
-const Lease = require('../src/Lease');
+use(sinonChai);
 
 const logger = _.fromPairs(_.map(['error', 'warn', 'info', 'debug', 'trace'], (p) => [p, _.noop]));
 const apiStub = () => sinon.createStubInstance(VaultApiClient);
 const b64decode = (s) => Buffer.from(s, 'base64').toString();
 
 describe('Vault API conformance', function () {
-    // -----------------------------------------------------------------------
-    // Transport — every request is rooted at /{apiVersion}/... (default "v1").
-    // Ref: api-docs examples all use http://127.0.0.1:8200/v1/...
-    // -----------------------------------------------------------------------
     describe('transport (VaultApiClient)', function () {
         let server;
         let baseUrl;
@@ -57,7 +44,6 @@ describe('Vault API conformance', function () {
         });
 
         after(function (done) {
-            // fetch (undici) keeps sockets alive in a pool; drop them so close() returns
             server.closeAllConnections();
             server.close(done);
         });
@@ -70,11 +56,6 @@ describe('Vault API conformance', function () {
         });
     });
 
-    // -----------------------------------------------------------------------
-    // KV v1 verbs — read=GET, write=POST, list=LIST (the LIST HTTP verb).
-    // Ref: api-docs/secret/kv/kv-v1 — "List secrets: LIST /secret/:path
-    // (using the LIST HTTP verb, not GET)".
-    // -----------------------------------------------------------------------
     describe('KV v1 verbs (VaultClient)', function () {
         let client;
         const token = { getId: () => 'tid' };
@@ -108,11 +89,6 @@ describe('Vault API conformance', function () {
         });
     });
 
-    // -----------------------------------------------------------------------
-    // Standard secret response envelope.
-    // Ref: api-docs/secret/kv/kv-v1 read example: top-level lease_id,
-    // lease_duration, renewable, data; list returns data.keys (folders suffixed "/").
-    // -----------------------------------------------------------------------
     describe('secret response envelope (Lease)', function () {
         it('reads the documented read envelope fields', function () {
             const lease = Lease.fromResponse({
@@ -132,12 +108,6 @@ describe('Vault API conformance', function () {
         });
     });
 
-    // -----------------------------------------------------------------------
-    // Token auth method.
-    // Ref: api-docs/auth/token
-    //   lookup-self: GET  /auth/token/lookup-self  (X-Vault-Token header)
-    //   renew-self : POST /auth/token/renew-self   (X-Vault-Token header)
-    // -----------------------------------------------------------------------
     describe('token auth', function () {
         it('looks a token up via GET /auth/token/lookup-self', function () {
             const api = apiStub();
@@ -169,11 +139,6 @@ describe('Vault API conformance', function () {
         });
     });
 
-    // -----------------------------------------------------------------------
-    // AppRole auth method.
-    // Ref: api-docs/auth/approle — POST /auth/:mount/login with {role_id, secret_id};
-    // response auth.client_token.
-    // -----------------------------------------------------------------------
     describe('AppRole auth', function () {
         it('logs in with POST /auth/:mount/login and {role_id, secret_id}', function () {
             const api = apiStub();
@@ -182,19 +147,11 @@ describe('Vault API conformance', function () {
             const getEntity = sinon.stub(auth, '_getTokenEntity').resolves();
             return auth._authenticate().then(() => {
                 expect(api.makeRequest).to.have.been.calledWith('POST', '/auth/approle/login', { role_id: 'r', secret_id: 's' });
-                // consumes auth.client_token from the response
                 expect(getEntity).to.have.been.calledWith('ct');
             });
         });
     });
 
-    // -----------------------------------------------------------------------
-    // AWS IAM auth method.
-    // Ref: api-docs/auth/aws — POST /auth/:mount/login with role,
-    // iam_http_request_method, iam_request_url (b64 of https://sts.amazonaws.com/),
-    // iam_request_body (b64 of Action=GetCallerIdentity&Version=2011-06-15),
-    // iam_request_headers (b64 JSON). X-Vault-AWS-IAM-Server-ID must be a signed header.
-    // -----------------------------------------------------------------------
     describe('AWS IAM auth', function () {
         it('builds the documented sts:GetCallerIdentity login body', function () {
             const api = apiStub();
@@ -215,7 +172,6 @@ describe('Vault API conformance', function () {
                 expect(b64decode(body.iam_request_url)).to.equal('https://sts.amazonaws.com/');
                 expect(b64decode(body.iam_request_body)).to.equal('Action=GetCallerIdentity&Version=2011-06-15');
                 const headers = JSON.parse(b64decode(body.iam_request_headers));
-                // X-Vault-AWS-IAM-Server-ID present and signed (golang-style array value)
                 expect(headers['X-Vault-AWS-IAM-Server-ID']).to.deep.equal(['https://vault.example']);
                 expect(headers['Authorization'][0]).to.match(/^AWS4-HMAC-SHA256 /);
                 expect(getEntity).to.have.been.calledWith('ct');
@@ -223,16 +179,11 @@ describe('Vault API conformance', function () {
         });
     });
 
-    // -----------------------------------------------------------------------
-    // Kubernetes auth method.
-    // Ref: api-docs/auth/kubernetes — POST /auth/:mount/login with {role, jwt}.
-    // -----------------------------------------------------------------------
     describe('Kubernetes auth', function () {
         let readFileSync;
         afterEach(function () { if (readFileSync) { readFileSync.restore(); readFileSync = null; } });
 
         it('logs in with POST /auth/:mount/login and {role, jwt}', function () {
-            const fs = require('fs');
             readFileSync = sinon.stub(fs, 'readFileSync').returns(Buffer.from('signed-jwt'));
             const api = apiStub();
             api.makeRequest.resolves({ auth: { client_token: 'ct' } });
@@ -245,10 +196,6 @@ describe('Vault API conformance', function () {
         });
     });
 
-    // -----------------------------------------------------------------------
-    // Vault Enterprise namespaces.
-    // Ref: api-docs — namespace selection via the X-Vault-Namespace header.
-    // -----------------------------------------------------------------------
     describe('namespaces', function () {
         it('selects a namespace with the X-Vault-Namespace header on KV requests', function () {
             const client = new VaultClient({
@@ -274,19 +221,6 @@ describe('Vault API conformance', function () {
         });
     });
 
-    // -----------------------------------------------------------------------
-    // Token expiry.
-    //
-    // Vault's lookup-self response documents `expire_time` (RFC3339) as the
-    // authoritative absolute expiry, alongside `creation_time` (unix seconds, when
-    // the token was CREATED) and `ttl` (REMAINING seconds, counting down at lookup).
-    //
-    // AuthToken.fromResponse derives the expiry from `expire_time` (minus a 60s
-    // network-latency safety margin), falling back to
-    // `(last_renewal_time || creation_time) + ttl` only for responses that don't
-    // carry `expire_time`. Using `expire_time` is correct regardless of how long
-    // after issuance the lookup happens.
-    // -----------------------------------------------------------------------
     describe('token expiry', function () {
         it('derives expiry from the documented expire_time (minus the safety margin)', function () {
             const token = AuthToken.fromResponse({
@@ -295,14 +229,13 @@ describe('Vault API conformance', function () {
                     accessor: 'acc',
                     creation_time: 1600000000,
                     creation_ttl: 2764800,
-                    ttl: 2764790,                       // remaining at lookup
-                    expire_time: '2020-10-16T00:00:00Z', // authoritative per docs
+                    ttl: 2764790,
+                    expire_time: '2020-10-16T00:00:00Z',
                     explicit_max_ttl: 0,
                     num_uses: 0,
                     renewable: true,
                 },
             });
-            // expire_time epoch (1602806400) minus the 60s margin, NOT creation_time + ttl
             expect(token.getExpiresAt()).to.equal(Math.floor(Date.parse('2020-10-16T00:00:00Z') / 1000) - 60);
             expect(token.isRenewable()).to.equal(true);
         });

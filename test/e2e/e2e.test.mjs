@@ -1,9 +1,12 @@
-'use strict';
+import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
+import deepFreeze from 'deep-freeze';
+import _ from 'lodash';
+import { expect } from 'chai';
+import VaultClient from '../../src/VaultClient.js';
 
-
-const deepFreeze = require('deep-freeze');
-const _ = require('lodash');
-const chai = require('chai');
+const _require = createRequire(import.meta.url);
+const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
 // Minimal request-promise replacement built on the global fetch (Node >=18):
 // returns the parsed JSON body, throws on non-2xx.
@@ -17,7 +20,7 @@ async function rp(opts) {
     const text = await response.text();
     let data;
     if (text) {
-        try { data = JSON.parse(text); } catch (e) { data = text; }
+        try { data = JSON.parse(text); } catch { data = text; }
     }
     if (!response.ok) {
         const error = new Error(`${response.status} - ${text}`);
@@ -26,8 +29,6 @@ async function rp(opts) {
     }
     return data;
 }
-const expect = chai.expect;
-const VaultClient = require('../../src/VaultClient');
 
 describe('E2E', function () {
 
@@ -45,7 +46,7 @@ describe('E2E', function () {
     });
 
     afterEach(async function () {
-        delete require.cache[require.resolve('config')];
+        delete _require.cache[_require.resolve('config')];
     });
 
     it('Simple read/write', async function () {
@@ -82,7 +83,7 @@ describe('E2E', function () {
         await vaultClient.write('/secret/b', {tst: 'ZZZ'});
 
         process.env.NODE_CONFIG_DIR = `${__dirname}/../data/config-base`;
-        const config = require('config');
+        const config = _require('config');
 
         expect(JSON.parse(JSON.stringify(config))).to.deep.equal({deep: {aStr: '', aInt: 0}, b: 'NOT WORKING'});
 
@@ -97,7 +98,7 @@ describe('E2E', function () {
         const vaultClient = new VaultClient(this.bootOpts);
 
         process.env.NODE_CONFIG_DIR = `${__dirname}/../data/config-empty`;
-        const config = require('config');
+        const config = _require('config');
 
         expect(JSON.parse(JSON.stringify(config))).to.deep.equal({deep: {aStr: '', aInt: 0}, b: 'NOT WORKING'});
 
@@ -122,7 +123,7 @@ describe('E2E', function () {
 
             await vaultClient.write('/secret/tst-val', testData);
 
-            await new Promise(resolve => {setTimeout(() => resolve(), 2500)});
+            await new Promise(resolve => {setTimeout(() => resolve(), 2500);});
 
             const res = await vaultClient.read('secret/tst-val');
             expect(res.getData()).is.deep.equal(testData);
@@ -145,7 +146,6 @@ describe('E2E', function () {
                 }, json: true, headers: {'X-Vault-Token': this.bootOpts.auth.config.token}});
             });
 
-            // this test is quite hard to get right in the CI environment where CIDRs of the incoming traffic are unkonwn
             it.skip('without secret ID', async function () {
                 const testData = {tst: 'testData', tstInt: 12345};
 
@@ -168,7 +168,6 @@ describe('E2E', function () {
                     }
                 }));
 
-
                 await vaultClient.write('/secret/tst-val', testData);
 
                 const res = await vaultClient.read('secret/tst-val');
@@ -181,7 +180,7 @@ describe('E2E', function () {
                 await rp({method: 'POST', uri: `${this.bootOpts.api.url}v1/auth/${appRoleMount}/role/tst`, body: {
                     policies: 'tst'
                 }, json: true, headers: {'X-Vault-Token': this.bootOpts.auth.config.token}});
-                let roleId =  await rp({
+                let roleId = await rp({
                     uri: `${this.bootOpts.api.url}v1/auth/${appRoleMount}/role/tst/role-id`, json: true,
                     headers: {'X-Vault-Token': this.bootOpts.auth.config.token}
                 });
@@ -200,7 +199,6 @@ describe('E2E', function () {
                         config: {role_id: roleId, secret_id: secretId}
                     }
                 }));
-
 
                 await vaultClient.write('/secret/tst-val', testData);
 

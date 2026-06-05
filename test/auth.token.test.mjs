@@ -1,15 +1,13 @@
-'use strict';
+import _ from 'lodash';
+import sinon from 'sinon';
+import { expect, use } from 'chai';
+import sinonChai from 'sinon-chai';
+import VaultApiClient from '../src/VaultApiClient.js';
+import VaultTokenAuth from '../src/auth/VaultTokenAuth.js';
+import AuthToken from '../src/auth/AuthToken.js';
+import errors from '../src/errors.js';
 
-const _ = require('lodash');
-const sinon = require('sinon');
-const chai = require('chai');
-const expect = chai.expect;
-chai.use(require('sinon-chai'));
-
-const VaultApiClient = require('../src/VaultApiClient');
-const VaultTokenAuth = require('../src/auth/VaultTokenAuth');
-const AuthToken = require('../src/auth/AuthToken');
-const errors = require('../src/errors');
+use(sinonChai);
 
 const logger = _.fromPairs(_.map(['error', 'warn', 'info', 'debug', 'trace'], (p) => [p, _.noop]));
 
