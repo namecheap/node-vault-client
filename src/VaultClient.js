@@ -55,8 +55,8 @@ class VaultClient {
      * times with the same name will return the same instance.
      *
      * @param {String} name - Vault instance name
-     * @param {Object} [options] - options for {@link Vault#constructor}.
-     * @return Vault
+     * @param {Object} [options] - options for {@link VaultClient#constructor}.
+     * @return {VaultClient}
      */
     static boot(name, options) {
         if (options === undefined) {
@@ -77,7 +77,7 @@ class VaultClient {
      * times with the same name will return the same instance.
      *
      * @param {String} name - Vault instance name
-     * @return Vault
+     * @return {VaultClient}
      */
     static get(name) {
         let instance = vaultInstances[name];
@@ -240,9 +240,9 @@ class VaultClient {
     /**
      * Writes data to Vault
      *
-     * @param path - path used to write data
+     * @param {string} path - path used to write data
      * @param {object} data - data to write
-     * @returns {Promise<T | never>}
+     * @returns {Promise<Object>} the parsed Vault response body
      */
     write(path, data) {
         this.__log.debug('write secret %s', path);

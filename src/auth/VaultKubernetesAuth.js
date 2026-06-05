@@ -4,6 +4,7 @@ const VaultBaseAuth = require('./VaultBaseAuth');
 class VaultKubernetesAuth extends VaultBaseAuth {
     /**
      * @param {VaultApiClient} apiClient - see {@link VaultBaseAuth#constructor}
+     * @param {Object} logger
      * @param {Object} config
      * @param {String} config.role - Role configured in Vault Kubernetes Auth backend under which we want to issue Vault token.
      * @param {String} [config.tokenPath] - Path to the Kube JWT token. If omitted - default will be used.

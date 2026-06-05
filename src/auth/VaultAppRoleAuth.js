@@ -6,9 +6,11 @@ class VaultAppRoleAuth extends VaultBaseAuth {
 
     /**
      * @param {VaultApiClient} apiClient - see {@link VaultBaseAuth#constructor}
+     * @param {Object} logger
      * @param {Object} config
      * @param {String} config.role_id - RoleID of the AppRole.
      * @param {String} [config.secret_id] - required when bind_secret_id is enabled SecretID belonging to AppRole.
+     * @param {String} [config.namespace] - Optional. Vault namespace, sent as the X-Vault-Namespace header.
      * @param {String} mount - Vault's  mount point ("approle" by default)
      */
     constructor(apiClient, logger, config, mount) {
