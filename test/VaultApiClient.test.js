@@ -38,6 +38,8 @@ describe('VaultApiClient', function () {
     });
 
     after(function (done) {
+        // fetch (undici) keeps sockets alive in a pool; drop them so close() returns
+        server.closeAllConnections();
         server.close(done);
     });
 

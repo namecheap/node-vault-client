@@ -1,6 +1,5 @@
 'use strict';
 
-const rp = require('request-promise');
 const urljoin = require('url-join');
 const _ = require('lodash');
 
@@ -24,31 +23,50 @@ class VaultApiClient {
         data = data === undefined ? null : data;
         headers = headers === undefined ? {} : headers;
 
-        const requestOptions = {
+        const uri = urljoin(this.__config.url, this.__config.apiVersion, path);
+
+        const options = {
             method: method,
-            body: data === null ? undefined : data,
-            uri: urljoin(this.__config.url, this.__config.apiVersion, path),
-            followRedirects: true,
-            followAllRedirects: true,
-            headers,
-            json: true,
+            headers: Object.assign({ Accept: 'application/json' }, headers),
+            redirect: 'follow',
         };
+        if (data !== null) {
+            options.body = JSON.stringify(data);
+            options.headers['Content-Type'] = 'application/json';
+        }
 
         this._logger.debug(
             'making request: %s %s',
-            requestOptions.method,
-            requestOptions.uri
+            method,
+            uri
         );
 
-        return rp(requestOptions)
-            .then((response) => {
+        return fetch(uri, options).then((response) => {
+            return response.text().then((text) => {
+                let body;
+                if (text) {
+                    try {
+                        body = JSON.parse(text);
+                    } catch (e) {
+                        body = text;
+                    }
+                }
+
+                if (!response.ok) {
+                    const error = new Error(`${response.status} - ${text}`);
+                    error.statusCode = response.status;
+                    error.error = body;
+                    throw error;
+                }
+
                 this._logger.debug('%s %s response body:\n%s',
-                    requestOptions.method,
-                    requestOptions.uri,
-                    JSON.stringify(response, null, ' ')
+                    method,
+                    uri,
+                    JSON.stringify(body, null, ' ')
                 );
-                return response;
+                return body;
             });
+        });
     }
 }
 

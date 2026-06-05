@@ -2,9 +2,30 @@
 
 
 const deepFreeze = require('deep-freeze');
-const rp = require('request-promise');
 const _ = require('lodash');
 const chai = require('chai');
+
+// Minimal request-promise replacement built on the global fetch (Node >=18):
+// returns the parsed JSON body, throws on non-2xx.
+async function rp(opts) {
+    const response = await fetch(opts.uri, {
+        method: opts.method || 'GET',
+        headers: Object.assign({ Accept: 'application/json' }, opts.headers, opts.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+        redirect: 'follow',
+    });
+    const text = await response.text();
+    let data;
+    if (text) {
+        try { data = JSON.parse(text); } catch (e) { data = text; }
+    }
+    if (!response.ok) {
+        const error = new Error(`${response.status} - ${text}`);
+        error.statusCode = response.status;
+        throw error;
+    }
+    return data;
+}
 const expect = chai.expect;
 const VaultClient = require('../../src/VaultClient');
 

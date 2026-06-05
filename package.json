@@ -6,7 +6,7 @@
     "url": "git+https://github.com/namecheap/node-vault-client.git"
   },
   "engines": {
-    "node": ">=14.0.0"
+    "node": ">=18.0.0"
   },
   "main": "src/VaultClient.js",
   "files": [
@@ -38,12 +38,13 @@
     "lodash": "^4.17.15",
     "long-timeout": "^0.1.1",
     "pretty-ms": "^2.1.0",
-    "request": "^2.88.0",
-    "request-promise": "^4.2.4",
     "url-join": "^2.0.5"
   },
   "peerDependencies": {
     "config": ">=1 <4"
+  },
+  "overrides": {
+    "serialize-javascript": "^7.0.5"
   },
   "devDependencies": {
     "c8": "^11.0.0",
