@@ -15,6 +15,16 @@
 - Add `api.requestOptions`, shallow-merged into every underlying `fetch()` request. Enables
   routing traffic through a proxy/SOCKS agent and trusting a self-signed / internal-CA Vault by
   passing an undici `dispatcher`. Closes #37 and #29.
+- Replace the deprecated `request`/`request-promise` HTTP libraries with Node's native `fetch`.
+  Removes the `request` runtime dependency and clears the associated Dependabot/deprecation
+  alerts; this is the foundation for the new `api.requestOptions` (undici dispatcher) support.
+  Closes #59.
+- [BREAKING] Minimum supported Node.js is now 18.0.0 (was 14.0.0); the client relies on native `fetch`.
+- Auth token: derive expiry from Vault's authoritative `expire_time` (RFC3339), falling back to
+  `ttl` only when absent. Closes #51.
+- Raise `AuthTokenExpiredError` for expired non-refreshable tokens instead of silently using a
+  stale token. Closes #50.
+- Replace deprecated `new Buffer()` with `Buffer.from()` in IAM auth STS body encoding. Closes #52.
 
 # 1.0.0. Release notes (2023-08-02)
 

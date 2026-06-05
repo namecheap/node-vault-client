@@ -6,7 +6,8 @@ const errors = require('../errors');
 class VaultTokenAuth extends VaultBaseAuth {
 
     /**
-     * @param {Object} connConfig - see {@link VaultBaseAuth#constructor}
+     * @param {VaultApiClient} apiClient - see {@link VaultBaseAuth#constructor}
+     * @param {Object} logger
      * @param {Object} config
      * @param {String} config.token
      * @param {String} mount - Vault's  mount point ("token" by default)

@@ -48,7 +48,8 @@ class VaultIAMAuth extends VaultBaseAuth {
      *
      * @typedef {Object} VaultIAMAuthConfig
      * @property {String} role - Role name of the auth/{mount}/role/{name} backend.
-     * @property [AWSCredentials] [credentials] - Optional. AWS Credentials
+     * @property {AWSCredentials} [credentials] - Optional. AWS Credentials
+     * @property {String} [namespace] - Optional. Vault namespace, sent as the X-Vault-Namespace header.
      * @property {String} [iam_server_id_header_value] - Optional. Header's value X-Vault-AWS-IAM-Server-ID.
      * @property {String} [region] - Optional. AWS region used to sign the STS GetCallerIdentity
      *   request. When set, the request is signed against the regional STS endpoint
