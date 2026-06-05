@@ -1,7 +1,6 @@
 import deepFreeze from 'deep-freeze';
 import { expect } from 'chai';
 import VaultClient from '../src/VaultClient.js';
-import errors from '../src/errors.js';
 
 describe('Unit tests', function () {
 

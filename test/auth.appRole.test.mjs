@@ -4,7 +4,6 @@ import { expect, use } from 'chai';
 import sinonChai from 'sinon-chai';
 import VaultApiClient from '../src/VaultApiClient.js';
 import VaultAppRoleAuth from '../src/auth/VaultAppRoleAuth.js';
-import errors from '../src/errors.js';
 
 use(sinonChai);
 

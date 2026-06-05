@@ -2,7 +2,6 @@ import _ from 'lodash';
 import sinon from 'sinon';
 import { expect, use } from 'chai';
 import sinonChai from 'sinon-chai';
-import VaultClient from '../src/VaultClient.js';
 import VaultApiClient from '../src/VaultApiClient.js';
 import VaultIAMAuth from '../src/auth/VaultIAMAuth.js';
 import errors from '../src/errors.js';
