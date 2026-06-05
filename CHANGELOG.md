@@ -5,6 +5,13 @@
   it. Add `VaultClient#close()` (and `VaultBaseAuth#cancelTokenRefresh()`) to cancel the timer
   so short-lived scripts can exit; `VaultClient.clear()` now also closes the instances it
   removes. Default behavior is unchanged — long-running servers keep renewing as before. Closes #31.
+- IAM auth: add an optional `region` config option. When set, the STS
+  `GetCallerIdentity` request is signed against the regional endpoint
+  (`sts.<region>.amazonaws.com`) and the SigV4 credential scope is bound to that
+  region, with the signed Host header and `iam_request_url` kept consistent.
+  Fixes `SignatureDoesNotMatch — Credential should be scoped to a valid region`
+  on non-`us-east-1` STS endpoints. Omitting `region` preserves the previous
+  global-endpoint behavior. Closes #25.
 - Add `api.requestOptions`, shallow-merged into every underlying `fetch()` request. Enables
   routing traffic through a proxy/SOCKS agent and trusting a self-signed / internal-CA Vault by
   passing an undici `dispatcher`. Closes #37 and #29.

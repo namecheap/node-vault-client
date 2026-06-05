@@ -35,6 +35,39 @@ vaultClient.read('secret/tst').then(v => {
 * [AppRole](https://www.vaultproject.io/docs/auth/approle.html)
 * [Token](https://www.vaultproject.io/docs/auth/token.html)
 
+### AWS IAM auth
+
+```javascript
+const vaultClient = VaultClient.boot('main', {
+    api: { url: 'https://vault.example.com:8200/' },
+    auth: {
+        type: 'iam',
+        mount: 'aws',                                  // Optional. Vault AWS auth mount point ("aws" by default)
+        config: {
+            role: 'my_iam_role',
+            iam_server_id_header_value: 'https://vault.example.com:8200/', // Optional. X-Vault-AWS-IAM-Server-ID header
+            namespace: 'some_namespace',               // Optional. X-Vault-Namespace header
+            region: 'eu-central-1',                     // Optional. AWS STS region (see below)
+            credentials: {                             // Optional. Resolved from the AWS provider chain when omitted
+                accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+                secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+            },
+        },
+    },
+});
+```
+
+#### `region`
+
+By default the signed `GetCallerIdentity` request targets the global STS endpoint
+`sts.amazonaws.com` and the SigV4 credential scope is bound to `us-east-1`. Set
+`config.region` to sign against a regional STS endpoint instead — the request is then sent to
+`sts.<region>.amazonaws.com` and the signature scope is bound to that region. This is required
+when Vault's `sts_region` / `sts_endpoint` is configured for a non-`us-east-1` region (e.g.
+`eu-central-1`); otherwise STS rejects the replayed request with
+`SignatureDoesNotMatch — Credential should be scoped to a valid region`. Omitting `region`
+preserves the previous (global-endpoint) behavior.
+
 ## API
 
 <a name="VaultClient"></a>
