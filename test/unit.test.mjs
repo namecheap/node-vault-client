@@ -45,7 +45,7 @@ describe('Unit tests', function () {
     });
 
     it('should not affect other named instances when clearing one client', () => {
-        const primaryClient = VaultClient.boot('primaryClient', bootOpts);
+        VaultClient.boot('primaryClient', bootOpts);
         const secondaryClient = VaultClient.boot('secondaryClient', bootOpts);
 
         VaultClient.clear('primaryClient');
