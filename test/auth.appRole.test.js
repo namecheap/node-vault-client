@@ -1,6 +1,5 @@
 "use strict";
 
-require("co-mocha");
 
 const _ = require("lodash");
 const sinon = require("sinon");
