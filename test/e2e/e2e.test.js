@@ -7,7 +7,7 @@ const rp = require('request-promise');
 const _ = require('lodash');
 const chai = require('chai');
 const expect = chai.expect;
-const VaultClient = require('../src/VaultClient');
+const VaultClient = require('../../src/VaultClient');
 
 describe('E2E', function () {
 
@@ -61,7 +61,7 @@ describe('E2E', function () {
         yield vaultClient.write('/secret/a', testData);
         yield vaultClient.write('/secret/b', {tst: 'ZZZ'});
 
-        process.env.NODE_CONFIG_DIR = `${__dirname}/data/config-base`;
+        process.env.NODE_CONFIG_DIR = `${__dirname}/../data/config-base`;
         const config = require('config');
 
         expect(JSON.parse(JSON.stringify(config))).to.deep.equal({deep: {aStr: '', aInt: 0}, b: 'NOT WORKING'});
@@ -76,7 +76,7 @@ describe('E2E', function () {
 
         const vaultClient = new VaultClient(this.bootOpts);
 
-        process.env.NODE_CONFIG_DIR = `${__dirname}/data/config-empty`;
+        process.env.NODE_CONFIG_DIR = `${__dirname}/../data/config-empty`;
         const config = require('config');
 
         expect(JSON.parse(JSON.stringify(config))).to.deep.equal({deep: {aStr: '', aInt: 0}, b: 'NOT WORKING'});

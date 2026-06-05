@@ -87,5 +87,30 @@ describe("AppRole auth backend", function () {
         ),
       ).to.be.true;
     });
+
+    it("defaults the mount to 'approle' when none is provided", async () => {
+      const api = getApiStub();
+
+      const auth = new VaultAppRoleAuth(api, logger, {
+        role_id: "role123",
+        secret_id: "secret456",
+      });
+
+      api.makeRequest
+        .withArgs("POST")
+        .resolves({ auth: { client_token: "fake_token" } });
+      sinon.stub(auth, "_getTokenEntity");
+
+      await auth._authenticate();
+
+      expect(
+        api.makeRequest.calledWith(
+          "POST",
+          "/auth/approle/login",
+          { role_id: "role123", secret_id: "secret456" },
+          {},
+        ),
+      ).to.be.true;
+    });
   });
 });
