@@ -314,3 +314,24 @@ If no name passed all named instances will be cleared.
 | Param | Type | Description |
 | --- | --- | --- |
 | [name] | <code>String</code> | Vault instance name, all instances will be cleared if no name were passed |
+
+## Contributing
+
+Contributions are welcome! Please read the [contributing guide](CONTRIBUTING.md) to get started,
+and note that this project requires a [DCO sign-off](CONTRIBUTING.md#dco-sign-off) on every commit.
+
+## Getting help
+
+Not sure where to start? See [SUPPORT.md](SUPPORT.md).
+
+## Code of Conduct
+
+This project adheres to the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Security
+
+To report a security vulnerability, please follow our [Security Policy](SECURITY.md).
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE.txt).
