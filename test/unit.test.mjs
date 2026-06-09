@@ -1,6 +1,11 @@
 import deepFreeze from 'deep-freeze';
-import { expect } from 'chai';
+import sinon from 'sinon';
+import { expect, use } from 'chai';
+import sinonChai from 'sinon-chai';
 import VaultClient from '../src/VaultClient.js';
+import VaultTokenAuth from '../src/auth/VaultTokenAuth.js';
+
+use(sinonChai);
 
 describe('Unit tests', function () {
 
@@ -19,11 +24,17 @@ describe('Unit tests', function () {
 
     afterEach(function () {
         VaultClient.clear();
+        sinon.restore();
     });
 
-    it('should boot a new VaultClient instance', () => {
+    it('should boot a new VaultClient instance initialized from the given options', () => {
         const client = VaultClient.boot('primaryClient', bootOpts);
         expect(client).to.be.instanceOf(VaultClient);
+
+        // The configuration is wired into the API client and the auth provider.
+        expect(client.__api.__config.url).to.equal(bootOpts.api.url);
+        expect(client.__auth).to.be.instanceOf(VaultTokenAuth);
+        expect(client.__auth.__token).to.equal(bootOpts.auth.config.token);
     });
 
     it('should return the same instance when booting with the same name', () => {
@@ -41,9 +52,14 @@ describe('Unit tests', function () {
         expect(() => VaultClient.get('neverBootedClient')).to.throw(Error, 'Invalid instance name');
     });
 
-    it('should clear a client and allow re-creation', () => {
+    it('should release the instance resources and allow re-creation when cleared', () => {
         const client = VaultClient.boot('primaryClient', bootOpts);
+        const closeSpy = sinon.spy(client, 'close');
+
         VaultClient.clear('primaryClient');
+
+        // clear() disposes the instance (close() cancels the auth-refresh timer) before removing it.
+        expect(closeSpy).to.have.been.calledOnce;
         expect(() => VaultClient.get('primaryClient')).to.throw(Error, 'Invalid instance name');
 
         const recreatedClient = VaultClient.boot('primaryClient', bootOpts);
