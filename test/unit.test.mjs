@@ -4,13 +4,15 @@ import VaultClient from '../src/VaultClient.js';
 
 describe('Unit tests', function () {
 
+    const TEST_TOKEN = 'test-not-a-real-token';
+
     const bootOpts = deepFreeze({
         api: { url: 'https://example.com/' },
         logger: false,
         auth: {
             type: 'token',
             config: {
-                token: 'XXXXXXXX-eb8e-5f25-fad2-79274fa13a64',
+                token: TEST_TOKEN,
             }
         },
     });
@@ -42,6 +44,7 @@ describe('Unit tests', function () {
     it('should clear a client and allow re-creation', () => {
         const client = VaultClient.boot('primaryClient', bootOpts);
         VaultClient.clear('primaryClient');
+        expect(() => VaultClient.get('primaryClient')).to.throw(Error, 'Invalid instance name');
 
         const recreatedClient = VaultClient.boot('primaryClient', bootOpts);
         expect(recreatedClient).to.be.instanceOf(VaultClient);
