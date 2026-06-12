@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/namecheap/node-vault-client/security/advisories/new
+    about: Please report security vulnerabilities privately, not as public issues. See SECURITY.md.
+  - name: Questions and usage help
+    url: https://github.com/namecheap/node-vault-client/blob/master/SUPPORT.md
+    about: Where to get help with installation, configuration, and usage.
