@@ -1,9 +1,7 @@
 'use strict';
 
 const path = require('path');
-const Bluebird = require('bluebird');
 const _ = require('lodash');
-const assignDeep = require('assign-deep');
 
 const errors = require('./errors');
 
@@ -38,9 +36,10 @@ class VaultNodeConfig {
             requiredData[path] = null;
         });
 
-        let promises = _.mapValues(requiredData, (value, path) => this.__vault.read(path));
+        const paths = Object.keys(requiredData);
 
-        return Bluebird.props(promises).then(results => {
+        return Promise.all(paths.map((path) => this.__vault.read(path))).then((leases) => {
+            const results = _.zipObject(paths, leases);
             requiredData = _.mapValues(requiredData, (value, path) => results[path].getData());
 
             this.__traverse(substitutionMap, (key, val, obj) => {
@@ -54,7 +53,7 @@ class VaultNodeConfig {
                 obj[key] = requiredData[path][value];
             });
 
-            return assignDeep(this.__nodeConfig, substitutionMap);
+            return _.merge(this.__nodeConfig, substitutionMap);
         });
     }
 

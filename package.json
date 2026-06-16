@@ -35,10 +35,8 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@aws-sdk/credential-providers": "^3.382.0",
-    "assign-deep": "^1.0.1",
     "aws4": "^1.8.0",
-    "bluebird": "^3.7.0",
-    "lodash": "^4.17.15",
+    "lodash": "^4.17.21",
     "long-timeout": "^0.1.1",
     "pretty-ms": "^7.0.1",
     "url-join": "^4.0.1"
