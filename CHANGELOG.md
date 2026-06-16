@@ -1,3 +1,17 @@
+# 2.0.1 Release notes (2026-06-16)
+
+- Security: stop logging secrets at debug level. The Kubernetes auth backend no longer logs the
+  service-account JWT or the issued Vault client token, and `VaultApiClient` no longer logs full
+  response bodies (which carry auth tokens and secret reads). Debug logs now record only
+  non-sensitive metadata — token paths, request method/URI, and HTTP status codes.
+- Dependencies: drop four runtime dependencies. `bluebird` and `assign-deep` are replaced with
+  native promises and `lodash`; `pretty-ms` and `url-join` are inlined as small helpers (their
+  latest majors are ESM-only and cannot be used from this CommonJS package). The `lodash` floor is
+  raised to `^4.17.21`. Runtime dependencies are now `@aws-sdk/credential-providers`, `aws4`,
+  `lodash`, and `long-timeout`.
+- Reject malformed substitution values whose path or key is empty (e.g. `#value` or `path#`) with
+  `InvalidArgumentsError`, instead of failing later with a less clear error.
+
 # 2.0.0 Release notes (2026-06-12)
 
 - Fix a process that never exits after reading with a renewable token. The background
