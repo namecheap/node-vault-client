@@ -1,4 +1,4 @@
-# 2.0.0. Release notes (2026-06-12)
+# 2.0.0 Release notes (2026-06-12)
 
 - Fix a process that never exits after reading with a renewable token. The background
   token-refresh timer (`long-timeout`) kept the Node.js event loop alive with no way to stop
@@ -26,7 +26,7 @@
   stale token. Closes #50.
 - Replace deprecated `new Buffer()` with `Buffer.from()` in IAM auth STS body encoding. Closes #52.
 
-# 1.0.0. Release notes (2023-08-02)
+# 1.0.0 Release notes (2023-08-02)
 
 - `aws-sdk` is no longer a peer dependency
 - [BREAKING] From now on the minimum supported version of Node.js is 14.0.0.
