@@ -37,9 +37,7 @@
     "@aws-sdk/credential-providers": "^3.382.0",
     "aws4": "^1.8.0",
     "lodash": "^4.17.21",
-    "long-timeout": "^0.1.1",
-    "pretty-ms": "^7.0.1",
-    "url-join": "^4.0.1"
+    "long-timeout": "^0.1.1"
   },
   "peerDependencies": {
     "config": ">=1 <4"

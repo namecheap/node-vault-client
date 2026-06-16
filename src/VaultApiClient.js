@@ -1,7 +1,26 @@
 'use strict';
 
-const urljoin = require('url-join');
 const _ = require('lodash');
+
+/**
+ * Joins URL segments with single slashes while preserving the leading
+ * protocol (e.g. "https://"). Replaces the former `url-join` dependency.
+ */
+function joinUrl(...parts) {
+    return parts
+        .map((part, i) => {
+            let segment = String(part);
+            if (i > 0) {
+                segment = segment.replace(/^\/+/, '');
+            }
+            if (i < parts.length - 1) {
+                segment = segment.replace(/\/+$/, '');
+            }
+            return segment;
+        })
+        .filter((segment) => segment.length > 0)
+        .join('/');
+}
 
 class VaultApiClient {
 
@@ -35,7 +54,7 @@ class VaultApiClient {
         data = data === undefined ? null : data;
         headers = headers === undefined ? {} : headers;
 
-        const uri = urljoin(this.__config.url, this.__config.apiVersion, path);
+        const uri = joinUrl(this.__config.url, this.__config.apiVersion, path);
 
         const requestOptions = this.__config.requestOptions || {};
 
