@@ -43,7 +43,7 @@
     "url-join": "^2.0.5"
   },
   "peerDependencies": {
-    "config": "^3.3.12"
+    "config": ">=1 <4"
   },
   "overrides": {
     "serialize-javascript": "^7.0.5",
