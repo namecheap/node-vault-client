@@ -58,7 +58,7 @@ class VaultNodeConfig {
      */
     __parseSubstitutionValue(val) {
         const [vaultPath, value] = val.split('#');
-        if (vaultPath === undefined || value === undefined) {
+        if (!vaultPath || !value) {
             throw new errors.InvalidArgumentsError('Invalid format of substitution value');
         }
 
@@ -91,12 +91,8 @@ class VaultNodeConfig {
     }
 
     __traverse(o, func) {
-        for (let i in o) {
-            if (!Object.hasOwn(o, i)) {
-                continue;
-            }
-
-            if (o[i] !== null && typeof(o[i]) === "object") {
+        for (const i of Object.keys(o)) {
+            if (o[i] !== null && typeof o[i] === 'object') {
                 //going one step down in the object tree!!
                 this.__traverse(o[i], func);
             } else if (typeof o[i] === 'string') {

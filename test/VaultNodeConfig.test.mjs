@@ -120,6 +120,13 @@ describe('VaultNodeConfig', function () {
                 .to.throw(errors.InvalidArgumentsError, 'Invalid format of substitution value');
         });
 
+        it('throws when either side of the "#" is empty', function () {
+            for (const bad of ['#value', 'secret/a#', '#']) {
+                expect(() => instance({ key: bad }).populate(), bad)
+                    .to.throw(errors.InvalidArgumentsError, 'Invalid format of substitution value');
+            }
+        });
+
         it('rejects when a substitution cannot be found in the secret data', function () {
             const vnc = instance({ key: 'secret/a#missing' }, { 'secret/a': { present: 'v' } });
             return vnc.populate().then(
