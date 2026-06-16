@@ -27,30 +27,24 @@ class VaultNodeConfig {
         let requiredData = {};
 
         this.__traverse(substitutionMap, (key, val) => {
-            const splitRes = val.split('#');
-            const path = splitRes[0], value = splitRes[1];
-            if (path === undefined || value === undefined) {
-                throw new errors.InvalidArgumentsError('Invalid format of substitution value');
-            }
-
-            requiredData[path] = null;
+            const { vaultPath } = this.__parseSubstitutionValue(val);
+            requiredData[vaultPath] = null;
         });
 
-        const paths = Object.keys(requiredData);
+        const vaultPaths = Object.keys(requiredData);
 
-        return Promise.all(paths.map((path) => this.__vault.read(path))).then((leases) => {
-            const results = _.zipObject(paths, leases);
-            requiredData = _.mapValues(requiredData, (value, path) => results[path].getData());
+        return Promise.all(vaultPaths.map((vaultPath) => this.__vault.read(vaultPath))).then((leases) => {
+            const results = _.zipObject(vaultPaths, leases);
+            requiredData = _.mapValues(requiredData, (value, vaultPath) => results[vaultPath].getData());
 
             this.__traverse(substitutionMap, (key, val, obj) => {
-                const splitRes = val.split('#');
-                const path = splitRes[0], value = splitRes[1];
-                const res = requiredData[path][value];
+                const { vaultPath, value } = this.__parseSubstitutionValue(val);
+                const res = requiredData[vaultPath][value];
                 if (res === undefined) {
                     throw new errors.VaultError(`Can't find substitution for "${val}"`);
                 }
 
-                obj[key] = requiredData[path][value];
+                obj[key] = requiredData[vaultPath][value];
             });
 
             return _.merge(this.__nodeConfig, substitutionMap);
@@ -58,15 +52,29 @@ class VaultNodeConfig {
     }
 
     /**
+     * Splits a substitution value of the form "<vaultPath>#<value>".
+     *
+     * @private
+     */
+    __parseSubstitutionValue(val) {
+        const [vaultPath, value] = val.split('#');
+        if (vaultPath === undefined || value === undefined) {
+            throw new errors.InvalidArgumentsError('Invalid format of substitution value');
+        }
+
+        return { vaultPath, value };
+    }
+
+    /**
      * @private
      */
     __getSubstitutionMap() {
-        let config_dir = this.__nodeConfig.util.initParam('NODE_CONFIG_DIR', path.join( process.cwd(), 'config') );
-        if (config_dir.indexOf('.') === 0) {
-            config_dir = path.join(process.cwd() , config_dir);
+        let configDir = this.__nodeConfig.util.initParam('NODE_CONFIG_DIR', path.join(process.cwd(), 'config'));
+        if (configDir.indexOf('.') === 0) {
+            configDir = path.join(process.cwd(), configDir);
         }
 
-        const fullFilename = path.join(config_dir, 'custom-vault-variables.js');
+        const fullFilename = path.join(configDir, 'custom-vault-variables.js');
 
         let fileContent;
         try {
