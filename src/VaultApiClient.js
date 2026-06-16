@@ -80,10 +80,12 @@ class VaultApiClient {
                     throw error;
                 }
 
-                this._logger.debug('%s %s response body:\n%s',
+                // Do not log the response body: Vault responses carry secret
+                // material (auth tokens, secret reads). Log status only.
+                this._logger.debug('%s %s -> %d',
                     method,
                     uri,
-                    JSON.stringify(body, null, ' ')
+                    response.status
                 );
                 return body;
             });

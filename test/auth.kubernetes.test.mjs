@@ -52,4 +52,20 @@ describe('VaultKubernetesAuth', function () {
             expect(token).to.equal(entity);
         });
     });
+
+    it('never logs the JWT or the Vault client token', function () {
+        readFileSync = sinon.stub(fs, 'readFileSync').returns(Buffer.from('super-secret-jwt'));
+        const debug = sinon.spy();
+        const api = apiStub();
+        api.makeRequest.resolves({ auth: { client_token: 'super-secret-vault-token' } });
+        const auth = new VaultKubernetesAuth(api, _.assign({}, logger, { debug }), { role: 'r', tokenPath: '/tmp/tok' }, 'k8s');
+        sinon.stub(auth, '_getTokenEntity').resolves(new AuthToken('id', 'acc', 0, null, 0, 0, false));
+
+        return auth._authenticate().then(() => {
+            const leaked = debug.getCalls().some((call) =>
+                call.args.some((arg) => typeof arg === 'string'
+                    && (arg.includes('super-secret-jwt') || arg.includes('super-secret-vault-token'))));
+            expect(leaked, 'JWT and client token must not be logged').to.equal(false);
+        });
+    });
 });

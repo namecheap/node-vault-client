@@ -1,0 +1,9 @@
+# Socket.dev configuration — https://docs.socket.dev/docs/socket-yml
+version: 2
+
+issueRules:
+  # node-vault-client is an HTTP client for HashiCorp Vault; reaching the
+  # Vault server over the network (globalThis.fetch in src/VaultApiClient.js)
+  # is the core, intended function of the package, not a supply-chain risk.
+  # Acknowledged so the alert does not recur on every PR.
+  networkAccess: false
