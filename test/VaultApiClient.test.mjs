@@ -88,12 +88,21 @@ describe('VaultApiClient', function () {
             });
         });
 
-        it('logs the request and the response body via the debug logger', function () {
+        it('logs the request and response status, never the response body', function () {
             const debug = sinon.spy();
+            responder = (req, res) => {
+                res.statusCode = 200;
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({ auth: { client_token: 'super-secret-token' } }));
+            };
             const api = new VaultApiClient({ url: baseUrl }, _.assign({}, logger, { debug }));
             return api.makeRequest('GET', '/secret/foo').then(() => {
                 expect(debug).to.have.been.calledWith('making request: %s %s', 'GET', `${baseUrl}/v1/secret/foo`);
-                expect(debug.callCount).to.be.at.least(2);
+                expect(debug).to.have.been.calledWith('%s %s -> %d', 'GET', `${baseUrl}/v1/secret/foo`, 200);
+                // Regression guard: secret-bearing response bodies must never reach the logger.
+                const leaked = debug.getCalls().some((call) =>
+                    call.args.some((arg) => typeof arg === 'string' && arg.includes('super-secret-token')));
+                expect(leaked, 'response body must not be logged').to.equal(false);
             });
         });
 

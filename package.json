@@ -15,6 +15,7 @@
   "scripts": {
     "test": "mocha --exit \"test/**/*.test.mjs\"",
     "test:unit": "mocha \"test/*.test.mjs\"",
+    "test:e2e": "mocha --exit \"test/e2e/**/*.test.mjs\"",
     "coverage": "c8 npm run test:unit",
     "lint": "eslint src/",
     "version": "git add -A ."
@@ -37,8 +38,8 @@
     "aws4": "^1.8.0",
     "lodash": "^4.17.21",
     "long-timeout": "^0.1.1",
-    "pretty-ms": "^2.1.0",
-    "url-join": "^2.0.5"
+    "pretty-ms": "^7.0.1",
+    "url-join": "^4.0.1"
   },
   "peerDependencies": {
     "config": ">=1 <4"
@@ -53,8 +54,8 @@
     "c8": "^11.0.0",
     "chai": "^6.0.0",
     "deep-freeze": "^0.0.1",
-    "eslint": "^9.0.0",
-    "globals": "^16.0.0",
+    "eslint": "^9.39.4",
+    "globals": "^17.6.0",
     "mocha": "^11.7.6",
     "sinon": "^22.0.0",
     "sinon-chai": "^4.0.0"

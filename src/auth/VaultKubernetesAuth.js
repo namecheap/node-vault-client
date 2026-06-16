@@ -28,18 +28,15 @@ class VaultKubernetesAuth extends VaultBaseAuth {
 
         const k8sJwtToken = fs.readFileSync(this.__tokenPath).toString();
         this._log.debug(
-            'receive K8s token: %s',
-            k8sJwtToken
+            'read K8s service-account JWT from "%s" (%d bytes)',
+            this.__tokenPath, k8sJwtToken.length
         );
 
         return this.__apiClient.makeRequest('POST', `/auth/${this._mount}/login`, {
             role: this.__role,
             jwt: k8sJwtToken,
         }).then((res) => {
-            this._log.debug(
-                'receive token: %s',
-                res.auth.client_token
-            );
+            this._log.debug('received Vault client token from Kubernetes login');
 
             return this._getTokenEntity(res.auth.client_token);
         });
