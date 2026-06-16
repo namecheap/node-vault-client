@@ -1,9 +1,25 @@
 'use strict';
 
 const lt = require('long-timeout');
-const prettyMs = require('pretty-ms');
 const AuthToken = require('./AuthToken');
 const errors = require('../errors');
+
+/**
+ * Formats a millisecond duration as a short human-readable string
+ * (e.g. "1s", "2m 5s", "1h 3m"). Replaces the former `pretty-ms` dependency.
+ */
+function humanizeMs(ms) {
+    const totalSeconds = Math.round(ms / 1000);
+    if (totalSeconds < 60) {
+        return `${totalSeconds}s`;
+    }
+    const totalMinutes = Math.floor(totalSeconds / 60);
+    if (totalMinutes < 60) {
+        return `${totalMinutes}m ${totalSeconds % 60}s`;
+    }
+    const hours = Math.floor(totalMinutes / 60);
+    return `${hours}h ${totalMinutes % 60}m`;
+}
 
 class VaultBaseAuth {
 
@@ -135,7 +151,7 @@ class VaultBaseAuth {
 
         this._log.debug(
             'sleeping for %s',
-            prettyMs(timer)
+            humanizeMs(timer)
         );
     }
 
