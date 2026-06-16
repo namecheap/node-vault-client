@@ -4,6 +4,7 @@
 # pull request changes matching files. With "Require review from Code Owners"
 # enabled in branch protection, their approval becomes mandatory before merge.
 #
-# The catch-all pattern below makes @wRLSS the default reviewer for every PR.
+# The catch-all pattern below makes @wRLSS and @m2broth the default
+# reviewers for every PR.
 
-* @wRLSS
+* @wRLSS @m2broth
