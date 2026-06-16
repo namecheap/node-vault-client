@@ -1,4 +1,4 @@
-# Unreleased
+# 2.0.0. Release notes (2026-06-12)
 
 - Fix a process that never exits after reading with a renewable token. The background
   token-refresh timer (`long-timeout`) kept the Node.js event loop alive with no way to stop
