@@ -15,6 +15,7 @@
   "scripts": {
     "test": "mocha --exit \"test/**/*.test.mjs\"",
     "test:unit": "mocha \"test/*.test.mjs\"",
+    "test:e2e": "mocha --exit \"test/e2e/**/*.test.mjs\"",
     "coverage": "c8 npm run test:unit",
     "lint": "eslint src/",
     "version": "git add -A ."
