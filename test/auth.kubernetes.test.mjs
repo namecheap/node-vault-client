@@ -9,7 +9,7 @@ import AuthToken from '../src/auth/AuthToken.js';
 
 use(sinonChai);
 
-const logger = _.fromPairs(_.map(['error', 'warn', 'info', 'debug', 'trace'], (p) => [p, _.noop]));
+const logger = _.fromPairs(_.map(['error', 'warn', 'info', 'debug', 'trace'], (level) => [level, _.noop]));
 
 function apiStub() {
     return sinon.createStubInstance(VaultApiClient);
@@ -25,16 +25,30 @@ describe('VaultKubernetesAuth', function () {
         }
     });
 
-    it('defaults the mount and the kube token path', function () {
-        const auth = new VaultKubernetesAuth(apiStub(), logger, { role: 'r' });
+    it('defaults the mount and reads the kube token from the default path', function () {
+        readFileSync = sinon.stub(fs, 'readFileSync').returns(Buffer.from('jwt-token'));
+        const api = apiStub();
+        api.makeRequest.resolves({ auth: { client_token: 'vault-token' } });
+        const auth = new VaultKubernetesAuth(api, logger, { role: 'r' });
+        sinon.stub(auth, '_getTokenEntity').resolves(new AuthToken('id', 'acc', 0, null, 0, 0, false));
+
         expect(auth._mount).to.equal('kubernetes');
-        expect(auth.__tokenPath).to.equal('/var/run/secrets/kubernetes.io/serviceaccount/token');
+        return auth._authenticate().then(() => {
+            expect(readFileSync).to.have.been.calledWith('/var/run/secrets/kubernetes.io/serviceaccount/token');
+        });
     });
 
-    it('honours a custom mount and token path', function () {
-        const auth = new VaultKubernetesAuth(apiStub(), logger, { role: 'r', tokenPath: '/tmp/tok' }, 'k8s');
+    it('honours a custom mount and reads the kube token from a custom path', function () {
+        readFileSync = sinon.stub(fs, 'readFileSync').returns(Buffer.from('jwt-token'));
+        const api = apiStub();
+        api.makeRequest.resolves({ auth: { client_token: 'vault-token' } });
+        const auth = new VaultKubernetesAuth(api, logger, { role: 'r', tokenPath: '/tmp/tok' }, 'k8s');
+        sinon.stub(auth, '_getTokenEntity').resolves(new AuthToken('id', 'acc', 0, null, 0, 0, false));
+
         expect(auth._mount).to.equal('k8s');
-        expect(auth.__tokenPath).to.equal('/tmp/tok');
+        return auth._authenticate().then(() => {
+            expect(readFileSync).to.have.been.calledWith('/tmp/tok');
+        });
     });
 
     it('reads the JWT from disk and performs a login request', function () {
