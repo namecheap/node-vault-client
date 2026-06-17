@@ -3,7 +3,6 @@
 const VaultBaseAuth = require('./VaultBaseAuth');
 const aws4 = require('aws4');
 const { fromNodeProviderChain } = require('@aws-sdk/credential-providers');
-const _ = require('lodash');
 const errors = require('../errors');
 
 /**
@@ -194,7 +193,9 @@ class VaultIAMAuth extends VaultBaseAuth {
      * @private
      */
     __headersLikeGolangStyle(headers) {
-        return _.mapValues(headers, (value) => [`${value}`]);
+        return Object.fromEntries(
+            Object.entries(headers).map(([key, value]) => [key, [`${value}`]])
+        );
     }
 
     _validateCredentialsConfig(credentials) {

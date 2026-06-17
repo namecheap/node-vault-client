@@ -192,8 +192,10 @@ describe('VaultClient', function () {
 
         it('returns an all-noop logger when given false', function () {
             const log = client.__setupLogger(false);
-            expect(log.error).to.equal(_.noop);
-            expect(log.debug).to.equal(_.noop);
+            for (const method of ['error', 'warn', 'info', 'debug', 'trace']) {
+                expect(log[method]).to.be.a('function');
+                expect(log[method]()).to.be.undefined;
+            }
         });
 
         it('returns the supplied logger when it implements the full interface', function () {
@@ -205,7 +207,9 @@ describe('VaultClient', function () {
             const log = client.__setupLogger({});
             expect(log.error).to.equal(console.error);
             expect(log.warn).to.equal(console.warn);
-            expect(log.debug).to.equal(_.noop);
+            expect(log.debug).to.be.a('function');
+            expect(log.debug).to.not.equal(console.debug);
+            expect(log.debug()).to.be.undefined;
         });
     });
 

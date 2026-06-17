@@ -1,6 +1,5 @@
 'use strict';
 
-const _ = require('lodash');
 const Lease = require('./Lease');
 const errors = require('./errors');
 const VaultApiClient = require('./VaultApiClient');
@@ -9,6 +8,8 @@ const VaultTokenAuth = require('./auth/VaultTokenAuth');
 const VaultIAMAuth = require('./auth/VaultIAMAuth');
 const VaultNodeConfig = require('./VaultNodeConfig');
 const VaultKubernetesAuth = require('./auth/VaultKubernetesAuth');
+
+const noop = () => {};
 const vaultInstances = {};
 
 class VaultClient {
@@ -264,13 +265,13 @@ class VaultClient {
     __setupLogger(logger) {
         if (logger === false) {
             return {
-                error: _.noop,
-                warn: _.noop,
-                info: _.noop,
-                debug: _.noop,
-                trace: _.noop,
+                error: noop,
+                warn: noop,
+                info: noop,
+                debug: noop,
+                trace: noop,
             }
-        } else if (_.intersection(_.functionsIn(logger), ['error', 'warn', 'info', 'debug', 'trace']).length >= 5) {
+        } else if (['error', 'warn', 'info', 'debug', 'trace'].every((method) => typeof logger?.[method] === 'function')) {
             return logger
         } else {
             return {
@@ -279,7 +280,7 @@ class VaultClient {
                 info: console.info,
                 trace: console.trace,
                 // avoid output sensitive information
-                debug: _.noop
+                debug: noop
             };
         }
     }
