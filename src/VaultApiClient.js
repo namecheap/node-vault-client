@@ -1,7 +1,5 @@
 'use strict';
 
-const _ = require('lodash');
-
 /**
  * Joins URL segments with single slashes while preserving the leading
  * protocol (e.g. "https://"). Replaces the former `url-join` dependency.
@@ -39,9 +37,12 @@ class VaultApiClient {
     constructor(config, logger) {
         const requestOptions = config && config.requestOptions;
 
-        this.__config = _.defaultsDeep(_.cloneDeep(_.omit(config, ['requestOptions'])), {
-            apiVersion: 'v1',
-        });
+        const baseConfig = { ...(config || {}) };
+        delete baseConfig.requestOptions;
+        this.__config = structuredClone(baseConfig);
+        if (this.__config.apiVersion === undefined) {
+            this.__config.apiVersion = 'v1';
+        }
 
         if (requestOptions !== undefined) {
             this.__config.requestOptions = requestOptions;

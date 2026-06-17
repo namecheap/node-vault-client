@@ -1,7 +1,5 @@
 'use strict';
 
-const _ = require('lodash');
-
 class Lease {
     constructor(
         requestId,
@@ -43,7 +41,7 @@ class Lease {
      * @returns {Object}
      */
     getData() {
-        return _.cloneDeep(this.__data);
+        return structuredClone(this.__data);
     }
 
     /**

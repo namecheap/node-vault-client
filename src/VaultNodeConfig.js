@@ -1,9 +1,46 @@
 'use strict';
 
 const path = require('path');
-const _ = require('lodash');
 
 const errors = require('./errors');
+
+function isObject(value) {
+    return value !== null && typeof value === 'object';
+}
+
+function isPlainObject(value) {
+    if (!isObject(value)) {
+        return false;
+    }
+    const proto = Object.getPrototypeOf(value);
+    return proto === null || proto === Object.prototype;
+}
+
+/**
+ * Recursively merges own enumerable properties of `source` into `target`,
+ * mutating and returning `target`. Nested objects and arrays are merged in
+ * place, other values overwrite, and `undefined` source values are skipped.
+ * Covers the subset of `lodash.merge` behavior this client relies on.
+ */
+function deepMerge(target, source) {
+    for (const key of Object.keys(source)) {
+        const sourceValue = source[key];
+        if (sourceValue === undefined) {
+            continue;
+        }
+
+        const targetValue = target[key];
+        if (isObject(sourceValue) && isObject(targetValue)) {
+            deepMerge(targetValue, sourceValue);
+        } else if (isObject(sourceValue)) {
+            target[key] = structuredClone(sourceValue);
+        } else {
+            target[key] = sourceValue;
+        }
+    }
+
+    return target;
+}
 
 class VaultNodeConfig {
 
@@ -34,8 +71,9 @@ class VaultNodeConfig {
         const vaultPaths = Object.keys(requiredData);
 
         return Promise.all(vaultPaths.map((vaultPath) => this.__vault.read(vaultPath))).then((leases) => {
-            const results = _.zipObject(vaultPaths, leases);
-            requiredData = _.mapValues(requiredData, (value, vaultPath) => results[vaultPath].getData());
+            requiredData = Object.fromEntries(
+                vaultPaths.map((vaultPath, index) => [vaultPath, leases[index].getData()])
+            );
 
             this.__traverse(substitutionMap, (key, val, obj) => {
                 const { vaultPath, value } = this.__parseSubstitutionValue(val);
@@ -47,7 +85,7 @@ class VaultNodeConfig {
                 obj[key] = requiredData[vaultPath][value];
             });
 
-            return _.merge(this.__nodeConfig, substitutionMap);
+            return deepMerge(this.__nodeConfig, substitutionMap);
         });
     }
 
@@ -83,11 +121,11 @@ class VaultNodeConfig {
             throw new errors.VaultError('Config file ' + fullFilename + ' cannot be read');
         }
 
-        if (!_.isPlainObject(fileContent)) {
+        if (!isPlainObject(fileContent)) {
             throw new errors.VaultError('Config file ' + fullFilename + ' should return plain object');
         }
 
-        return _.cloneDeep(fileContent);
+        return structuredClone(fileContent);
     }
 
     __traverse(o, func) {

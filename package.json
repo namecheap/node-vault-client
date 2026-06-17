@@ -36,7 +36,6 @@
   "dependencies": {
     "@aws-sdk/credential-providers": "^3.382.0",
     "aws4": "^1.8.0",
-    "lodash": "^4.17.21",
     "long-timeout": "^0.1.1"
   },
   "peerDependencies": {
@@ -54,6 +53,7 @@
     "deep-freeze": "^0.0.1",
     "eslint": "^9.39.4",
     "globals": "^17.6.0",
+    "lodash": "^4.17.21",
     "mocha": "^11.7.6",
     "sinon": "^22.0.0",
     "sinon-chai": "^4.0.0"
