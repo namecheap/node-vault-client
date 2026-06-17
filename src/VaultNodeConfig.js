@@ -16,9 +16,6 @@ function isPlainObject(value) {
     return proto === null || proto === Object.prototype;
 }
 
-// Keys that must never be merged, to avoid prototype pollution.
-const FORBIDDEN_MERGE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
-
 /**
  * Recursively merges own enumerable properties of `source` into `target`,
  * mutating and returning `target`. Nested objects and arrays are merged in
@@ -28,7 +25,7 @@ const FORBIDDEN_MERGE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
  */
 function deepMerge(target, source) {
     for (const key of Object.keys(source)) {
-        if (FORBIDDEN_MERGE_KEYS.has(key)) {
+        if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
             continue;
         }
 
