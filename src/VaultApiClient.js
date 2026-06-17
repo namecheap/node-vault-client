@@ -73,7 +73,13 @@ class VaultApiClient {
         );
         if (data !== null) {
             options.body = JSON.stringify(data);
-            options.headers['Content-Type'] = 'application/json';
+            // Only set the default content-type if the caller did not already supply one.
+            // Case-insensitive check to honour merge-patch+json and other overrides.
+            const hasContentType = Object.keys(options.headers)
+                .some((k) => k.toLowerCase() === 'content-type');
+            if (!hasContentType) {
+                options.headers['Content-Type'] = 'application/json';
+            }
         }
 
         this._logger.debug(
