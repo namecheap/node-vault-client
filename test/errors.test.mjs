@@ -8,6 +8,7 @@ describe('errors', function () {
             'InvalidArgumentsError',
             'InvalidAWSCredentialsError',
             'AuthTokenExpiredError',
+            'UnsupportedOperationError',
         ]);
     });
 
@@ -47,6 +48,14 @@ describe('errors', function () {
             expect(err).to.be.instanceOf(errors.VaultError);
             expect(err).to.not.be.instanceOf(errors.InvalidArgumentsError);
             expect(err.name).to.equal('AuthTokenExpiredError');
+        });
+
+        it('UnsupportedOperationError extends VaultError', function () {
+            const err = new errors.UnsupportedOperationError('not supported');
+            expect(err).to.be.instanceOf(errors.VaultError);
+            expect(err).to.be.instanceOf(Error);
+            expect(err.name).to.equal('UnsupportedOperationError');
+            expect(err.message).to.equal('not supported');
         });
     });
 });

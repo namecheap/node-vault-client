@@ -315,6 +315,152 @@ If no name passed all named instances will be cleared.
 | --- | --- | --- |
 | [name] | <code>String</code> | Vault instance name, all instances will be cleared if no name were passed |
 
+## KV v2 & generic backends
+
+### Overview
+
+By default the client behaves exactly as before (KV v1 / raw passthrough). To enable transparent
+KV v2 support set `api.kv.autoDetect: true` **or** supply a static `api.engines` map. Either
+option activates path-rewriting and response-unwrapping; callers do not need to know the engine
+version.
+
+### Configuration options
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `api.kv.autoDetect` | `boolean` | `false` | Auto-detect the KV version of each mount on first use via `GET sys/internal/ui/mounts/<path>`. |
+| `api.engines` | `Object` | `{}` | Static mount-to-version map, e.g. `{ secret: 2, legacy: 1 }`. Overrides detection; use this when the token lacks permission on `sys/internal/ui/mounts`. |
+
+Both options can be combined: `engines` acts as an override — matching mounts skip detection
+while unmatched mounts are auto-detected (when `autoDetect: true`).
+
+### Auto-detect example
+
+```javascript
+const client = VaultClient.boot('main', {
+    api: {
+        url: 'https://vault.example.com:8200/',
+        kv: { autoDetect: true },
+    },
+    auth: { type: 'token', config: { token: '...' } },
+});
+
+// Works transparently on both KV v1 and KV v2 mounts
+const lease = await client.read('secret/my-app/config');
+console.log(lease.getData());         // the secret object
+console.log(lease.getMetadata());     // KV v2 version metadata (undefined on v1)
+```
+
+### Static engines override example
+
+```javascript
+const client = VaultClient.boot('main', {
+    api: {
+        url: 'https://vault.example.com:8200/',
+        engines: { secret: 2, legacy: 1 },
+    },
+    auth: { type: 'token', config: { token: '...' } },
+});
+```
+
+### KV v2-specific methods
+
+These methods require a KV v2 mount and throw `UnsupportedOperationError` on v1 / non-KV mounts.
+
+```javascript
+// Soft-delete specific versions
+await client.deleteVersions('secret/foo', [1, 2]);
+
+// Restore soft-deleted versions
+await client.undeleteVersions('secret/foo', [1]);
+
+// Permanently destroy versions
+await client.destroyVersions('secret/foo', [1, 2]);
+
+// Read version metadata (current_version, versions map, etc.)
+const meta = await client.readMetadata('secret/foo');
+
+// Delete all metadata and version history (permanent)
+await client.deleteMetadata('secret/foo');
+```
+
+### update() — merge-patch
+
+```javascript
+// PATCH a subset of keys without overwriting others (KV v2)
+await client.update('secret/foo', { password: 'new-value' });
+// Sends PATCH secret/data/foo with Content-Type: application/merge-patch+json
+```
+
+### delete()
+
+```javascript
+// Soft-delete the latest version on KV v2; DELETE on v1/passthrough
+await client.delete('secret/foo');
+```
+
+### request() — raw escape hatch
+
+For any Vault backend that does not benefit from KV path rewriting use `request()`. It sends the
+literal path with no rewriting or response normalisation and returns the parsed body directly.
+
+```javascript
+// Encrypt with Transit engine — path must not be rewritten
+const result = await client.request('POST', 'transit/encrypt/my-key', {
+    plaintext: Buffer.from('hello').toString('base64'),
+});
+console.log(result.data.ciphertext);
+```
+
+### Lease.getMetadata()
+
+`getMetadata()` is additive — existing code is unaffected.
+
+```javascript
+const lease = await client.read('secret/my-app/db');
+lease.getData();     // the secret values
+lease.getMetadata(); // { version, created_time, deletion_time, destroyed, custom_metadata }
+                     // undefined on KV v1 / passthrough mounts
+```
+
+### Path requirements when autoDetect / engines are active
+
+When `autoDetect: true` or `api.engines` is set, the client rewrites logical paths to the
+correct KV v2 API paths automatically (e.g. `secret/foo` → `secret/data/foo` for reads).
+**Callers must pass logical paths — do not include the internal KV v2 segments** (`data/`,
+`metadata/`, `delete/`, `undelete/`, `destroy/`) in the path argument:
+
+```javascript
+// Correct — logical path only
+await client.read('secret/my-app/config');
+
+// Wrong — double-rewrite: 'secret/data/foo' becomes 'secret/data/data/foo' on the wire
+await client.read('secret/data/foo');
+```
+
+If you need to send a fully-literal Vault API path (e.g. when working with non-KV backends or
+when you have already constructed the complete path), use `request()` which bypasses all path
+rewriting:
+
+```javascript
+// Literal path, no rewriting
+await client.request('GET', 'secret/data/foo');
+```
+
+### Mount detection caching
+
+- Each canonical mount is detected at most once per `VaultClient` instance.
+- Concurrent first-touch requests for the same mount share a single in-flight detection promise.
+- The detection endpoint used is `GET sys/internal/ui/mounts/<path>` (readable by any authenticated token).
+- When the token lacks permission on that endpoint, set `api.engines` to skip detection.
+
+### Error classes
+
+| Class | When thrown |
+|---|---|
+| `UnsupportedOperationError` | A v2-only method (`deleteVersions`, `undeleteVersions`, `destroyVersions`, `readMetadata`, `deleteMetadata`) is called against a non-v2 mount. |
+| `VaultError` | Mount detection fails (e.g. permission denied) and no `api.engines` override was provided. |
+
 ## Contributing
 
 Contributions are welcome! Please read the [contributing guide](CONTRIBUTING.md) to get started,
