@@ -19,10 +19,7 @@ describe('VaultKubernetesAuth', function () {
     let readFileSync;
 
     afterEach(function () {
-        if (readFileSync) {
-            readFileSync.restore();
-            readFileSync = null;
-        }
+        readFileSync?.restore();
     });
 
     it('defaults the mount and reads the kube token from the default path', function () {
