@@ -186,14 +186,17 @@ describe('kvTransform', function () {
                 expect(result).to.equal(body);
             });
 
-            it('readMetadata: unwraps body.data', function () {
+            it('readMetadata: preserves envelope and metadata payload in data', function () {
                 const body = {
                     request_id: 'r',
                     data: { current_version: 2, versions: { '1': {}, '2': {} } },
                 };
                 const result = normalizeResponse(2, 'readMetadata', body);
-                expect(result.data).to.deep.equal({ current_version: 2, versions: { '1': {}, '2': {} } });
-                expect(result.request_id).to.equal('r');
+                expect(result).to.deep.equal({
+                    request_id: 'r',
+                    data: { current_version: 2, versions: { '1': {}, '2': {} } },
+                });
+                expect(result).to.not.equal(body);
             });
 
             it('deleteMetadata: returns body unchanged', function () {
