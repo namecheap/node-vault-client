@@ -33,7 +33,7 @@
   Removes the `request` runtime dependency and clears the associated Dependabot/deprecation
   alerts; this is the foundation for the new `api.requestOptions` (undici dispatcher) support.
   Closes #59.
-- [BREAKING] Minimum supported Node.js is now 18.0.0 (was 14.0.0); the client relies on native `fetch`.
+- [BREAKING] Minimum supported Node.js is now 18.0.0 (was 14.0.0); the client relies on native `fetch`. Note: on some Node.js 18.x environments, `fetch` may be treated as experimental and require `--experimental-fetch`; use a newer Node.js version for fully non-experimental `fetch` behavior.
 - Auth token: derive expiry from Vault's authoritative `expire_time` (RFC3339), falling back to
   `ttl` only when absent. Closes #51.
 - Raise `AuthTokenExpiredError` for expired non-refreshable tokens instead of silently using a
