@@ -9,7 +9,7 @@ import AuthToken from '../src/auth/AuthToken.js';
 
 use(sinonChai);
 
-const logger = _.fromPairs(_.map(['error', 'warn', 'info', 'debug', 'trace'], (level) => [level, _.noop]));
+const logger = { error: _.noop, warn: _.noop, info: _.noop, debug: _.noop, trace: _.noop };
 
 function apiStub() {
     return sinon.createStubInstance(VaultApiClient);
