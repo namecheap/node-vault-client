@@ -9,7 +9,7 @@ import AuthToken from '../src/auth/AuthToken.js';
 
 use(sinonChai);
 
-const logger = _.fromPairs(_.map(['error', 'warn', 'info', 'debug', 'trace'], (level) => [level, _.noop]));
+const logger = { error: _.noop, warn: _.noop, info: _.noop, debug: _.noop, trace: _.noop };
 
 function apiStub() {
     return sinon.createStubInstance(VaultApiClient);
@@ -19,10 +19,7 @@ describe('VaultKubernetesAuth', function () {
     let readFileSync;
 
     afterEach(function () {
-        if (readFileSync) {
-            readFileSync.restore();
-            readFileSync = null;
-        }
+        readFileSync?.restore();
     });
 
     it('defaults the mount and reads the kube token from the default path', function () {
