@@ -1,5 +1,5 @@
 /**
- * Exhaustive pure-unit tests for kvTransform: rewritePath + normalizeResponse.
+ * Exhaustive pure unit tests for kvTransform: rewritePath + normalizeResponse.
  * Every op x {v1, v2}.
  */
 
@@ -144,6 +144,24 @@ describe('kvTransform', function () {
                 expect(result.metadata).to.be.undefined;
             });
 
+            it('read: returns null unchanged when body is null', function () {
+                const body = null;
+                const result = normalizeResponse(2, 'read', body);
+                expect(result).to.equal(null);
+            });
+
+            it('read: returns body unchanged when body.data is null', function () {
+                const body = { data: null };
+                const result = normalizeResponse(2, 'read', body);
+                expect(result).to.equal(body);
+            });
+
+            it('read: returns body unchanged when body.data is undefined', function () {
+                const body = { data: undefined };
+                const result = normalizeResponse(2, 'read', body);
+                expect(result).to.equal(body);
+            });
+
             it('write: returns raw body unchanged', function () {
                 const body = { data: { version: 1 }, request_id: 'r' };
                 const result = normalizeResponse(2, 'write', body);
@@ -186,14 +204,17 @@ describe('kvTransform', function () {
                 expect(result).to.equal(body);
             });
 
-            it('readMetadata: unwraps body.data', function () {
+            it('readMetadata: preserves envelope and metadata payload in data', function () {
                 const body = {
                     request_id: 'r',
                     data: { current_version: 2, versions: { '1': {}, '2': {} } },
                 };
                 const result = normalizeResponse(2, 'readMetadata', body);
-                expect(result.data).to.deep.equal({ current_version: 2, versions: { '1': {}, '2': {} } });
-                expect(result.request_id).to.equal('r');
+                expect(result).to.deep.equal({
+                    request_id: 'r',
+                    data: { current_version: 2, versions: { '1': {}, '2': {} } },
+                });
+                expect(result).to.not.equal(body);
             });
 
             it('deleteMetadata: returns body unchanged', function () {
