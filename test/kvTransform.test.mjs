@@ -1,5 +1,5 @@
 /**
- * Exhaustive pure-unit tests for kvTransform: rewritePath + normalizeResponse.
+ * Exhaustive pure unit tests for kvTransform: rewritePath + normalizeResponse.
  * Every op x {v1, v2}.
  */
 
