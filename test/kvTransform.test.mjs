@@ -144,6 +144,24 @@ describe('kvTransform', function () {
                 expect(result.metadata).to.be.undefined;
             });
 
+            it('read: returns null unchanged when body is null', function () {
+                const body = null;
+                const result = normalizeResponse(2, 'read', body);
+                expect(result).to.equal(null);
+            });
+
+            it('read: returns body unchanged when body.data is null', function () {
+                const body = { data: null };
+                const result = normalizeResponse(2, 'read', body);
+                expect(result).to.equal(body);
+            });
+
+            it('read: returns body unchanged when body.data is undefined', function () {
+                const body = { data: undefined };
+                const result = normalizeResponse(2, 'read', body);
+                expect(result).to.equal(body);
+            });
+
             it('write: returns raw body unchanged', function () {
                 const body = { data: { version: 1 }, request_id: 'r' };
                 const result = normalizeResponse(2, 'write', body);
