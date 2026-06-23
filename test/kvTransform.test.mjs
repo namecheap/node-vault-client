@@ -215,6 +215,13 @@ describe('kvTransform', function () {
                     data: { current_version: 2, versions: { '1': {}, '2': {} } },
                 });
                 expect(result).to.not.equal(body);
+                expect(result.data).to.not.equal(body.data);
+                expect(result.data.versions).to.not.equal(body.data.versions);
+
+                result.data.current_version = 99;
+                result.data.versions['3'] = {};
+                expect(body.data.current_version).to.equal(2);
+                expect(body.data.versions).to.not.have.property('3');
             });
 
             it('deleteMetadata: returns body unchanged', function () {
