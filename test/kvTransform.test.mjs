@@ -215,6 +215,9 @@ describe('kvTransform', function () {
                     data: { current_version: 2, versions: { '1': {}, '2': {} } },
                 });
                 expect(result).to.not.equal(body);
+                // readMetadata only re-creates the envelope; the metadata payload
+                // is preserved (by reference) in result.data — it is not deep-copied.
+                expect(result.data).to.equal(body.data);
             });
 
             it('deleteMetadata: returns body unchanged', function () {
