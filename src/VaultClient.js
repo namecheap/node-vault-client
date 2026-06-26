@@ -9,6 +9,8 @@ const VaultTokenAuth = require('./auth/VaultTokenAuth');
 const VaultIAMAuth = require('./auth/VaultIAMAuth');
 const VaultNodeConfig = require('./VaultNodeConfig');
 const VaultKubernetesAuth = require('./auth/VaultKubernetesAuth');
+const MountResolver = require('./MountResolver');
+const { rewritePath, normalizeResponse } = require('./kvTransform');
 const vaultInstances = {};
 
 class VaultClient {
@@ -20,6 +22,14 @@ class VaultClient {
      * @param {Object} options.api
      * @param {String} options.api.url - the url of the vault server
      * @param {String} [options.api.apiVersion='v1']
+     * @param {Object} [options.api.kv] - KV engine options
+     * @param {boolean} [options.api.kv.autoDetect=false] - When true, auto-detect the KV version per mount
+     *      via a `sys/internal/ui/mounts/<path>` round-trip. When false (default) no detection call is
+     *      ever made and read/list/write behave byte-for-byte as before unless an engine is
+     *      listed in `options.api.engines`.
+     * @param {Object} [options.api.engines] - Static mount-to-version overrides, e.g. `{ secret: 2, legacy: 1 }`.
+     *      Listed mounts resolve without any detection round-trip (works even with autoDetect off), making
+     *      this a reliable fallback for Vaults that deny the detection endpoint.
      * @param {Object} options.auth
      * @param {String} options.auth.type
      * @param {Object} options.auth.config - auth configuration variables
@@ -43,6 +53,25 @@ class VaultClient {
         );
 
         this.__namespace = options.auth.config.namespace;
+
+        // KV v2 support (opt-in, non-breaking).
+        const kvOpts = (options.api && options.api.kv) || {};
+        const autoDetect = kvOpts.autoDetect === true;
+        const engines = (options.api && options.api.engines) || {};
+
+        // Detection (the sys/internal/ui/mounts round-trip) only happens when
+        // autoDetect is on. With engines set but autoDetect off, listed mounts use
+        // the override and any other mount is passthrough (v1) — no detection call
+        // is ever made. This keeps the default byte-for-byte and makes engines a
+        // working fallback for Vaults that deny the detection endpoint.
+        const resolverDisabled = !autoDetect;
+
+        // Build detectFn lazily — it uses __auth and __api which are already set above.
+        const detectFn = (path) => this.__detectMount(path);
+
+        this.__resolver = new MountResolver(detectFn, engines, this.__log, {
+            disabled: resolverDisabled,
+        });
     }
 
     /**
@@ -173,6 +202,81 @@ class VaultClient {
         return {'X-Vault-Token': token.getId()}
     }
 
+    // -------------------------------------------------------------------------
+    // Detection helper (used by MountResolver's detectFn)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Calls GET sys/internal/ui/mounts/<path> with the current auth token.
+     * Returns the parsed Vault response body.
+     * @private
+     */
+    __detectMount(path) {
+        return this.__auth.getAuthToken()
+            .then((token) => {
+                const detectPath = `sys/internal/ui/mounts/${path}`;
+                return this.__api.makeRequest('GET', detectPath, null, this.getHeaders(token));
+            });
+    }
+
+    // -------------------------------------------------------------------------
+    // Internal resolve + request helper
+    // -------------------------------------------------------------------------
+
+    /**
+     * Resolve the mount version for a path, rewrite the path, make the request,
+     * and return a { apiPath, body, version, mount } object.
+     *
+     * When the resolver is disabled (autoDetect:false, no matching engine), it
+     * preserves the caller's literal path byte-for-byte, keeping behaviour
+     * identical to the pre-KV-v2 client.
+     *
+     * @private
+     */
+    __resolveAndRequest(op, method, path, data) {
+        return this.__auth.getAuthToken()
+            .then((token) => {
+                const headers = this.getHeaders(token);
+
+                return this.__resolver.resolve(path)
+                    .then((resolved) => {
+                        const mount = resolved.mount;
+                        const version = resolved.version;
+                        let apiPath;
+                        let requestData = data;
+
+                        if (version === 2) {
+                            // Split the path into mount + logical sub-path and rewrite for KV v2
+                            const logicalPath = this.__logicalPath(path, mount);
+                            apiPath = rewritePath(version, op, mount, logicalPath);
+                            // Wrap data in { data: ... } on v2 writes
+                            if (op === 'write' && data !== null && data !== undefined) {
+                                requestData = { data };
+                            }
+                        } else {
+                            // v1 / disabled: preserve the caller's literal path byte-for-byte,
+                            // including any trailing slash, to maintain the old wire behaviour.
+                            apiPath = path;
+                        }
+
+                        return this.__api.makeRequest(method, apiPath, requestData, headers)
+                            .then((body) => ({ body, version, mount, apiPath }));
+                    });
+            });
+    }
+
+    /**
+     * Extract the logical path after the mount prefix.
+     * e.g. path='secret/foo/bar', mount='secret' => 'foo/bar'
+     * @private
+     */
+    __logicalPath(path, mount) {
+        const prefix = mount.replace(/\/+$/, '');
+        if (path === prefix) return '';
+        if (path.startsWith(prefix + '/')) return path.slice(prefix.length + 1);
+        return path;
+    }
+
     /**
      * Read secret from Vault
      * @param {string} path - path to the secret
@@ -180,11 +284,11 @@ class VaultClient {
      */
     read(path) {
         this.__log.debug('read secret %s', path);
-        return this.__auth.getAuthToken()
-            .then(token => this.__api.makeRequest('GET', path, null, this.getHeaders(token)))
-            .then(res => {
+        return this.__resolveAndRequest('read', 'GET', path, null)
+            .then(({ body, version }) => {
                 this.__log.debug('receive secret %s', path);
-                return Lease.fromResponse(res);
+                const normalised = normalizeResponse(version, 'read', body);
+                return Lease.fromResponse(normalised);
             })
             .catch((reason) => {
                 this.__log.error('read secret failed: %s', reason.message);
@@ -200,11 +304,11 @@ class VaultClient {
      */
     list(path) {
         this.__log.debug('list secrets %s', path);
-        return this.__auth.getAuthToken()
-            .then(token => this.__api.makeRequest('LIST', path, null, this.getHeaders(token)))
-            .then(res => {
+        return this.__resolveAndRequest('list', 'LIST', path, null)
+            .then(({ body, version }) => {
                 this.__log.debug('got secrets list %s', path);
-                return Lease.fromResponse(res);
+                const normalised = normalizeResponse(version, 'list', body);
+                return Lease.fromResponse(normalised);
             })
             .catch((reason) => {
                 this.__log.error('list secrets failed: %s', reason.message);
@@ -221,11 +325,10 @@ class VaultClient {
      */
     write(path, data) {
         this.__log.debug('write secret %s', path);
-        return this.__auth.getAuthToken()
-            .then((token) => this.__api.makeRequest('POST', path, data, this.getHeaders(token)))
-            .then((response) => {
+        return this.__resolveAndRequest('write', 'POST', path, data)
+            .then(({ body }) => {
                 this.__log.debug('secret %s was written', path);
-                return response;
+                return body;
             })
             .catch((reason) => {
                 this.__log.error('write secret failed: %s', reason.message);
