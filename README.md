@@ -29,6 +29,114 @@ vaultClient.read('secret/tst').then(v => {
 }).catch(e => console.error(e));
 ```
 
+## KV v2 support
+
+This release adds transparent support for the [KV v2 secrets engine](https://developer.hashicorp.com/vault/docs/secrets/kv/kv-v2)
+on top of the existing KV v1 / raw passthrough behaviour.
+
+**It is fully opt-in and non-breaking.** With no extra configuration the client behaves exactly as
+before: every path is treated as KV v1 / raw passthrough and no extra request is made. KV v2 is
+activated per mount by setting `api.kv.autoDetect: true` **or** by supplying a static `api.engines`
+map. Once enabled, the client rewrites paths (`secret/foo` → `secret/data/foo`) and unwraps the
+nested KV v2 response automatically — callers never deal with the `data/` / `metadata/` segments
+themselves.
+
+### Configuration options
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `api.kv.autoDetect` | `boolean` | `false` | Auto-detect the KV version of each mount on first use via `GET sys/internal/ui/mounts/<path>`. The result is cached per mount for the lifetime of the client. |
+| `api.engines` | `Object` | `{}` | Static mount-to-version map, e.g. `{ secret: 2, legacy: 1 }`. Listed mounts resolve with no detection round-trip; use this when the token lacks permission on `sys/internal/ui/mounts`. |
+
+`engines` always takes precedence over detection, so the two can be combined: matching mounts use
+the map while unmatched mounts are auto-detected (when `autoDetect: true`) or treated as v1.
+
+### KV v1 (default — nothing to configure)
+
+```javascript
+const client = VaultClient.boot('main', {
+    api: { url: 'https://vault.example.com:8200/' },
+    auth: { type: 'token', config: { token: '...' } },
+});
+
+const lease = await client.read('secret/my-app/config'); // GET secret/my-app/config
+console.log(lease.getData());      // the secret object
+console.log(lease.getMetadata());  // undefined on KV v1
+```
+
+### KV v2
+
+Pass **logical** paths only — the client inserts the `data/` (and `metadata/` for `list`) segment
+for you.
+
+```javascript
+const client = VaultClient.boot('main', {
+    api: {
+        url: 'https://vault.example.com:8200/',
+        engines: { secret: 2 },          // or: kv: { autoDetect: true }
+    },
+    auth: { type: 'token', config: { token: '...' } },
+});
+
+// read  → GET    secret/data/my-app/config, response.data.data is unwrapped automatically
+const lease = await client.read('secret/my-app/config');
+console.log(lease.getData());      // the secret values
+console.log(lease.getMetadata());  // { version, created_time, ... } on KV v2
+
+// write → POST   secret/data/my-app/config with { data: { ... } } wrapping done for you
+await client.write('secret/my-app/config', { password: 's3cr3t' });
+
+// list  → LIST   secret/metadata/my-app
+await client.list('secret/my-app');
+```
+
+### Mixed v1 + v2 mounts on one client
+
+Version resolution is **per mount**, so a single client can talk to v1 and v2 mounts at the same
+time. List each mount's version in `api.engines`:
+
+```javascript
+const client = VaultClient.boot('main', {
+    api: {
+        url: 'https://vault.example.com:8200/',
+        engines: {
+            'secret-v2': 2,   // KV v2 mount
+            // 'secret' is not listed → treated as KV v1 (passthrough)
+        },
+    },
+    auth: { type: 'token', config: { token: '...' } },
+});
+
+await client.read('secret/legacy/app');        // v1 → GET secret/legacy/app
+await client.read('secret-v2/app/config');     // v2 → GET secret-v2/data/app/config
+await client.read('database/creds/app-role');  // not KV  → passthrough, GET as-is
+```
+
+Or let the client figure it out with `autoDetect` (requires the token to read
+`sys/internal/ui/mounts`):
+
+```javascript
+const client = VaultClient.boot('main', {
+    api: { url: 'https://vault.example.com:8200/', kv: { autoDetect: true } },
+    auth: { type: 'token', config: { token: '...' } },
+});
+
+await client.read('secret/legacy/app');     // detected as v1
+await client.read('secret-v2/app/config');  // detected as v2
+```
+
+### Notes & caveats
+
+- **Do not include KV v2 segments in the path.** Pass `secret/foo`, not `secret/data/foo` — the
+  latter would be rewritten to `secret/data/data/foo` on a v2 mount.
+- **Vault policy must allow the v2 paths.** KV v2 reads hit `<mount>/data/...` (and `list` hits
+  `<mount>/metadata/...`), so the auth token's policy must grant capabilities on those paths, not
+  on the logical path.
+- Non-KV backends (database, transit, etc.) are always treated as passthrough — leave them out of
+  `api.engines`, and `autoDetect` recognises them as non-KV automatically.
+- If detection fails (e.g. permission denied) and no `api.engines` override matches, the read
+  rejects with a `VaultError` — set `api.engines` to bypass detection in that case.
+
 ## Supported Auth Backends
 
 * [AWS IAM](https://www.vaultproject.io/docs/auth/aws.html#iam-auth-method)
@@ -65,6 +173,9 @@ Client constructor function.
 | options.api | <code>Object</code> |  |  |
 | options.api.url | <code>String</code> |  | the url of the vault server |
 | [options.api.apiVersion] | <code>String</code> | `v1` |  |
+| [options.api.kv] | <code>Object</code> |  | KV engine options |
+| [options.api.kv.autoDetect] | <code>boolean</code> | `false` | Auto-detect the KV version per mount via `GET sys/internal/ui/mounts/<path>`. |
+| [options.api.engines] | <code>Object</code> | `{}` | Static mount-to-version map, e.g. `{ secret: 2, legacy: 1 }`. Overrides detection. |
 | options.auth | <code>Object</code> |  |  |
 | options.auth.type | <code>String</code> |  |  |
 | options.auth.config | <code>Object</code> |  | auth configuration variables |

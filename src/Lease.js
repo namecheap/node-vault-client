@@ -8,13 +8,15 @@ class Lease {
         leaseId,
         leaseDuration,
         renewable,
-        data
+        data,
+        metadata
     ) {
         this.__requestId = requestId;
         this.__leaseId = leaseId;
         this.__leaseDuration = leaseDuration;
         this.__renewable = renewable;
-        this.__data = data === undefined ? {} : data;
+        this.__data = (data === undefined || data === null) ? {} : data;
+        this.__metadata = metadata;
     }
 
     static fromResponse(response) {
@@ -23,7 +25,8 @@ class Lease {
             response.lease_id,
             response.lease_duration,
             response.renewable,
-            response.data
+            response.data,
+            response.metadata
         );
     }
 
@@ -51,6 +54,16 @@ class Lease {
      */
     isRenewable() {
         return this.__renewable;
+    }
+
+    /**
+     * KV v2 version metadata object (created_time, version, etc.).
+     * Returns undefined for KV v1 / non-KV leases.
+     *
+     * @returns {Object|undefined}
+     */
+    getMetadata() {
+        return this.__metadata;
     }
 }
 
