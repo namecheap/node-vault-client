@@ -132,7 +132,7 @@ class MountResolver {
                 const type = info.type || 'unknown';
                 const optVersion = info.options && info.options.version;
                 // Only kv v2 gets special treatment; everything else is passthrough
-                const version = (type === 'kv' && optVersion === '2') ? 2 : 1;
+                const version = (type === 'kv' && Number(optVersion) === 2) ? 2 : 1;
 
                 const entry = { mount: canonicalMount, version, type };
                 this.__log.debug('MountResolver: detected %s as type=%s version=%d', canonicalMount, type, version);

@@ -15,7 +15,7 @@ class Lease {
         this.__leaseId = leaseId;
         this.__leaseDuration = leaseDuration;
         this.__renewable = renewable;
-        this.__data = data === undefined ? {} : data;
+        this.__data = (data === undefined || data === null) ? {} : data;
         this.__metadata = metadata;
     }
 
