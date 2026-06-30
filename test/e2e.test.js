@@ -190,4 +190,44 @@ describe('E2E', function () {
         });
     });
 
+    describe('Read/Write/List edge cases', function () {
+        it('read() of a non-existent secret rejects', function* () {
+            const vaultClient = new VaultClient(this.bootOpts);
+            let threw = false;
+            try {
+                yield vaultClient.read('secret/does-not-exist-' + Date.now());
+            } catch (e) {
+                threw = true;
+            }
+            expect(threw).to.equal(true);
+        });
+
+        it('write() then read() round-trips on a nested path', function* () {
+            const vaultClient = new VaultClient(this.bootOpts);
+            const data = { a: 'first', n: 1 };
+            yield vaultClient.write('/secret/nested/path/key', data);
+            const res = yield vaultClient.read('secret/nested/path/key');
+            expect(res.getData()).to.deep.equal(data);
+        });
+
+        it('write() overwrites and read() returns the latest value', function* () {
+            const vaultClient = new VaultClient(this.bootOpts);
+            yield vaultClient.write('/secret/overwrite-me', { v: 'one' });
+            yield vaultClient.write('/secret/overwrite-me', { v: 'two' });
+            const res = yield vaultClient.read('secret/overwrite-me');
+            expect(res.getData()).to.deep.equal({ v: 'two' });
+        });
+
+        it('list() of a non-existent path rejects', function* () {
+            const vaultClient = new VaultClient(this.bootOpts);
+            let threw = false;
+            try {
+                yield vaultClient.list('secret/no-such-prefix-' + Date.now());
+            } catch (e) {
+                threw = true;
+            }
+            expect(threw).to.equal(true);
+        });
+    });
+
 });
