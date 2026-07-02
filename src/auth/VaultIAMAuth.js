@@ -48,7 +48,8 @@ class VaultIAMAuth extends VaultBaseAuth {
      * @typedef {Object} VaultIAMAuthConfig
      * @property {String} role - Role name of the auth/{mount}/role/{name} backend.
      * @property {AWSCredentials} [credentials] - Optional. AWS Credentials
-     * @property {String} [namespace] - Optional. Vault namespace, sent as the X-Vault-Namespace header.
+     * @property {String} [namespace] - Optional. Vault namespace. Applied as the X-Vault-Namespace
+     *   header to every request by {@link VaultApiClient}; see {@link VaultClient#constructor}.
      * @property {String} [iam_server_id_header_value] - Optional. Header's value X-Vault-AWS-IAM-Server-ID.
      * @property {String} [region] - Optional. AWS region used to sign the STS GetCallerIdentity
      *   request. When set, the request is signed against the regional STS endpoint
@@ -66,7 +67,6 @@ class VaultIAMAuth extends VaultBaseAuth {
 
         this.__role = config.role;
         this.__iam_server_id_header_value = config.iam_server_id_header_value;
-        this.__namespace = config.namespace;
         this.__region = config.region;
 
 
@@ -85,23 +85,13 @@ class VaultIAMAuth extends VaultBaseAuth {
             this.__role
         );
 
-        var headers = {};
-
-        if (this.__namespace) {
-            headers = {
-                'X-Vault-Namespace': this.__namespace,
-            }
-        }
-
-
         return Promise.resolve()
             .then(() => this.__getCredentials())
             .then((credentials) => {
                 return this.__apiClient.makeRequest(
                     'POST',
                     `/auth/${this._mount}/login`,
-                    this.__getVaultAuthRequestBody(this.__getStsRequest(credentials)),
-                    headers
+                    this.__getVaultAuthRequestBody(this.__getStsRequest(credentials))
                 );
             })
             .then((response) => {

@@ -31,7 +31,38 @@ describe('AppRole auth backend', function () {
   describe('Vault Request', function () {
     const mount = 'approle';
 
-    it('Should make a correct vault login request with namespace', async () => {
+    it('makes the login request with role_id/secret_id and no per-backend headers', async () => {
+      const api = getApiStub();
+
+      const auth = new VaultAppRoleAuth(
+        api,
+        logger,
+        {
+          role_id: 'role123',
+          secret_id: 'secret456',
+        },
+        mount,
+      );
+
+      api.makeRequest
+        .withArgs('POST')
+        .resolves({ auth: { client_token: 'fake_token' } });
+      sinon.stub(auth, '_getTokenEntity');
+
+      await auth._authenticate();
+
+      // The namespace header is injected centrally by VaultApiClient (see test/namespace.test.mjs),
+      // so the backend passes no headers of its own.
+      expect(
+        api.makeRequest.calledWithExactly(
+          'POST',
+          '/auth/approle/login',
+          { role_id: 'role123', secret_id: 'secret456' },
+        ),
+      ).to.be.true;
+    });
+
+    it('does not attach an X-Vault-Namespace header itself, even when namespace is configured', async () => {
       const api = getApiStub();
 
       const auth = new VaultAppRoleAuth(
@@ -52,44 +83,9 @@ describe('AppRole auth backend', function () {
 
       await auth._authenticate();
 
-      expect(
-        api.makeRequest.calledWith(
-          'POST',
-          '/auth/approle/login',
-          { role_id: 'role123', secret_id: 'secret456' },
-          { 'X-Vault-Namespace': 'ns1' },
-        ),
-      ).to.be.true;
-    });
-
-    it('Should not set namespace header if not provided', async () => {
-      const api = getApiStub();
-
-      const auth = new VaultAppRoleAuth(
-        api,
-        logger,
-        {
-          role_id: 'role123',
-          secret_id: 'secret456',
-        },
-        mount,
-      );
-
-      api.makeRequest
-        .withArgs('POST')
-        .resolves({ auth: { client_token: 'fake_token' } });
-      sinon.stub(auth, '_getTokenEntity');
-
-      await auth._authenticate();
-
-      expect(
-        api.makeRequest.calledWith(
-          'POST',
-          '/auth/approle/login',
-          { role_id: 'role123', secret_id: 'secret456' },
-          {},
-        ),
-      ).to.be.true;
+      // Namespacing is centralized in VaultApiClient; the backend must not reintroduce a copy.
+      const headers = api.makeRequest.getCall(0).args[3];
+      expect(headers).to.equal(undefined);
     });
 
     it("defaults the mount to 'approle' when none is provided", async () => {
@@ -108,11 +104,10 @@ describe('AppRole auth backend', function () {
       await auth._authenticate();
 
       expect(
-        api.makeRequest.calledWith(
+        api.makeRequest.calledWithExactly(
           'POST',
           '/auth/approle/login',
           { role_id: 'role123', secret_id: 'secret456' },
-          {},
         ),
       ).to.be.true;
     });

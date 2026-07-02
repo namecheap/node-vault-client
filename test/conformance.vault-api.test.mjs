@@ -198,27 +198,36 @@ describe('Vault API conformance', function () {
     });
 
     describe('namespaces', function () {
-        it('selects a namespace with the X-Vault-Namespace header on KV requests', function () {
+        // Namespacing is owned by VaultApiClient#makeRequest, so it applies uniformly to login,
+        // token lookup/renewal and secret operations. The full per-backend matrix lives in
+        // test/namespace.test.mjs; here we validate the documented header on the wire and the
+        // config resolution.
+        it('sends the X-Vault-Namespace header on the wire when configured', function () {
+            const fetchStub = sinon.stub(global, 'fetch').resolves(
+                new Response(JSON.stringify({ data: {} }), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                })
+            );
+            const api = new VaultApiClient({ url: 'https://vault.example' }, logger, 'team-a');
+            return api.makeRequest('GET', '/secret/data/foo', null, { 'X-Vault-Token': 'tid' })
+                .then(() => {
+                    const headers = fetchStub.firstCall.args[1].headers;
+                    expect(headers['X-Vault-Namespace']).to.equal('team-a');
+                    expect(headers['X-Vault-Token']).to.equal('tid');
+                })
+                .finally(() => fetchStub.restore());
+        });
+
+        it('resolves auth.config.namespace onto the shared API client', function () {
             const client = new VaultClient({
                 api: { url: 'https://vault.example/' },
                 logger: false,
                 auth: { type: 'token', config: { token: 't', namespace: 'team-a' } },
             });
-            expect(client.getHeaders({ getId: () => 'tid' })).to.deep.equal({
-                'X-Vault-Token': 'tid',
-                'X-Vault-Namespace': 'team-a',
-            });
-        });
-
-        it('sends X-Vault-Namespace on the AppRole login request', function () {
-            const api = apiStub();
-            api.makeRequest.resolves({ auth: { client_token: 'ct' } });
-            const auth = new VaultAppRoleAuth(api, logger, { role_id: 'r', secret_id: 's', namespace: 'team-a' }, 'approle');
-            sinon.stub(auth, '_getTokenEntity').resolves();
-            return auth._authenticate().then(() => {
-                const headers = api.makeRequest.getCall(0).args[3];
-                expect(headers).to.deep.equal({ 'X-Vault-Namespace': 'team-a' });
-            });
+            expect(client.__api.__namespace).to.equal('team-a');
+            // getHeaders no longer carries the namespace — the transport injects it.
+            expect(client.getHeaders({ getId: () => 'tid' })).to.deep.equal({ 'X-Vault-Token': 'tid' });
         });
     });
 

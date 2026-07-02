@@ -10,7 +10,8 @@ class VaultAppRoleAuth extends VaultBaseAuth {
      * @param {Object} config
      * @param {String} config.role_id - RoleID of the AppRole.
      * @param {String} [config.secret_id] - required when bind_secret_id is enabled SecretID belonging to AppRole.
-     * @param {String} [config.namespace] - Optional. Vault namespace, sent as the X-Vault-Namespace header.
+     * @param {String} [config.namespace] - Optional. Vault namespace. Applied as the X-Vault-Namespace
+     *   header to every request by {@link VaultApiClient}; see {@link VaultClient#constructor}.
      * @param {String} mount - Vault's  mount point ("approle" by default)
      */
     constructor(apiClient, logger, config, mount) {
@@ -18,7 +19,6 @@ class VaultAppRoleAuth extends VaultBaseAuth {
 
         this.__roleId = config.role_id;
         this.__secretId = config.secret_id;
-        this.__namespace = config.namespace;
     }
 
     _authenticate() {
@@ -27,15 +27,10 @@ class VaultAppRoleAuth extends VaultBaseAuth {
             this.__roleId
         );
 
-        const headers = {};
-        if (this.__namespace) {
-            headers['X-Vault-Namespace'] = this.__namespace;
-        }
-
         return this.__apiClient.makeRequest('POST', `/auth/${this._mount}/login`, {
             role_id: this.__roleId,
             secret_id: this.__secretId,
-        }, headers).then(res => {
+        }).then(res => {
             this._log.debug(
                 'received token (accessor=%s)',
                 res.auth.accessor

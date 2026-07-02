@@ -29,6 +29,9 @@ class VaultClient {
      * @param {Object} [options.api.kv] - KV engine options
      * @param {boolean} [options.api.kv.autoDetect=false] - When true, auto-detect KV version per mount
      * @param {Object} [options.api.engines] - Mount-to-version overrides, e.g. { secret: 2, legacy: 1 }
+     * @param {String} [options.api.namespace] - Vault namespace applied (as `X-Vault-Namespace`) to
+     *      every request across all auth backends. For backward compatibility `options.auth.config.namespace`
+     *      is also honored when this is not set.
      * @param {Object} options.auth
      * @param {String} options.auth.type
      * @param {Object} options.auth.config - auth configuration variables
@@ -37,9 +40,18 @@ class VaultClient {
     constructor(options) {
         this.__log = this.__setupLogger(options.logger);
 
+        // Namespace is a server-routing concern that applies to every request, so it is resolved
+        // once here and owned by the API client (see VaultApiClient#makeRequest) rather than being
+        // reapplied in each auth backend. `api.namespace` is the canonical location; the legacy
+        // `auth.config.namespace` is still honored for backward compatibility.
+        const namespace = (options.api && options.api.namespace !== undefined)
+            ? options.api.namespace
+            : (options.auth && options.auth.config ? options.auth.config.namespace : undefined);
+
         this.__api = new VaultApiClient(
             options.api,
-            this.__log
+            this.__log,
+            namespace
         );
 
         /**
@@ -50,8 +62,6 @@ class VaultClient {
             options.auth,
             this.__api
         );
-
-        this.__namespace = options.auth.config.namespace;
 
         // KV v2 support
         const kvOpts = (options.api && options.api.kv) || {};
@@ -213,13 +223,8 @@ class VaultClient {
     }
 
     getHeaders(token) {
-        if (this.__namespace) {
-            return {
-                'X-Vault-Token': token.getId(),
-                'X-Vault-Namespace': this.__namespace
-            }
-        }
-
+        // Namespace is injected centrally by VaultApiClient#makeRequest, so callers only
+        // need to supply the token here.
         return {'X-Vault-Token': token.getId()}
     }
 

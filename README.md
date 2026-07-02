@@ -156,11 +156,12 @@ Client constructor function.
 | options.api.url | <code>String</code> |  | the url of the vault server |
 | [options.api.apiVersion] | <code>String</code> | `v1` |  |
 | [options.api.requestOptions] | <code>Object</code> |  | extra options merged into every HTTP request (see [Custom transport](#custom-transport-proxy--self-signed-tls)) |
+| [options.api.namespace] | <code>String</code> |  | Optional. Vault namespace, sent as the `X-Vault-Namespace` header on **every** request — login, token lookup/renewal, and all secret operations — for every auth type. This is the canonical location; `auth.config.namespace` is still honored for backward compatibility. |
 | options.auth | <code>Object</code> |  |  |
 | options.auth.type | <code>String</code> |  |  |
 | [options.auth.mount] | <code>String</code> |  | Vault auth backend mount point; default varies per method (e.g. "aws" for iam, "approle", "token", "kubernetes") |
 | options.auth.config | <code>Object</code> |  | auth configuration variables |
-| [options.auth.config.namespace] | <code>String</code> |  | Optional. Vault namespace, sent as the `X-Vault-Namespace` header on all secret read/list/write requests. Applies to every auth type, not just IAM. |
+| [options.auth.config.namespace] | <code>String</code> |  | Optional. Legacy location for the Vault namespace (see `api.namespace`). Sent as the `X-Vault-Namespace` header on **every** request for every auth type. |
 | options.logger | <code>Object</code> | `false` |  | Logger that supports "error", "info", "warn", "trace", "debug" methods. Uses `console` by default. Pass `false` to disable logging. |
 
 ##### Custom transport (proxy / self-signed TLS)

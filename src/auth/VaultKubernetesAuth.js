@@ -8,6 +8,8 @@ class VaultKubernetesAuth extends VaultBaseAuth {
      * @param {Object} config
      * @param {String} config.role - Role configured in Vault Kubernetes Auth backend under which we want to issue Vault token.
      * @param {String} [config.tokenPath] - Path to the Kube JWT token. If omitted - default will be used.
+     * @param {String} [config.namespace] - Optional. Vault namespace. Applied as the X-Vault-Namespace
+     *   header to every request by {@link VaultApiClient}; see {@link VaultClient#constructor}.
      * @param {String} mount - Vault's  mount point ("kubernetes" by default)
      */
     constructor(apiClient, logger, config, mount) {
