@@ -1,6 +1,6 @@
 'use strict';
 
-const { VaultError } = require('./errors');
+const { VaultError, InvalidArgumentsError } = require('./errors');
 
 // Default cap for the mount cache. Real deployments talk to a handful of static
 // mounts, so this is generous headroom; the cap exists so that a long-lived
@@ -29,7 +29,17 @@ class MountResolver {
         this.__detectFn = detectFn;
         this.__log = logger;
         this.__disabled = opts && opts.disabled === true;
-        this.__maxCacheSize = (opts && opts.maxCacheSize) || DEFAULT_MAX_CACHE_SIZE;
+        // Validate before use: a non-positive cap would make the eviction loop in
+        // __cacheStore spin forever (size can never drop below the cap), and a
+        // non-integer cap makes the bound meaningless.
+        const maxCacheSize = opts && opts.maxCacheSize;
+        if (maxCacheSize !== undefined
+            && (!Number.isInteger(maxCacheSize) || maxCacheSize <= 0)) {
+            throw new InvalidArgumentsError(
+                `MountResolver: opts.maxCacheSize must be a positive integer, got ${String(maxCacheSize)}`
+            );
+        }
+        this.__maxCacheSize = maxCacheSize !== undefined ? maxCacheSize : DEFAULT_MAX_CACHE_SIZE;
 
         // The engines map is immutable after construction: normalize and sort the
         // entries once (longest raw prefix first, matching the previous per-call

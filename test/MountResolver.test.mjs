@@ -288,6 +288,23 @@ describe('MountResolver', function () {
             expect(detectFn.callCount).to.equal(4); // m2 was evicted and re-detected
         });
 
+        it('rejects an invalid maxCacheSize at construction (review: a negative cap would hang eviction)', function () {
+            const detectFn = sinon.stub();
+            for (const bad of [-1, 0, 1.5, NaN, Infinity, '10']) {
+                expect(
+                    () => new MountResolver(detectFn, {}, logger, { maxCacheSize: bad }),
+                    `maxCacheSize=${String(bad)} must be rejected`
+                ).to.throw(errors.InvalidArgumentsError, 'maxCacheSize');
+            }
+        });
+
+        it('falls back to the default cap when maxCacheSize is omitted', async function () {
+            const detectFn = sinon.stub().callsFake(() => mkDetect('secret', 2));
+            const resolver = new MountResolver(detectFn, {}, logger, {});
+            const result = await resolver.resolve('secret/foo');
+            expect(result.version).to.equal(2);
+        });
+
         it('keeps in-flight dedup working with a bounded cache', async function () {
             const detectFn = sinon.stub().callsFake(() => mkDetect('secret', 2));
             const resolver = new MountResolver(detectFn, {}, logger, { maxCacheSize: 2 });
