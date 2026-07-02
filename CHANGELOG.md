@@ -1,3 +1,14 @@
+# Unreleased
+
+- Perf: `MountResolver` no longer re-sorts the `api.engines` override map on every `resolve()` —
+  entries are normalized and sorted once at construction (the map is now snapshotted: mutating the
+  object after `VaultClient` construction no longer affects resolution). The mount cache is now a
+  bounded LRU (default 500 entries, `opts.maxCacheSize`) probed by segment-boundary prefix in
+  O(path depth) instead of a linear scan over every cached mount, so long-lived services against
+  many/dynamic mounts get bounded memory and lookup cost. Measured at 200k worst-case resolves:
+  engines lookup 1191ms → 34ms (50 entries), cache lookup 1019ms → 149ms (500 mounts). Also adds
+  test coverage for the previously untested empty-detection-response error. Closes #108.
+
 # 2.0.4 Release notes (2026-07-02)
 
 - CI: make the quality gates actually enforce. `c8` now runs with `check-coverage` and per-metric

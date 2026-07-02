@@ -216,9 +216,142 @@ describe('MountResolver', function () {
     });
 
     // -------------------------------------------------------------------------
+    // engines map is snapshotted at construction
+    // -------------------------------------------------------------------------
+    describe('engines snapshot', function () {
+        it('sorts and normalizes the engines map once — later mutations have no effect', async function () {
+            const detectFn = sinon.stub().rejects(new Error('should not be called'));
+            const engines = { secret: 2 };
+            const resolver = new MountResolver(detectFn, engines, logger, { disabled: true });
+
+            // Mutating the map after construction must not change resolution:
+            // the entries are precomputed in the constructor (issue #108).
+            engines.secret = 1;
+            engines.other = 2;
+
+            const listed = await resolver.resolve('secret/foo');
+            expect(listed.version).to.equal(2);
+
+            const unlisted = await resolver.resolve('other/bar');
+            expect(unlisted.version).to.equal(1);
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // cache bounding (LRU)
+    // -------------------------------------------------------------------------
+    describe('cache bounding (LRU)', function () {
+        function mountDetectFn() {
+            // Detects "<first-segment>" as a KV v2 mount for any path.
+            return sinon.stub().callsFake((p) => mkDetect(p.split('/')[0], 2));
+        }
+
+        it('evicts the least-recently-used mount once the cap is exceeded', async function () {
+            const detectFn = mountDetectFn();
+            const resolver = new MountResolver(detectFn, {}, logger, { maxCacheSize: 2 });
+
+            await resolver.resolve('m1/a');
+            await resolver.resolve('m2/a');
+            expect(detectFn).to.have.been.calledTwice;
+
+            // Third mount exceeds the cap of 2 → m1 (oldest) is evicted.
+            await resolver.resolve('m3/a');
+
+            // m2 and m3 are still cached...
+            await resolver.resolve('m2/b');
+            await resolver.resolve('m3/b');
+            expect(detectFn).to.have.been.calledThrice;
+
+            // ...but m1 must be re-detected.
+            await resolver.resolve('m1/b');
+            expect(detectFn.callCount).to.equal(4);
+        });
+
+        it('a cache hit refreshes recency, protecting the entry from eviction', async function () {
+            const detectFn = mountDetectFn();
+            const resolver = new MountResolver(detectFn, {}, logger, { maxCacheSize: 2 });
+
+            await resolver.resolve('m1/a');
+            await resolver.resolve('m2/a');
+
+            // Touch m1 so m2 becomes the least-recently-used entry.
+            await resolver.resolve('m1/b');
+
+            // Inserting m3 must now evict m2, not m1.
+            await resolver.resolve('m3/a');
+            expect(detectFn).to.have.been.calledThrice;
+
+            await resolver.resolve('m1/c');
+            expect(detectFn).to.have.been.calledThrice; // m1 survived
+
+            await resolver.resolve('m2/b');
+            expect(detectFn.callCount).to.equal(4); // m2 was evicted and re-detected
+        });
+
+        it('rejects an invalid maxCacheSize at construction (review: a negative cap would hang eviction)', function () {
+            const detectFn = sinon.stub();
+            for (const bad of [-1, 0, 1.5, NaN, Infinity, '10']) {
+                expect(
+                    () => new MountResolver(detectFn, {}, logger, { maxCacheSize: bad }),
+                    `maxCacheSize=${String(bad)} must be rejected`
+                ).to.throw(errors.InvalidArgumentsError, 'maxCacheSize');
+            }
+        });
+
+        it('falls back to the default cap when maxCacheSize is omitted', async function () {
+            const detectFn = sinon.stub().callsFake(() => mkDetect('secret', 2));
+            const resolver = new MountResolver(detectFn, {}, logger, {});
+            const result = await resolver.resolve('secret/foo');
+            expect(result.version).to.equal(2);
+        });
+
+        it('keeps in-flight dedup working with a bounded cache', async function () {
+            const detectFn = sinon.stub().callsFake(() => mkDetect('secret', 2));
+            const resolver = new MountResolver(detectFn, {}, logger, { maxCacheSize: 2 });
+
+            const [r1, r2, r3] = await Promise.all([
+                resolver.resolve('secret/a'),
+                resolver.resolve('secret/b'),
+                resolver.resolve('secret/c'),
+            ]);
+            expect(detectFn).to.have.been.calledOnce;
+            expect(r1.version).to.equal(2);
+            expect(r2.version).to.equal(2);
+            expect(r3.version).to.equal(2);
+        });
+    });
+
+    // -------------------------------------------------------------------------
     // failure handling
     // -------------------------------------------------------------------------
     describe('failure handling', function () {
+        it('throws VaultError with guidance when the detection response is empty', async function () {
+            const detectFn = sinon.stub().resolves({});
+            const resolver = new MountResolver(detectFn, {}, logger);
+
+            try {
+                await resolver.resolve('secret/foo');
+                throw new Error('expected rejection');
+            } catch (err) {
+                expect(err).to.be.instanceOf(errors.VaultError);
+                expect(err.message).to.include('Unexpected empty detection response');
+                expect(err.message).to.include('api.engines');
+            }
+        });
+
+        it('treats a null detection response as empty too', async function () {
+            const detectFn = sinon.stub().resolves(null);
+            const resolver = new MountResolver(detectFn, {}, logger);
+
+            try {
+                await resolver.resolve('secret/foo');
+                throw new Error('expected rejection');
+            } catch (err) {
+                expect(err).to.be.instanceOf(errors.VaultError);
+                expect(err.message).to.include('Unexpected empty detection response');
+            }
+        });
+
         it('throws VaultError when detectFn rejects', async function () {
             const detectFn = sinon.stub().rejects(new Error('403 Forbidden'));
             const resolver = new MountResolver(detectFn, {}, logger);
