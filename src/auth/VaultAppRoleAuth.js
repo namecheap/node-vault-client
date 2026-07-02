@@ -1,6 +1,7 @@
 'use strict';
 
 const VaultBaseAuth = require('./VaultBaseAuth');
+const errors = require('../errors');
 
 class VaultAppRoleAuth extends VaultBaseAuth {
 
@@ -16,6 +17,10 @@ class VaultAppRoleAuth extends VaultBaseAuth {
      */
     constructor(apiClient, logger, config, mount) {
         super(apiClient, logger, mount || 'approle');
+
+        if (!config || !config.role_id) {
+            throw new errors.InvalidArgumentsError('"role_id" should be provided for VaultAppRoleAuth');
+        }
 
         this.__roleId = config.role_id;
         this.__secretId = config.secret_id;

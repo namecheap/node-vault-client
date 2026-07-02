@@ -9,6 +9,7 @@ describe('errors', function () {
             'InvalidAWSCredentialsError',
             'AuthTokenExpiredError',
             'UnsupportedOperationError',
+            'VaultHttpError',
         ]);
     });
 
@@ -62,6 +63,33 @@ describe('errors', function () {
             expect(err).to.be.instanceOf(Error);
             expect(err.name).to.equal('UnsupportedOperationError');
             expect(err.message).to.equal('not supported');
+        });
+
+        it('VaultHttpError extends VaultError', function () {
+            const err = new errors.VaultHttpError(503, 'sealed');
+            expect(err).to.be.instanceOf(errors.VaultError);
+            expect(err).to.be.instanceOf(Error);
+            expect(err.name).to.equal('VaultHttpError');
+        });
+    });
+
+    describe('VaultHttpError', function () {
+        it('keeps the legacy "<status> - <text>" message shape', function () {
+            const err = new errors.VaultHttpError(403, '{"errors":["permission denied"]}');
+            expect(err.message).to.equal('403 - {"errors":["permission denied"]}');
+        });
+
+        it('exposes the status code as `statusCode` and the parsed body as `error`', function () {
+            const body = { errors: ['permission denied'] };
+            const err = new errors.VaultHttpError(403, '{"errors":["permission denied"]}', body);
+            expect(err.statusCode).to.equal(403);
+            expect(err.error).to.equal(body);
+        });
+
+        it('leaves `error` undefined when the response body is empty', function () {
+            const err = new errors.VaultHttpError(500, '');
+            expect(err.message).to.equal('500 - ');
+            expect(err.error).to.equal(undefined);
         });
     });
 });

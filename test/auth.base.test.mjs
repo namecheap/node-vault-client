@@ -251,6 +251,8 @@ describe('VaultBaseAuth', function () {
             const auth = new TestAuth(api, 'mount', { authStub: sinon.stub().resolves(renewable) });
             auth._log = _.assign({}, logger, { error: errorSpy });
 
+            let renewalsAfterFirstFailure;
+
             return auth.getAuthToken()
                 .then(() => {
                     clock.tick(50000);
@@ -259,6 +261,15 @@ describe('VaultBaseAuth', function () {
                 .then(() => {
                     expect(api.makeRequest).to.have.been.calledWith('POST', '/auth/token/renew-self');
                     expect(errorSpy).to.have.been.called;
+                    // The timer must actually re-arm after the failure ...
+                    expect(auth.__refreshTimeout).to.not.equal(null);
+                    renewalsAfterFirstFailure = api.makeRequest.callCount;
+                    clock.tick(50000);
+                    return flush();
+                })
+                .then(() => {
+                    // ... so advancing the clock again triggers another renewal attempt.
+                    expect(api.makeRequest.callCount).to.be.greaterThan(renewalsAfterFirstFailure);
                 });
         });
     });

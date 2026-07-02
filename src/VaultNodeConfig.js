@@ -148,3 +148,6 @@ class VaultNodeConfig {
 }
 
 module.exports = VaultNodeConfig;
+// The prototype-pollution guard in deepMerge is a deliberate security control;
+// the helper is exported so tests can exercise it directly.
+module.exports.deepMerge = deepMerge;

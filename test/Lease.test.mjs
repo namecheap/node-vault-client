@@ -55,6 +55,25 @@ describe('Lease', function () {
         });
     });
 
+    describe('#getMetadata()', function () {
+        const metadata = { created_time: '2026-07-02T00:00:00Z', version: 3 };
+
+        it('returns the KV v2 version metadata when present', function () {
+            const lease = new Lease('r', 'l', 10, false, { a: 1 }, metadata);
+            expect(lease.getMetadata()).to.equal(metadata);
+        });
+
+        it('is mapped from response.metadata by fromResponse', function () {
+            const lease = Lease.fromResponse({ ...response, metadata });
+            expect(lease.getMetadata()).to.deep.equal(metadata);
+        });
+
+        it('returns undefined for KV v1 / non-KV leases', function () {
+            expect(Lease.fromResponse(response).getMetadata()).to.equal(undefined);
+            expect(new Lease('r', 'l', 10, false, {}).getMetadata()).to.equal(undefined);
+        });
+    });
+
     describe('#isRenewable()', function () {
         it('reflects the renewable flag', function () {
             expect(new Lease('r', 'l', 10, true, {}).isRenewable()).to.equal(true);

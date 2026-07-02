@@ -1,5 +1,7 @@
 'use strict';
 
+const errors = require('./errors');
+
 /**
  * Joins URL segments with single slashes while preserving the leading
  * protocol (e.g. "https://"). Replaces the former `url-join` dependency.
@@ -111,10 +113,7 @@ class VaultApiClient {
                 }
 
                 if (!response.ok) {
-                    const error = new Error(`${response.status} - ${text}`);
-                    error.statusCode = response.status;
-                    error.error = body;
-                    throw error;
+                    throw new errors.VaultHttpError(response.status, text, body);
                 }
 
                 // Do not log the response body: Vault responses carry secret

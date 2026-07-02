@@ -13,6 +13,14 @@
   point (one `resolver.resolve()` call site instead of three). No behavior change — the pipeline
   is locked by new characterization tests across v1/v2 mounts, namespaces, and extra headers.
   Closes #110.
+- Non-2xx Vault responses are now rejected with a typed `VaultHttpError` (part of the `VaultError`
+  hierarchy, exported from the errors module), so callers can `instanceof`-check HTTP failures.
+  Backward compatible: the message (`"<status> - <body text>"`) and the `statusCode`/`error`
+  properties are unchanged, and the thrown value is still an `instanceof Error`.
+- Auth backends now fail fast with `InvalidArgumentsError` when a required config field is missing:
+  `role_id` for AppRole, `role` for IAM and Kubernetes (previously only Token auth validated its
+  input, and a missing/empty config surfaced later as an unhelpful login failure or `TypeError`).
+  Valid configurations behave exactly as before.
 
 # 2.0.4 Release notes (2026-07-02)
 

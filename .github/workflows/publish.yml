@@ -32,5 +32,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Release-time guard (issue #111): publishing x.y.z requires a matching "# x.y.z ..."
+      # release-notes heading in CHANGELOG.md, so the changelog cannot silently fall out of
+      # date. Keeping the check here (instead of on every PR) avoids blocking non-user-facing
+      # PRs while still enforcing the CONTRIBUTING.md convention where it matters.
+      - name: Check CHANGELOG.md covers this release
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          if ! grep -Eq "^# ${VERSION//./\\.}( |$)" CHANGELOG.md; then
+            echo "::error file=CHANGELOG.md::No release-notes heading for version ${VERSION}. Move the '# Unreleased' notes into a '# ${VERSION} Release notes (YYYY-MM-DD)' section before publishing."
+            exit 1
+          fi
+
       - name: Publish
         run: npm publish --access public
