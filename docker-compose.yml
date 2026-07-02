@@ -1,4 +1,13 @@
 services:
+  # Both services are ephemeral dev-mode servers for the e2e suites.
+  #
+  # VAULT_DEV_ROOT_TOKEN_ID is a throwaway dev-mode credential: it only ever
+  # unlocks an in-memory, localhost-bound test instance and is committed on
+  # purpose so the tests can authenticate. Never reuse these values (or this
+  # pattern) for a real Vault deployment.
+
+  # KV v1 server, used by test/e2e/e2e.test.mjs (npm run test:e2e).
+  # Note: -dev-kv-v1 implicitly enables dev mode.
   vault-server:
     image: vault:1.13.3
     environment:
@@ -8,3 +17,15 @@ services:
       - IPC_LOCK
     ports:
       - 127.0.0.1:8200:8200
+
+  # KV v2 server (dev mode mounts secret/ as KV v2 by default), used by
+  # test/e2e/e2e.kv2.test.mjs (npm run test:e2e:kv2).
+  vault-server-kv2:
+    image: vault:1.13.3
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: 34c9c953-4ff5-368a-ac5c-a1e1a8e13a52
+    command: [ "server", "-dev" ]
+    cap_add:
+      - IPC_LOCK
+    ports:
+      - 127.0.0.1:8202:8200
