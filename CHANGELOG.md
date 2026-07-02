@@ -8,6 +8,11 @@
   many/dynamic mounts get bounded memory and lookup cost. Measured at 200k worst-case resolves:
   engines lookup 1191ms → 34ms (50 entries), cache lookup 1019ms → 149ms (500 mounts). Also adds
   test coverage for the previously untested empty-detection-response error. Closes #108.
+- Internal refactor: unify the copy-pasted request pipeline in `VaultClient`. `update()`, the raw
+  `request()`, and the KV v2-only helpers now delegate to the single `__resolveAndRequest` entry
+  point (one `resolver.resolve()` call site instead of three). No behavior change — the pipeline
+  is locked by new characterization tests across v1/v2 mounts, namespaces, and extra headers.
+  Closes #110.
 
 # 2.0.4 Release notes (2026-07-02)
 

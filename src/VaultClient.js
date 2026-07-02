@@ -246,40 +246,74 @@ class VaultClient {
     }
 
     // -------------------------------------------------------------------------
-    // Internal resolve + request helper
+    // Internal resolve + request pipeline — the single entry point
     // -------------------------------------------------------------------------
 
     /**
-     * Resolve the mount version for a path, rewrite the path, make the request,
-     * and normalise the response.  Returns a { apiPath, body, version, mount } object.
+     * The unified request pipeline: fetch an auth token, build headers, resolve
+     * the mount version, rewrite the path for the engine version, make the
+     * request, and return a { body, version, mount, apiPath } object.
      *
-     * When the resolver is disabled (autoDetect:false, no engines), it skips
-     * resolution and passes through raw, preserving identical behavior to before.
+     * When the resolver is disabled (autoDetect:false, no engines), resolution
+     * yields a v1 passthrough, preserving identical behavior to before.
      *
+     * @param {string} op - logical operation (read, write, list, delete, update, deleteVersions, …)
+     * @param {string} method - HTTP method
+     * @param {string} path - caller-supplied secret path
+     * @param {Object|null} data - request body
+     * @param {Object} [extraHeaders] - extra HTTP headers merged over the token header
+     * @param {Object} [options]
+     * @param {boolean} [options.raw=false] - skip mount resolution and path rewriting;
+     *      the literal path and data are sent as-is (raw request() semantics)
+     * @param {boolean} [options.v2Only=false] - reject with UnsupportedOperationError
+     *      unless the resolved mount is a KV v2 engine
+     * @param {boolean} [options.wrapData=false] - force the { data } envelope on every
+     *      engine version (merge-patch update() semantics); by default only v2
+     *      write/update wrap non-null data and everything else passes through
+     * @returns {Promise<{body: *, version: (number|undefined), mount: (string|undefined), apiPath: string}>}
      * @private
      */
-    __resolveAndRequest(op, method, path, data, extraHeaders) {
+    __resolveAndRequest(op, method, path, data, extraHeaders, options) {
+        const { raw = false, v2Only = false, wrapData = false } = options || {};
+
         return this.__auth.getAuthToken()
             .then((token) => {
                 const headers = Object.assign({}, this.getHeaders(token), extraHeaders || {});
 
+                if (raw) {
+                    return this.__api.makeRequest(method, path, data, headers)
+                        .then((body) => ({ body, version: undefined, mount: undefined, apiPath: path }));
+                }
+
                 return this.__resolver.resolve(path)
                     .then(({ mount, version }) => {
-                        let apiPath;
-                        let requestData = data;
+                        if (v2Only && version !== 2) {
+                            throw new errors.UnsupportedOperationError(
+                                `Operation "${op}" is only supported on KV v2 mounts. ` +
+                                `Mount "${mount}" is not a KV v2 engine.`
+                            );
+                        }
 
+                        let apiPath;
                         if (version === 2) {
                             // Split the path into mount + logical sub-path and rewrite for KV v2
                             const logicalPath = this.__logicalPath(path, mount);
                             apiPath = rewritePath(version, op, mount, logicalPath);
-                            // Wrap data in { data: ... } on v2 write/update
-                            if ((op === 'write' || op === 'update') && data !== null && data !== undefined) {
-                                requestData = { data };
-                            }
                         } else {
                             // v1 / disabled: preserve the caller's literal path byte-for-byte,
                             // including any trailing slash, to maintain the old wire behavior.
                             apiPath = path;
+                        }
+
+                        // Data envelope: wrapData forces { data } on every engine version
+                        // (merge-patch update() semantics — v1 mounts reject PATCH anyway);
+                        // otherwise only v2 write/update wrap non-null data.
+                        let requestData = data;
+                        if (wrapData) {
+                            requestData = { data };
+                        } else if (version === 2 && (op === 'write' || op === 'update')
+                                && data !== null && data !== undefined) {
+                            requestData = { data };
                         }
 
                         return this.__api.makeRequest(method, apiPath, requestData, headers)
@@ -399,29 +433,11 @@ class VaultClient {
      */
     update(path, data) {
         this.__log.debug('update (patch) secret %s', path);
-        const patchHeaders = { 'Content-Type': 'application/merge-patch+json' };
-        return this.__auth.getAuthToken()
-            .then((token) => {
-                const headers = Object.assign({}, this.getHeaders(token), patchHeaders);
-
-                return this.__resolver.resolve(path)
-                    .then(({ mount, version }) => {
-                        let apiPath;
-                        if (version === 2) {
-                            const logicalPath = this.__logicalPath(path, mount);
-                            apiPath = rewritePath(version, 'update', mount, logicalPath);
-                        } else {
-                            // v1: preserve the caller's literal path byte-for-byte
-                            apiPath = path;
-                        }
-
-                        // Always wrap in { data } for PATCH (update() is a KV v2 merge-patch operation;
-                        // v1 mounts do not support PATCH and Vault will return 405)
-                        const requestData = { data };
-
-                        return this.__api.makeRequest('PATCH', apiPath, requestData, headers);
-                    });
-            })
+        // wrapData: update() is a KV v2 merge-patch operation, so the { data } envelope
+        // is always applied (v1 mounts do not support PATCH and Vault will return 405)
+        return this.__resolveAndRequest('update', 'PATCH', path, data,
+            { 'Content-Type': 'application/merge-patch+json' }, { wrapData: true })
+            .then(({ body }) => body)
             .catch((reason) => {
                 this.__log.error('update secret failed: %s', reason.message);
                 throw reason;
@@ -439,8 +455,8 @@ class VaultClient {
      */
     request(method, path, data) {
         this.__log.debug('raw request %s %s', method, path);
-        return this.__auth.getAuthToken()
-            .then((token) => this.__api.makeRequest(method, path, data === undefined ? null : data, this.getHeaders(token)))
+        return this.__resolveAndRequest('request', method, path, data === undefined ? null : data, null, { raw: true })
+            .then(({ body }) => body)
             .catch((reason) => {
                 this.__log.error('raw request failed: %s', reason.message);
                 throw reason;
@@ -538,28 +554,13 @@ class VaultClient {
     }
 
     /**
-     * Shared implementation for v2-only operations.
-     * Resolves the mount, verifies it is v2, rewrites the path, makes the request.
+     * Shared implementation for v2-only operations: delegates to the unified
+     * pipeline with the KV v2 version assertion enabled.
      * @private
      */
     __v2Only(op, method, path, data) {
-        return this.__auth.getAuthToken()
-            .then((token) => {
-                const headers = this.getHeaders(token);
-
-                return this.__resolver.resolve(path)
-                    .then(({ mount, version }) => {
-                        if (version !== 2) {
-                            throw new errors.UnsupportedOperationError(
-                                `Operation "${op}" is only supported on KV v2 mounts. ` +
-                                `Mount "${mount}" is not a KV v2 engine.`
-                            );
-                        }
-                        const logicalPath = this.__logicalPath(path, mount);
-                        const apiPath = rewritePath(version, op, mount, logicalPath);
-                        return this.__api.makeRequest(method, apiPath, data, headers);
-                    });
-            });
+        return this.__resolveAndRequest(op, method, path, data, null, { v2Only: true })
+            .then(({ body }) => body);
     }
 
     /**
