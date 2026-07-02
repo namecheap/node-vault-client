@@ -1,3 +1,13 @@
+# 2.0.2 Release notes (2026-07-02)
+
+- Security: stop logging the raw Vault `client_token` at debug level. The AppRole (`VaultAppRoleAuth`)
+  and AWS IAM (`VaultIAMAuth`) backends logged `auth.client_token` verbatim on every successful
+  login, and `VaultBaseAuth` logged the raw token id when arming the renewal timer. With a custom
+  debug logger wired up — exactly what the README recommends — this wrote a replayable Vault token
+  into durable logs on every authentication. These sites now log the non-sensitive token
+  `accessor` instead. This completes the same class of fix shipped for the Kubernetes backend and
+  response bodies in 2.0.1. Closes #104.
+
 # 2.0.1 Release notes (2026-06-16)
 
 - Security: stop logging secrets at debug level. The Kubernetes auth backend no longer logs the
