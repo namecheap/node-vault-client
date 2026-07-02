@@ -2,29 +2,45 @@
 
 const { VaultError } = require('./errors');
 
+// Default cap for the mount cache. Real deployments talk to a handful of static
+// mounts, so this is generous headroom; the cap exists so that a long-lived
+// service pointed at many/dynamic mounts (e.g. multi-tenant) cannot grow the
+// cache — and the per-resolve lookup cost — without bound (issue #108).
+const DEFAULT_MAX_CACHE_SIZE = 500;
+
 /**
  * Resolves the KV engine version for a given secret path.
  *
  * Responsibilities:
  *  1. Check engines override map first (longest-prefix match, no I/O).
  *  2. Auto-detect via detectFn(path) -> { data: { path, type, options } }.
- *  3. Cache by canonical mount path; de-duplicate in-flight detections.
+ *  3. Cache by canonical mount path (bounded LRU); de-duplicate in-flight detections.
  *  4. On failure, throw VaultError with actionable guidance.
  *
- * @param {Function} detectFn          - async (path: string) => Vault mount-info response
- * @param {Object}   enginesOverride   - { [mountPrefix]: version }
- * @param {Object}   logger            - logger with .debug(), .error() etc.
- * @param {Object}   [opts]            - additional options
- * @param {boolean}  [opts.disabled]   - if true, always return passthrough (version 1)
+ * @param {Function} detectFn            - async (path: string) => Vault mount-info response
+ * @param {Object}   enginesOverride     - { [mountPrefix]: version }; snapshotted at construction
+ * @param {Object}   logger              - logger with .debug(), .error() etc.
+ * @param {Object}   [opts]              - additional options
+ * @param {boolean}  [opts.disabled]     - if true, always return passthrough (version 1)
+ * @param {number}   [opts.maxCacheSize] - LRU cap for the mount cache (default 500)
  */
 class MountResolver {
     constructor(detectFn, enginesOverride, logger, opts) {
         this.__detectFn = detectFn;
-        this.__engines = enginesOverride || {};
         this.__log = logger;
         this.__disabled = opts && opts.disabled === true;
+        this.__maxCacheSize = (opts && opts.maxCacheSize) || DEFAULT_MAX_CACHE_SIZE;
 
-        // Cache: canonical mount path (no trailing slash) -> { mount, version, type }
+        // The engines map is immutable after construction: normalize and sort the
+        // entries once (longest raw prefix first, matching the previous per-call
+        // sort) instead of re-sorting on every resolve().
+        this.__engines = Object.entries(enginesOverride || {})
+            .sort((a, b) => b[0].length - a[0].length)
+            .map(([prefix, version]) => [prefix.replace(/\/+$/, ''), Number(version)]);
+
+        // LRU cache: canonical mount path (no trailing slash) -> { mount, version, type }.
+        // Map iteration order is insertion order; hits are re-inserted to refresh
+        // recency, and inserts evict the oldest entries beyond __maxCacheSize.
         this.__cache = new Map();
         // In-flight promises: canonical mount path -> Promise<{mount,version,type}>
         this.__inflight = new Map();
@@ -69,23 +85,51 @@ class MountResolver {
     // -------------------------------------------------------------------------
 
     /**
-     * Longest-prefix match against the engines override map.
+     * Longest-prefix match against the engines entries precomputed (normalized
+     * and sorted longest-first) in the constructor.
      * Returns { mount, version } or null if no match found.
      */
     __enginesOverrideLookup(path) {
-        const entries = Object.entries(this.__engines);
-        if (entries.length === 0) return null;
-
-        // Sort by descending key length (longest first) for prefix match
-        entries.sort((a, b) => b[0].length - a[0].length);
-
-        for (const [prefix, version] of entries) {
-            const normalised = prefix.replace(/\/+$/, '');
-            if (path === normalised || path.startsWith(normalised + '/')) {
-                return { mount: normalised, version: Number(version), type: 'kv' };
+        for (const [prefix, version] of this.__engines) {
+            if (path === prefix || path.startsWith(prefix + '/')) {
+                return { mount: prefix, version, type: 'kv' };
             }
         }
         return null;
+    }
+
+    /**
+     * Find the cached entry whose canonical mount is a segment-boundary prefix
+     * of the path. Vault forbids nested mounts, so at most one entry can match;
+     * the path's segment prefixes are probed deepest-first as exact keys
+     * (O(path depth) instead of a scan over the whole cache). A hit is
+     * re-inserted to refresh its LRU recency.
+     */
+    __cacheLookup(path) {
+        let candidate = path;
+        while (candidate !== '') {
+            const entry = this.__cache.get(candidate);
+            if (entry !== undefined) {
+                this.__cache.delete(candidate);
+                this.__cache.set(candidate, entry);
+                return entry;
+            }
+            const slash = candidate.lastIndexOf('/');
+            candidate = slash === -1 ? '' : candidate.slice(0, slash);
+        }
+        return null;
+    }
+
+    /**
+     * Insert (or refresh) a cache entry, evicting the least-recently-used
+     * entries once the cap is exceeded.
+     */
+    __cacheStore(canonicalMount, entry) {
+        this.__cache.delete(canonicalMount);
+        this.__cache.set(canonicalMount, entry);
+        while (this.__cache.size > this.__maxCacheSize) {
+            this.__cache.delete(this.__cache.keys().next().value);
+        }
     }
 
     /**
@@ -100,10 +144,9 @@ class MountResolver {
      */
     __detectWithCache(interimKey, path) {
         // Check persistent cache first (keyed on canonical mount path)
-        for (const [mountKey, entry] of this.__cache) {
-            if (path === mountKey || path.startsWith(mountKey + '/')) {
-                return Promise.resolve(entry);
-            }
+        const cached = this.__cacheLookup(path);
+        if (cached !== null) {
+            return Promise.resolve(cached);
         }
 
         // Check in-flight for this interim key (first segment or full path)
@@ -137,8 +180,8 @@ class MountResolver {
                 const entry = { mount: canonicalMount, version, type };
                 this.__log.debug('MountResolver: detected %s as type=%s version=%d', canonicalMount, type, version);
 
-                // Store in persistent cache
-                this.__cache.set(canonicalMount, entry);
+                // Store in persistent cache (bounded LRU)
+                this.__cacheStore(canonicalMount, entry);
                 // Clear in-flight
                 this.__inflight.delete(interimKey);
                 return entry;
