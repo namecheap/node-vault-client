@@ -17,7 +17,7 @@
     "test:unit": "mocha \"test/*.test.mjs\"",
     "test:e2e": "mocha --exit \"test/e2e/**/*.test.mjs\"",
     "coverage": "c8 npm run test:unit",
-    "lint": "eslint src/",
+    "lint": "eslint src/ test/",
     "version": "git add -A ."
   },
   "c8": {
@@ -29,7 +29,12 @@
       "html",
       "lcov"
     ],
-    "all": true
+    "all": true,
+    "check-coverage": true,
+    "statements": 97,
+    "branches": 93,
+    "functions": 100,
+    "lines": 97
   },
   "author": "Namecheap <opensource@namecheap.com>",
   "license": "Apache-2.0",

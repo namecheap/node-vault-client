@@ -401,7 +401,7 @@ describe('Vault API conformance', function () {
             // Regression: VaultApiClient must NOT override Content-Type when already set
             let server;
             let seen = {};
-            return new Promise((resolve, reject) => {
+            return new Promise((resolve) => {
                 server = http.createServer((req, res) => {
                     seen.contentType = req.headers['content-type'];
                     res.statusCode = 200;

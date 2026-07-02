@@ -35,6 +35,10 @@ jobs:
         run: npm ci
 
       - name: Audit dependencies
+        # Gate on high/critical only: moderate advisories are usually in dev/transitive
+        # tooling (mocha/eslint/sinon) and would block release CI with noise unrelated to
+        # the shipped runtime (deps: @aws-sdk/credential-providers, aws4, long-timeout).
+        # Snyk and CodeQL run as additional, broader security gates on every PR.
         run: npm audit --audit-level=high
 
   lint:
@@ -69,9 +73,14 @@ jobs:
         run: npm ci && npm install config
 
       - name: Run coverage
+        # `npm run coverage` enforces the c8 thresholds in package.json (check-coverage),
+        # so a coverage regression below the pinned floor fails this job.
         run: npm run coverage
 
       - name: Upload coverage report
+        # Upload even when the threshold gate fails, so the HTML/lcov report is available
+        # to diagnose which file regressed.
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-report
