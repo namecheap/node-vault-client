@@ -106,8 +106,8 @@ class VaultIAMAuth extends VaultBaseAuth {
             })
             .then((response) => {
                 this._log.debug(
-                    'receive token: %s',
-                    response.auth.client_token
+                    'received token (accessor=%s)',
+                    response.auth.accessor
                 );
                 return this._getTokenEntity(response.auth.client_token)
             })

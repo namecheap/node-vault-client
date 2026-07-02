@@ -9,7 +9,21 @@ import errors from '../src/errors.js';
 
 use(sinonChai);
 
-const logger = _.fromPairs(_.map(['error', 'warn', 'info', 'debug', 'trace'], (p) => [p, _.noop]));
+const LOG_METHODS = ['error', 'warn', 'info', 'debug', 'trace'];
+
+const logger = _.fromPairs(_.map(LOG_METHODS, (p) => [p, _.noop]));
+
+function spyLogger() {
+    return _.fromPairs(_.map(LOG_METHODS, (p) => [p, sinon.spy()]));
+}
+
+// Flatten every argument passed to a logger call into a single searchable string,
+// covering both printf-style args and object logging (%j / %o).
+function loggedText(log) {
+    return _.flatMap(LOG_METHODS, (m) => _.flatMap(log[m].getCalls(), (c) => c.args))
+        .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
+        .join(' ');
+}
 
 function apiStub() {
     return sinon.createStubInstance(VaultApiClient);
@@ -208,6 +222,25 @@ describe('VaultBaseAuth', function () {
             expect(auth.__refreshTimeout).to.equal(null);
             expect(() => { auth.cancelTokenRefresh(); auth.cancelTokenRefresh(); }).to.not.throw();
             expect(auth.__refreshTimeout).to.equal(null);
+        });
+
+        it('logs the accessor, never the raw token id, when arming the refresh timer (regression #104)', function () {
+            const RAW_ID = 's.RAWBASETOKENSHOULDNEVERBELOGGED';
+            const ACCESSOR = 'base-accessor-1234';
+            const renewable = new AuthToken(RAW_ID, ACCESSOR, 0, 100, 0, 0, true);
+            const api = apiStub();
+            api.makeRequest.resolves({});
+            const log = spyLogger();
+            const auth = new TestAuth(api, 'mount', { authStub: sinon.stub().resolves(renewable) });
+            auth._log = log;
+            sinon.stub(auth, '_getTokenEntity').resolves(nonRenewableToken('rid2'));
+
+            return auth.getAuthToken().then(() => {
+                auth.cancelTokenRefresh();
+                expect(loggedText(log), 'raw token id must never reach the logger').to.not.contain(RAW_ID);
+                // The non-sensitive accessor is logged instead, so the debug line stays useful.
+                expect(loggedText(log)).to.contain(ACCESSOR);
+            });
         });
 
         it('logs and reschedules when a renewal fails', function () {

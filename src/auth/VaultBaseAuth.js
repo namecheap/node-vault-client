@@ -64,8 +64,8 @@ class VaultBaseAuth {
 
                 if (this.__authToken.isRenewable()) {
                     this._log.debug(
-                        'setting refresh timer for token %s',
-                        authToken.getId()
+                        'setting refresh timer for token (accessor=%s)',
+                        authToken.getAccessor()
                     );
                     this.__setupTokenRefreshTimer(this.__authToken);
                 }
