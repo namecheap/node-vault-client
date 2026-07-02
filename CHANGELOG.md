@@ -1,3 +1,16 @@
+# 2.0.3 Release notes (2026-07-02)
+
+- Fix (behavior change): apply `X-Vault-Namespace` to **every** request. The header was previously
+  built independently by the AppRole and IAM backends and by `VaultClient` for KV operations, but was
+  **missing from token lookup/renewal (`/auth/token/lookup-self`, `/auth/token/renew-self`) for all
+  backends, and from Kubernetes login entirely**. Against a namespaced Vault this silently sent those
+  requests to the **root** namespace, so Token and Kubernetes auth were effectively broken with
+  namespaces. The namespace is now injected in a single place — `VaultApiClient` — so login, lookup,
+  renewal, and secret operations all inherit it for every auth backend. `Token` and `Kubernetes`
+  gain namespace support as a result. `api.namespace` is now the canonical config location;
+  `auth.config.namespace` continues to work. If you relied on the previous (buggy) behavior where
+  lookup/renewal hit the root namespace, this changes which namespace those calls target. Closes #106.
+
 # 2.0.2 Release notes (2026-07-02)
 
 - Security: stop logging the raw Vault `client_token` at debug level. The AppRole (`VaultAppRoleAuth`)
