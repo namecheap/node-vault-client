@@ -1,3 +1,15 @@
+# 2.0.4 Release notes (2026-07-02)
+
+- CI: make the quality gates actually enforce. `c8` now runs with `check-coverage` and per-metric
+  thresholds (statements/branches/functions/lines) pinned just below the current measured coverage,
+  so a coverage regression fails the `coverage` job instead of silently passing. Linting now covers
+  `test/` in addition to `src/` (`eslint src/ test/`), catching stray unused imports/vars in the
+  ~19 test files that were previously unchecked. The `npm audit --audit-level=high` choice is now
+  documented in the workflow. No runtime behavior change.
+- `VaultError` now accepts the standard `{ cause }` option (`new VaultError(msg, { cause })`) and
+  exposes it as `error.cause`, so wrapped/underlying errors can be chained. Backward compatible —
+  omitting the option leaves `cause` undefined.
+
 # 2.0.3 Release notes (2026-07-02)
 
 - Fix (behavior change): apply `X-Vault-Namespace` to **every** request. The header was previously

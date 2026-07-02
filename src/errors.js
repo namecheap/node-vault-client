@@ -1,8 +1,13 @@
 'use strict';
 
 class VaultError extends Error {
-    constructor(message) {
-        super(message);
+    /**
+     * @param {string} message
+     * @param {{cause?: *}} [options] - standard `Error` options. Pass `{ cause }` to chain the
+     *   underlying error (e.g. a wrapped HTTP/transport failure); it is exposed as `error.cause`.
+     */
+    constructor(message, options) {
+        super(message, options);
         this.name = this.constructor.name;
         this.message = message;
 

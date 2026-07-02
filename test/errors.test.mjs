@@ -21,10 +21,16 @@ describe('errors', function () {
             expect(err.stack).to.be.a('string');
         });
 
-        it('accepts an optional wrapped error argument', function () {
-            const cause = new Error('cause');
-            const err = new errors.VaultError('boom', cause);
+        it('chains a wrapped error via the standard { cause } option', function () {
+            const cause = new Error('root cause');
+            const err = new errors.VaultError('boom', { cause });
             expect(err.message).to.equal('boom');
+            expect(err.cause).to.equal(cause);
+        });
+
+        it('has no cause when constructed with only a message', function () {
+            const err = new errors.VaultError('boom');
+            expect(err.cause).to.equal(undefined);
         });
     });
 

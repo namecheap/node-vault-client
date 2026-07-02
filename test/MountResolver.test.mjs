@@ -80,7 +80,7 @@ describe('MountResolver', function () {
     // -------------------------------------------------------------------------
     describe('auto-detection', function () {
         it('detects KV v2 by calling detectFn and returns correct result', async function () {
-            const detectFn = sinon.stub().callsFake((p) => mkDetect('secret', 2));
+            const detectFn = sinon.stub().callsFake(() => mkDetect('secret', 2));
             const resolver = new MountResolver(detectFn, {}, logger);
 
             const result = await resolver.resolve('secret/foo');
@@ -186,9 +186,7 @@ describe('MountResolver', function () {
             const pendingA = new Promise((res) => { resolveA = res; });
             const pendingB = new Promise((res) => { resolveB = res; });
 
-            let callIndex = 0;
             const detectFn = sinon.stub().callsFake((p) => {
-                callIndex++;
                 if (p.startsWith('team/kvA')) {
                     return pendingA.then(() => ({
                         data: { path: 'team/kvA/', type: 'kv', options: { version: '2' } },
