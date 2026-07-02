@@ -125,17 +125,29 @@ describe('VaultClient', function () {
     describe('#getHeaders()', function () {
         const token = { getId: () => 'tid' };
 
-        it('returns only the token header without a namespace', function () {
+        it('returns only the token header', function () {
             const client = new VaultClient(bootOpts());
             expect(client.getHeaders(token)).to.deep.equal({ 'X-Vault-Token': 'tid' });
         });
 
-        it('adds the namespace header when configured', function () {
+        it('does not add the namespace header (namespace is injected centrally by VaultApiClient)', function () {
             const client = new VaultClient(bootOpts({ auth: { config: { namespace: 'ns1' } } }));
-            expect(client.getHeaders(token)).to.deep.equal({
-                'X-Vault-Token': 'tid',
-                'X-Vault-Namespace': 'ns1',
-            });
+            // The namespace is applied to every request inside VaultApiClient#makeRequest, so
+            // getHeaders itself no longer carries it (see test/namespace.test.mjs for the wire-level proof).
+            expect(client.getHeaders(token)).to.deep.equal({ 'X-Vault-Token': 'tid' });
+        });
+
+        it('resolves the namespace from auth.config.namespace onto the API client', function () {
+            const client = new VaultClient(bootOpts({ auth: { config: { namespace: 'ns1' } } }));
+            expect(client.__api.__namespace).to.equal('ns1');
+        });
+
+        it('prefers api.namespace over the legacy auth.config.namespace', function () {
+            const client = new VaultClient(bootOpts({
+                api: { namespace: 'from-api' },
+                auth: { config: { namespace: 'from-auth' } },
+            }));
+            expect(client.__api.__namespace).to.equal('from-api');
         });
     });
 

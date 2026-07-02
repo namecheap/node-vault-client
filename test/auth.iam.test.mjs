@@ -186,7 +186,7 @@ describe('Unit AWS auth backend :: IAM', function () {
             expect(headers['Authorization'][0]).to.contain('/us-east-1/sts/aws4_request');
         });
 
-        it('Should set the namespace header when configured', async function () {
+        it('does not attach an X-Vault-Namespace header itself, even when namespace is configured', async function () {
             const api = getApiStub();
 
             const auth = new VaultIAMAuth(
@@ -208,8 +208,10 @@ describe('Unit AWS auth backend :: IAM', function () {
 
             await auth._authenticate();
 
+            // Namespacing is injected centrally by VaultApiClient (see test/namespace.test.mjs);
+            // the backend must not pass headers of its own.
             const args = api.makeRequest.getCall(0).args;
-            expect(args[3]).to.deep.equal({'X-Vault-Namespace': 'ns1'});
+            expect(args[3]).to.equal(undefined);
         });
 
         it('never passes the raw client_token to any log level, and logs the accessor instead (regression #104)', async function () {

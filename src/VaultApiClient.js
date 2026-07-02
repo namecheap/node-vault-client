@@ -33,8 +33,12 @@ class VaultApiClient {
      *      per-request headers winning. Stored by reference (not deep-cloned) so live
      *      objects such as a Dispatcher keep their prototype and remain usable.
      * @param {Object} logger
+     * @param {String} [namespace] - Vault namespace. When set, `X-Vault-Namespace` is added to
+     *      every request (login, token lookup/renewal, and secret operations) so namespacing is
+     *      owned in one place instead of being reapplied per auth backend. An explicit
+     *      `X-Vault-Namespace` passed to {@link VaultApiClient#makeRequest} overrides it.
      */
-    constructor(config, logger) {
+    constructor(config, logger, namespace) {
         const requestOptions = config && config.requestOptions;
 
         const baseConfig = { ...(config || {}) };
@@ -48,6 +52,7 @@ class VaultApiClient {
             this.__config.requestOptions = requestOptions;
         }
 
+        this.__namespace = namespace !== undefined ? namespace : this.__config.namespace;
         this._logger = logger;
     }
 
@@ -59,6 +64,11 @@ class VaultApiClient {
 
         const requestOptions = this.__config.requestOptions || {};
 
+        // Inject the namespace as a low-priority default so every request (login, token
+        // lookup/renewal, secret ops) is namespaced from a single place, while an explicit
+        // per-request or requestOptions X-Vault-Namespace still wins.
+        const namespaceHeader = this.__namespace ? { 'X-Vault-Namespace': this.__namespace } : {};
+
         const options = Object.assign(
             { redirect: 'follow' },
             requestOptions,
@@ -66,6 +76,7 @@ class VaultApiClient {
                 method: method,
                 headers: Object.assign(
                     { Accept: 'application/json' },
+                    namespaceHeader,
                     requestOptions.headers,
                     headers
                 ),
