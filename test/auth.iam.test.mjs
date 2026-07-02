@@ -8,7 +8,21 @@ import errors from '../src/errors.js';
 
 use(sinonChai);
 
-const logger = _.fromPairs(_.map(['error', 'warn', 'info', 'debug', 'trace'], (prop) => [prop, _.noop]));
+const LOG_METHODS = ['error', 'warn', 'info', 'debug', 'trace'];
+
+const logger = _.fromPairs(_.map(LOG_METHODS, (prop) => [prop, _.noop]));
+
+function spyLogger() {
+    return _.fromPairs(_.map(LOG_METHODS, (prop) => [prop, sinon.spy()]));
+}
+
+// Flatten every argument passed to a logger call into a single searchable string,
+// covering both printf-style args and object logging (%j / %o).
+function loggedText(log) {
+    return _.flatMap(LOG_METHODS, (m) => _.flatMap(log[m].getCalls(), (c) => c.args))
+        .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
+        .join(' ');
+}
 
 describe('Unit AWS auth backend :: IAM', function () {
 
@@ -196,6 +210,35 @@ describe('Unit AWS auth backend :: IAM', function () {
 
             const args = api.makeRequest.getCall(0).args;
             expect(args[3]).to.deep.equal({'X-Vault-Namespace': 'ns1'});
+        });
+
+        it('never passes the raw client_token to any log level, and logs the accessor instead (regression #104)', async function () {
+            const CLIENT_TOKEN = 's.RAWIAMTOKENSHOULDNEVERBELOGGED';
+            const ACCESSOR = 'iam-accessor-1234';
+            const api = getApiStub();
+            const log = spyLogger();
+
+            const auth = new VaultIAMAuth(
+                api,
+                log,
+                {
+                    role: 'MyRole',
+                    credentials: {
+                        accessKeyId: 'FAKE_AWS_ACCESS_KEY',
+                        secretAccessKey: 'FAKE_AWS_SECRET_KEY',
+                    },
+                },
+                'fake_aws'
+            );
+
+            api.makeRequest.withArgs('POST').resolves({auth: {client_token: CLIENT_TOKEN, accessor: ACCESSOR}});
+            sinon.stub(auth, '_getTokenEntity');
+
+            await auth._authenticate();
+
+            expect(loggedText(log), 'raw client_token must never reach the logger').to.not.contain(CLIENT_TOKEN);
+            // The non-sensitive accessor is logged instead, so the debug line stays useful.
+            expect(loggedText(log)).to.contain(ACCESSOR);
         });
     });
 

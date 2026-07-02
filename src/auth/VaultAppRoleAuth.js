@@ -37,8 +37,8 @@ class VaultAppRoleAuth extends VaultBaseAuth {
             secret_id: this.__secretId,
         }, headers).then(res => {
             this._log.debug(
-                'receive token: %s',
-                res.auth.client_token
+                'received token (accessor=%s)',
+                res.auth.accessor
             );
             return this._getTokenEntity(res.auth.client_token);
         });
