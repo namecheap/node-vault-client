@@ -47,14 +47,16 @@ vaultClient.read('secret/tst').then(lease => {
 
 ```javascript
 const vaultClient = VaultClient.boot('main', {
-    api: { url: 'https://vault.example.com:8200/' },
+    api: {
+        url: 'https://vault.example.com:8200/',
+        namespace: 'some_namespace',                   // Optional. X-Vault-Namespace header (canonical location; auth.config.namespace is honored as a legacy fallback)
+    },
     auth: {
         type: 'iam',
         mount: 'aws',                                  // Optional. Vault AWS auth mount point ("aws" by default)
         config: {
             role: 'my_iam_role',
             iam_server_id_header_value: 'https://vault.example.com:8200/', // Optional. X-Vault-AWS-IAM-Server-ID header
-            namespace: 'some_namespace',               // Optional. X-Vault-Namespace header
             region: 'eu-central-1',                     // Optional. AWS STS region (see below)
             credentials: {                             // Optional. Resolved from the AWS provider chain when omitted
                 accessKeyId: process.env.AWS_ACCESS_KEY_ID,
@@ -136,12 +138,25 @@ const vaultClient = VaultClient.boot('main', {
         * [.read(path)](#VaultClient+read) ⇒ <code>Promise.&lt;Lease&gt;</code>
         * [.list(path)](#VaultClient+list) ⇒ <code>Promise.&lt;Lease&gt;</code>
         * [.write(path, data)](#VaultClient+write) ⇒ <code>Promise.&lt;Object&gt;</code>
+        * [.delete(path)](#VaultClient+delete) ⇒ <code>Promise.&lt;Object&gt;</code>
+        * [.update(path, data)](#VaultClient+update) ⇒ <code>Promise.&lt;Object&gt;</code>
+        * [.request(method, path, [data])](#VaultClient+request) ⇒ <code>Promise.&lt;Object&gt;</code>
+        * [.deleteVersions(path, versions)](#VaultClient+deleteVersions) ⇒ <code>Promise.&lt;Object&gt;</code>
+        * [.undeleteVersions(path, versions)](#VaultClient+undeleteVersions) ⇒ <code>Promise.&lt;Object&gt;</code>
+        * [.destroyVersions(path, versions)](#VaultClient+destroyVersions) ⇒ <code>Promise.&lt;Object&gt;</code>
+        * [.readMetadata(path)](#VaultClient+readMetadata) ⇒ <code>Promise.&lt;Object&gt;</code>
+        * [.deleteMetadata(path)](#VaultClient+deleteMetadata) ⇒ <code>Promise.&lt;Object&gt;</code>
         * [.close()](#VaultClient+close)
     * _static_
         * [.boot(name, [options])](#VaultClient.boot) ⇒ <code>VaultClient</code>
         * [.get(name)](#VaultClient.get) ⇒ <code>VaultClient</code>
         * [.clear([name])](#VaultClient.clear)
 * [Lease](#Lease)
+
+**Return contract**: [`read()`](#VaultClient+read) and [`list()`](#VaultClient+list) resolve to a
+[`Lease`](#Lease) — use its accessors to extract the secret data. Every other data-plane method
+(`write`, `delete`, `update`, `request` and the KV v2 helpers) resolves to the raw parsed Vault
+response body, which may be empty/undefined for `204 No Content` responses.
 
 <a name="new_VaultClient_new"></a>
 
@@ -157,12 +172,14 @@ Client constructor function.
 | [options.api.apiVersion] | <code>String</code> | `v1` |  |
 | [options.api.requestOptions] | <code>Object</code> |  | extra options merged into every HTTP request (see [Custom transport](#custom-transport-proxy--self-signed-tls)) |
 | [options.api.namespace] | <code>String</code> |  | Optional. Vault namespace, sent as the `X-Vault-Namespace` header on **every** request — login, token lookup/renewal, and all secret operations — for every auth type. This is the canonical location; `auth.config.namespace` is still honored for backward compatibility. |
+| [options.api.kv.autoDetect] | <code>boolean</code> | `false` | auto-detect the KV version of each mount on first use (see [KV v2 & generic backends](#kv-v2--generic-backends)) |
+| [options.api.engines] | <code>Object</code> | `{}` | static mount-to-version map, e.g. `{ secret: 2, legacy: 1 }` (see [KV v2 & generic backends](#kv-v2--generic-backends)) |
 | options.auth | <code>Object</code> |  |  |
 | options.auth.type | <code>String</code> |  |  |
 | [options.auth.mount] | <code>String</code> |  | Vault auth backend mount point; default varies per method (e.g. "aws" for iam, "approle", "token", "kubernetes") |
 | options.auth.config | <code>Object</code> |  | auth configuration variables |
 | [options.auth.config.namespace] | <code>String</code> |  | Optional. Legacy location for the Vault namespace (see `api.namespace`). Sent as the `X-Vault-Namespace` header on **every** request for every auth type. |
-| options.logger | <code>Object</code> | `false` |  | Logger that supports "error", "info", "warn", "trace", "debug" methods. Uses `console` by default. Pass `false` to disable logging. |
+| [options.logger] | <code>Object</code> \| <code>false</code> |  | Logger that supports "error", "info", "warn", "trace", "debug" methods. Uses `console` by default. Pass `false` to disable logging. |
 
 ##### Custom transport (proxy / self-signed TLS)
 
@@ -196,6 +213,8 @@ For the self-signed-CA case you can also use the process-wide `NODE_EXTRA_CA_CER
 env var with no code change. Only disable verification
 (`new Agent({ connect: { rejectUnauthorized: false } })`) in throwaway/dev setups — it removes
 MITM protection.
+
+<a name="VaultClient+fillNodeConfig"></a>
 
 #### vaultClient.fillNodeConfig() ⇒ <code>Promise</code>
 Populates Vault's values to NPM "config" module
@@ -237,8 +256,130 @@ Resolves to the raw parsed Vault response body, which may be empty/undefined for
 
 | Param | Type | Description |
 | --- | --- | --- |
-| path |  | path used to write data |
+| path | <code>string</code> | path used to write data |
 | data | <code>object</code> | data to write |
+
+<a name="VaultClient+delete"></a>
+
+#### vaultClient.delete(path) ⇒ <code>Promise.&lt;Object&gt;</code>
+Deletes a secret
+
+On KV v2 mounts this sends `DELETE` to the `data/` path, soft-deleting the latest version.
+On KV v1 / non-KV mounts this sends `DELETE` to the raw path. Resolves to the raw parsed
+Vault response body, which may be empty/undefined for `204 No Content` responses.
+
+**Kind**: instance method of [<code>VaultClient</code>](#VaultClient)  
+
+| Param | Type | Description |
+| --- | --- | --- |
+| path | <code>string</code> | path to the secret |
+
+<a name="VaultClient+update"></a>
+
+#### vaultClient.update(path, data) ⇒ <code>Promise.&lt;Object&gt;</code>
+Updates (merge-patches) a KV v2 secret
+
+Sends `PATCH` with `Content-Type: application/merge-patch+json`, merging `data` into the
+existing secret without overwriting keys that are not listed. KV v2 merge-patch operation —
+KV v1 mounts do not support `PATCH` and Vault returns `405` there. Resolves to the raw
+parsed Vault response body.
+
+**Kind**: instance method of [<code>VaultClient</code>](#VaultClient)  
+
+| Param | Type | Description |
+| --- | --- | --- |
+| path | <code>string</code> | path to the secret |
+| data | <code>object</code> | keys to merge into the existing secret |
+
+<a name="VaultClient+request"></a>
+
+#### vaultClient.request(method, path, [data]) ⇒ <code>Promise.&lt;Object&gt;</code>
+Raw request — escape hatch for any Vault backend
+
+Sends the literal API path with no KV path rewriting and no response unwrapping, and
+resolves to the parsed response body. Use it for non-KV backends (e.g. Transit) or when you
+have already constructed the complete Vault API path.
+
+**Kind**: instance method of [<code>VaultClient</code>](#VaultClient)  
+
+| Param | Type | Description |
+| --- | --- | --- |
+| method | <code>string</code> | HTTP method (e.g. `GET`, `POST`) |
+| path | <code>string</code> | literal API path, sent as-is |
+| [data] | <code>object</code> | request body |
+
+<a name="VaultClient+deleteVersions"></a>
+
+#### vaultClient.deleteVersions(path, versions) ⇒ <code>Promise.&lt;Object&gt;</code>
+Soft-deletes specific versions of a KV v2 secret
+
+KV v2 only — rejects with `UnsupportedOperationError` on non-v2 mounts. Resolves to the raw
+parsed Vault response body.
+
+**Kind**: instance method of [<code>VaultClient</code>](#VaultClient)  
+
+| Param | Type | Description |
+| --- | --- | --- |
+| path | <code>string</code> | path to the secret |
+| versions | <code>Array.&lt;number&gt;</code> | version numbers to soft-delete |
+
+<a name="VaultClient+undeleteVersions"></a>
+
+#### vaultClient.undeleteVersions(path, versions) ⇒ <code>Promise.&lt;Object&gt;</code>
+Undeletes (restores) soft-deleted versions of a KV v2 secret
+
+KV v2 only — rejects with `UnsupportedOperationError` on non-v2 mounts. Resolves to the raw
+parsed Vault response body.
+
+**Kind**: instance method of [<code>VaultClient</code>](#VaultClient)  
+
+| Param | Type | Description |
+| --- | --- | --- |
+| path | <code>string</code> | path to the secret |
+| versions | <code>Array.&lt;number&gt;</code> | version numbers to restore |
+
+<a name="VaultClient+destroyVersions"></a>
+
+#### vaultClient.destroyVersions(path, versions) ⇒ <code>Promise.&lt;Object&gt;</code>
+Permanently destroys specific versions of a KV v2 secret
+
+The destroyed version data cannot be recovered. KV v2 only — rejects with
+`UnsupportedOperationError` on non-v2 mounts. Resolves to the raw parsed Vault response body.
+
+**Kind**: instance method of [<code>VaultClient</code>](#VaultClient)  
+
+| Param | Type | Description |
+| --- | --- | --- |
+| path | <code>string</code> | path to the secret |
+| versions | <code>Array.&lt;number&gt;</code> | version numbers to destroy |
+
+<a name="VaultClient+readMetadata"></a>
+
+#### vaultClient.readMetadata(path) ⇒ <code>Promise.&lt;Object&gt;</code>
+Reads KV v2 metadata for a secret
+
+Resolves to the metadata document (`current_version`, the `versions` map, timestamps, etc.).
+KV v2 only — rejects with `UnsupportedOperationError` on non-v2 mounts.
+
+**Kind**: instance method of [<code>VaultClient</code>](#VaultClient)  
+
+| Param | Type | Description |
+| --- | --- | --- |
+| path | <code>string</code> | path to the secret |
+
+<a name="VaultClient+deleteMetadata"></a>
+
+#### vaultClient.deleteMetadata(path) ⇒ <code>Promise.&lt;Object&gt;</code>
+Deletes all metadata and version history for a KV v2 secret (permanent)
+
+KV v2 only — rejects with `UnsupportedOperationError` on non-v2 mounts. Resolves to the raw
+parsed Vault response body, which may be empty/undefined for `204 No Content` responses.
+
+**Kind**: instance method of [<code>VaultClient</code>](#VaultClient)  
+
+| Param | Type | Description |
+| --- | --- | --- |
+| path | <code>string</code> | path to the secret |
 
 <a name="VaultClient+close"></a>
 

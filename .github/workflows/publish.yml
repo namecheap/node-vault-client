@@ -45,4 +45,4 @@ jobs:
           fi
 
       - name: Publish
-        run: npm publish --access public
+        run: npm publish --provenance --access public
