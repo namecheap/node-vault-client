@@ -4,6 +4,7 @@ import { expect, use } from 'chai';
 import sinonChai from 'sinon-chai';
 import VaultApiClient from '../src/VaultApiClient.js';
 import VaultAppRoleAuth from '../src/auth/VaultAppRoleAuth.js';
+import errors from '../src/errors.js';
 
 use(sinonChai);
 
@@ -110,6 +111,18 @@ describe('AppRole auth backend', function () {
           { role_id: 'role123', secret_id: 'secret456' },
         ),
       ).to.be.true;
+    });
+  });
+
+  describe('config validation', function () {
+    it('throws InvalidArgumentsError when role_id is missing', () => {
+      expect(() => new VaultAppRoleAuth(getApiStub(), logger, { secret_id: 'secret456' }))
+        .to.throw(errors.InvalidArgumentsError, '"role_id" should be provided for VaultAppRoleAuth');
+    });
+
+    it('throws InvalidArgumentsError when the config is missing entirely', () => {
+      expect(() => new VaultAppRoleAuth(getApiStub(), logger, undefined))
+        .to.throw(errors.InvalidArgumentsError, '"role_id" should be provided for VaultAppRoleAuth');
     });
   });
 

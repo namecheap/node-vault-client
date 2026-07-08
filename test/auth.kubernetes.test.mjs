@@ -6,6 +6,7 @@ import sinonChai from 'sinon-chai';
 import VaultApiClient from '../src/VaultApiClient.js';
 import VaultKubernetesAuth from '../src/auth/VaultKubernetesAuth.js';
 import AuthToken from '../src/auth/AuthToken.js';
+import errors from '../src/errors.js';
 
 use(sinonChai);
 
@@ -62,6 +63,24 @@ describe('VaultKubernetesAuth', function () {
             expect(auth._getTokenEntity).to.have.been.calledWith('vault-token');
             expect(token).to.equal(entity);
         });
+    });
+
+    it('throws InvalidArgumentsError when the role is missing', function () {
+        expect(() => new VaultKubernetesAuth(apiStub(), logger, {}))
+            .to.throw(errors.InvalidArgumentsError, '"role" should be provided for VaultKubernetesAuth');
+        expect(() => new VaultKubernetesAuth(apiStub(), logger, undefined))
+            .to.throw(errors.InvalidArgumentsError, '"role" should be provided for VaultKubernetesAuth');
+    });
+
+    it('propagates the fs error when the service-account token file is missing or unreadable, without hitting Vault', function () {
+        const fsError = new Error("ENOENT: no such file or directory, open '/var/run/secrets/kubernetes.io/serviceaccount/token'");
+        fsError.code = 'ENOENT';
+        readFileSync = sinon.stub(fs, 'readFileSync').throws(fsError);
+        const api = apiStub();
+        const auth = new VaultKubernetesAuth(api, logger, { role: 'r' });
+
+        expect(() => auth._authenticate()).to.throw(fsError);
+        expect(api.makeRequest).to.not.have.been.called;
     });
 
     it('never logs the JWT or the Vault client token', function () {

@@ -1,5 +1,9 @@
 'use strict';
 
+// `long-timeout` is unmaintained (last release 2016) but tiny (~50 LOC), dependency-free and
+// stable: it only works around setTimeout's 32-bit signed-int limit (~24.8 days), which real
+// Vault token TTLs can exceed. Audited and deliberately kept as-is (see issue #111); revisit
+// only if a maintained alternative or a Node.js core fix appears.
 const lt = require('long-timeout');
 const AuthToken = require('./AuthToken');
 const errors = require('../errors');

@@ -295,6 +295,18 @@ describe('Unit AWS auth backend :: IAM', function () {
         });
     });
 
+    describe('config validation', function () {
+        it('Should throw InvalidArgumentsError if the role is missing', () => {
+            expect(() => new VaultIAMAuth(getApiStub(), logger, {}, 'aws'))
+                .to.throw(errors.InvalidArgumentsError, '"role" should be provided for VaultIAMAuth');
+        });
+
+        it('Should throw InvalidArgumentsError if the config is missing entirely', () => {
+            expect(() => new VaultIAMAuth(getApiStub(), logger, undefined, 'aws'))
+                .to.throw(errors.InvalidArgumentsError, '"role" should be provided for VaultIAMAuth');
+        });
+    });
+
     describe('base64 encoding', function () {
         it('encodes via Buffer.from (no deprecated new Buffer) and round-trips', function () {
             const auth = new VaultIAMAuth(getApiStub(), logger, { role: 'MyRole' }, 'aws');

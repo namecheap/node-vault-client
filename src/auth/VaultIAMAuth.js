@@ -65,6 +65,10 @@ class VaultIAMAuth extends VaultBaseAuth {
     constructor(api, logger, config, mount) {
         super(api, logger, mount || 'aws');
 
+        if (!config || !config.role) {
+            throw new errors.InvalidArgumentsError('"role" should be provided for VaultIAMAuth');
+        }
+
         this.__role = config.role;
         this.__iam_server_id_header_value = config.iam_server_id_header_value;
         this.__region = config.region;

@@ -15,7 +15,7 @@ class VaultTokenAuth extends VaultBaseAuth {
     constructor(apiClient, logger, config, mount) {
         super(apiClient, logger, mount || 'token');
 
-        if (!config.token) {
+        if (!config || !config.token) {
             throw new errors.InvalidArgumentsError('Auth token should be provided for VaultTokenAuth');
         }
 

@@ -1,5 +1,6 @@
 const fs = require('fs');
 const VaultBaseAuth = require('./VaultBaseAuth');
+const errors = require('../errors');
 
 class VaultKubernetesAuth extends VaultBaseAuth {
     /**
@@ -14,6 +15,10 @@ class VaultKubernetesAuth extends VaultBaseAuth {
      */
     constructor(apiClient, logger, config, mount) {
         super(apiClient, logger, mount || 'kubernetes');
+
+        if (!config || !config.role) {
+            throw new errors.InvalidArgumentsError('"role" should be provided for VaultKubernetesAuth');
+        }
 
         this.__role = config.role;
         this.__tokenPath = '/var/run/secrets/kubernetes.io/serviceaccount/token';

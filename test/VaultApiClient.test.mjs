@@ -4,6 +4,7 @@ import sinon from 'sinon';
 import { expect, use } from 'chai';
 import sinonChai from 'sinon-chai';
 import VaultApiClient from '../src/VaultApiClient.js';
+import errors from '../src/errors.js';
 
 use(sinonChai);
 
@@ -122,6 +123,61 @@ describe('VaultApiClient', function () {
             return api.makeRequest('GET', '/secret/foo').then(
                 () => { throw new Error('expected rejection'); },
                 (err) => { expect(err.statusCode).to.equal(500); }
+            );
+        });
+
+        it('rejects a non-2xx JSON response with a VaultHttpError carrying the parsed body on err.error', function () {
+            responder = (req, res) => {
+                res.statusCode = 403;
+                res.setHeader('Content-Type', 'application/json');
+                res.end('{"errors":["permission denied"]}');
+            };
+            const api = new VaultApiClient({ url: baseUrl }, logger);
+            return api.makeRequest('GET', '/secret/foo').then(
+                () => { throw new Error('expected rejection'); },
+                (err) => {
+                    expect(err).to.be.instanceOf(errors.VaultHttpError);
+                    expect(err).to.be.instanceOf(errors.VaultError);
+                    expect(err).to.be.instanceOf(Error);
+                    // Legacy plain-Error shape is preserved: same message, same properties.
+                    expect(err.message).to.equal('403 - {"errors":["permission denied"]}');
+                    expect(err.statusCode).to.equal(403);
+                    expect(err.error).to.deep.equal({ errors: ['permission denied'] });
+                }
+            );
+        });
+
+        it('falls back to the raw text on err.error when the error body is not JSON', function () {
+            responder = (req, res) => {
+                res.statusCode = 500;
+                res.end('boom');
+            };
+            const api = new VaultApiClient({ url: baseUrl }, logger);
+            return api.makeRequest('GET', '/secret/foo').then(
+                () => { throw new Error('expected rejection'); },
+                (err) => {
+                    expect(err).to.be.instanceOf(errors.VaultHttpError);
+                    expect(err.message).to.equal('500 - boom');
+                    expect(err.statusCode).to.equal(500);
+                    expect(err.error).to.equal('boom');
+                }
+            );
+        });
+
+        it('leaves err.error undefined when the error body is empty', function () {
+            responder = (req, res) => {
+                res.statusCode = 500;
+                res.end();
+            };
+            const api = new VaultApiClient({ url: baseUrl }, logger);
+            return api.makeRequest('GET', '/secret/foo').then(
+                () => { throw new Error('expected rejection'); },
+                (err) => {
+                    expect(err).to.be.instanceOf(errors.VaultHttpError);
+                    expect(err.message).to.equal('500 - ');
+                    expect(err.statusCode).to.equal(500);
+                    expect(err.error).to.equal(undefined);
+                }
             );
         });
 

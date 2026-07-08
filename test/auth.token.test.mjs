@@ -21,6 +21,11 @@ describe('VaultTokenAuth', function () {
             .to.throw(errors.InvalidArgumentsError, 'Auth token should be provided');
     });
 
+    it('throws when the config is missing entirely', function () {
+        expect(() => new VaultTokenAuth(apiStub(), logger, undefined))
+            .to.throw(errors.InvalidArgumentsError, 'Auth token should be provided');
+    });
+
     it('defaults the mount to "token"', function () {
         const auth = new VaultTokenAuth(apiStub(), logger, { token: 't' });
         expect(auth._mount).to.equal('token');

@@ -106,6 +106,56 @@ describe('VaultNodeConfig', function () {
         });
     });
 
+    describe('deepMerge()', function () {
+        const { deepMerge } = VaultNodeConfig;
+
+        it('is exported for direct use in tests', function () {
+            expect(deepMerge).to.be.a('function');
+        });
+
+        it('skips an own __proto__ key so a malicious source cannot pollute prototypes', function () {
+            // JSON.parse creates an *own* "__proto__" data property (an object literal would
+            // set the prototype instead), which is exactly how polluted input arrives.
+            const source = JSON.parse('{"__proto__": {"polluted": "yes"}, "safe": 1}');
+            const target = {};
+            deepMerge(target, source);
+
+            expect(target.safe).to.equal(1);
+            expect(Object.hasOwn(target, '__proto__')).to.equal(false);
+            expect(Object.getPrototypeOf(target)).to.equal(Object.prototype);
+            expect({}.polluted, 'Object.prototype must not be polluted').to.equal(undefined);
+        });
+
+        it('skips constructor and prototype keys', function () {
+            const source = JSON.parse('{"constructor": {"prototype": {"polluted": "yes"}}, "prototype": {"polluted": "yes"}, "safe": 1}');
+            const target = {};
+            deepMerge(target, source);
+
+            expect(target.safe).to.equal(1);
+            expect(Object.hasOwn(target, 'constructor')).to.equal(false);
+            expect(Object.hasOwn(target, 'prototype')).to.equal(false);
+            expect(target.constructor).to.equal(Object);
+            expect({}.polluted, 'Object.prototype must not be polluted').to.equal(undefined);
+        });
+
+        it('merges nested objects in place, skips undefined source values and returns the target', function () {
+            const target = { nested: { keep: 1, replace: 1 }, scalar: 'a' };
+            const result = deepMerge(target, { nested: { replace: 2, add: 3 }, scalar: undefined });
+
+            expect(result).to.equal(target);
+            expect(target).to.deep.equal({ nested: { keep: 1, replace: 2, add: 3 }, scalar: 'a' });
+        });
+
+        it('deep-clones object values assigned over non-object targets', function () {
+            const source = { obj: { a: 1 } };
+            const target = { obj: 'scalar' };
+            deepMerge(target, source);
+
+            expect(target.obj).to.deep.equal({ a: 1 });
+            expect(target.obj, 'must not share the source reference').to.not.equal(source.obj);
+        });
+    });
+
     describe('#populate()', function () {
         function instance(substitutionMap, dataByPath) {
             process.env.NODE_CONFIG_DIR = CONFIG_BASE;
