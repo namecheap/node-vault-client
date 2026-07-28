@@ -1,5 +1,9 @@
 # Unreleased
 
+- Security: pin patched transitive tooling via `overrides` — `brace-expansion` to `^5.0.8`
+  (clears GHSA-3jxr-9vmj-r5cp, Dependabot #60, and GHSA-mh99-v99m-4gvg) and `js-yaml` to `^4.3.0`
+  (clears the concurrent quadratic-CPU merge-key advisory). Dev/transitive only (eslint, mocha,
+  glob, c8) — no runtime dependency or behavior change; `npm audit --audit-level=high` is clean.
 - Perf: `MountResolver` no longer re-sorts the `api.engines` override map on every `resolve()` —
   entries are normalized and sorted once at construction (the map is now snapshotted: mutating the
   object after `VaultClient` construction no longer affects resolution). The mount cache is now a
