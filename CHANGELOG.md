@@ -1,4 +1,4 @@
-# Unreleased
+# 2.1.0 Release notes (2026-07-28)
 
 - Security: pin patched transitive tooling via `overrides` — `brace-expansion` to `^5.0.8`
   (clears GHSA-3jxr-9vmj-r5cp, Dependabot #60, and GHSA-mh99-v99m-4gvg) and `js-yaml` to `^4.3.0`
