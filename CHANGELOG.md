@@ -42,6 +42,12 @@
     uses braces. Scoping the override per-major is not a way out: the backported `1.1.16`/`2.1.2`
     releases clear GHSA-3jxr-9vmj-r5cp but are still flagged high by GHSA-mh99-v99m-4gvg
     (unbounded-expansion OOM), which is only fixed in 5.0.8+.
+- Internal refactor: `VaultBaseAuth` no longer overloads a single `__authToken` field with two
+  types. The in-flight login now lives in `__pendingLogin` (`Promise<AuthToken>|null`) and the
+  resolved token in `__authToken` (`AuthToken|null`), so `getAuthToken()` reads the auth state
+  directly instead of discriminating with `instanceof` at each use site. No behavior change —
+  the single-flight login (concurrent callers share one login) and the renewal-timer wiring are
+  unchanged, and both are now pinned by tests. Closes #120.
 
 # 2.1.0 Release notes (2026-07-28)
 
