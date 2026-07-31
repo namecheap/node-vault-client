@@ -1,3 +1,36 @@
+# Unreleased
+
+- Dependencies: every declared dependency is bumped to the newest version that still satisfies the
+  package's `engines` floor of Node 18, so `>=18.0.0` is now an accurate claim rather than a
+  nominal one. Freely bumped: `aws4` `^1.8.0` → `^1.13.2`, `chai` → `^6.2.2`, `globals` → `^17.8.0`,
+  `lodash` → `^4.18.1`, `sinon` → `^22.1.0`, `sinon-chai` → `^4.0.1`, `eslint`/`@eslint/js` →
+  `^9.39.5`. Held at their Node 18 ceilings instead of latest: `c8` `^11.0.0` → `^10.1.3`
+  (c8 11+ requires Node `20 || >=22`; as a side effect `npm run coverage` now works on Node 18,
+  which it did not on 2.1.0), `eslint` stays on 9.x (10.x requires Node `^20.19.0 || ^22.13.0 || >=24`),
+  and `config` stays capped at `<4` in `peerDependencies` (config 4 requires Node `>=20`).
+  Verified on Node 18.20.8 / 20.20.2 / 22.23.2 / 24.18.1: `npm ci`, 306 unit tests, and the c8
+  threshold gate all pass on every version, plus both e2e suites against Vault 1.13.3.
+- **Security regression, deliberate — read before releasing.** Holding the Node 18 line forces two
+  packages back below their patched versions, because every patched release requires Node 20+:
+  - `@aws-sdk/credential-providers` is capped at `>=3.382.0 <3.968.0` (3.968.0+ declares
+    `>=20.0.0`). This pulls `fast-xml-parser@5.2.5`, which carries a **critical** advisory
+    (GHSA-8gc5-j5rx-235r, GHSA-jp2q-39xq-3w4g and five more: DoS via entity expansion, entity
+    encoding bypass, XML/CDATA injection). Only the API `fromNodeProviderChain` is used, so the
+    SDK downgrade itself is API-safe.
+  - The `serialize-javascript` override drops `^7.0.5` → `^6.0.2`, reinstating a **high** advisory
+    (GHSA-5c6j-r48x-rmvq RCE via `RegExp.flags`, GHSA-qj8w-gfj5-8c6v CPU-exhaustion DoS).
+  - The `brace-expansion` override drops `^5.0.8` → an exact `5.0.7` pin (5.0.8+ declares
+    `20 || >=22`; a caret range silently floats to 5.0.9 and breaks the Node 18 guarantee). This
+    reverts the 2.1.0 fix above and reinstates GHSA-3jxr-9vmj-r5cp / GHSA-mh99-v99m-4gvg, which
+    cascade as high advisories through `minimatch`, `eslint`, `@eslint/eslintrc`,
+    `@eslint/config-array` and `mocha`.
+
+  Net effect: `npm audit` goes from 0 vulnerabilities on 2.1.0 to 26 (1 critical, 7 high,
+  18 moderate), so the CI `audit` job (`npm audit --audit-level=high`) will fail. Two transitive
+  packages also still declare Node 20+ and cannot be capped without breaking their parents
+  (`lru-cache@11.5.2` via `glob`→`path-scurry`, `@aws-sdk/util-locate-window@3.965.8` via
+  `@aws-crypto/sha256-browser`); both function on Node 18 in practice.
+
 # 2.1.0 Release notes (2026-07-28)
 
 - Security: pin patched transitive tooling via `overrides` — `brace-expansion` to `^5.0.8`
