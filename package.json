@@ -40,7 +40,7 @@
   "author": "Namecheap <opensource@namecheap.com>",
   "license": "Apache-2.0",
   "dependencies": {
-    "@aws-sdk/credential-providers": ">=3.382.0 <3.968.0",
+    "@aws-sdk/credential-providers": "^3.1100.0",
     "aws4": "^1.13.2",
     "long-timeout": "^0.1.1"
   },
@@ -48,10 +48,10 @@
     "config": ">=1 <4"
   },
   "overrides": {
-    "serialize-javascript": "^6.0.2",
+    "serialize-javascript": "^7.0.7",
     "glob": "^13.0.0",
     "diff": "^8.0.3",
-    "brace-expansion": "5.0.7",
+    "brace-expansion": "^5.0.9",
     "js-yaml": "^4.3.0"
   },
   "devDependencies": {
