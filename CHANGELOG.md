@@ -1,3 +1,48 @@
+# Unreleased
+
+- Dependencies bumped, with **zero known vulnerabilities and Node 18 still working**. The selection
+  rule is deliberately "newest version that still *runs* on Node 18", not "newest version whose
+  `engines` field mentions Node 18" — for most packages the `engines` bump to Node 20 is policy
+  rather than a technical requirement, and capping on the declaration alone would force downgrades
+  below patched releases. `npm audit` reports 0 vulnerabilities (down from 26 — 1 critical, 7 high,
+  18 moderate — in the intermediate declaration-based approach).
+  - Bumped to latest: `@aws-sdk/credential-providers` → `^3.1100.0`, `aws4` `^1.8.0` → `^1.13.2`,
+    `chai` → `^6.2.2`, `globals` → `^17.8.0`, `lodash` → `^4.18.1`, `sinon` → `^22.1.0`,
+    `sinon-chai` → `^4.0.1`, `eslint`/`@eslint/js` → `^9.39.5`. Security overrides stay on their
+    patched releases: `serialize-javascript` `^7.0.7`, `brace-expansion` `^5.0.9`.
+  - Held below latest, because these genuinely break on Node 18 rather than merely declaring
+    against it: `c8` stays `^10.1.3` (11+ requires Node `20 || >=22`; 12 pulls an ESM-only `yargs`
+    and dies with `ERR_REQUIRE_ESM` on Node 18 — as a side effect `npm run coverage` now works on
+    Node 18, which it did not on 2.1.0), `eslint` stays on 9.x (10.x declares
+    `^20.19.0 || ^22.13.0 || >=24`), and the `config` peer range stays `<4` (config 4 requires
+    Node `>=20`).
+  - `npm ci` on Node 18 prints 19 `EBADENGINE` warnings — 16 AWS SDK/smithy packages plus
+    `brace-expansion@5.0.9`, `lru-cache@11.5.2` and `serialize-javascript@7.0.7`. Each was
+    executed on Node 18 to confirm the warnings are cosmetic: the AWS SDK resolves a provider
+    chain and signs a request, and `brace-expansion`, `lru-cache`, `glob` and `minimatch` all
+    behave correctly.
+  - Verified on Node 18.20.8 / 20.20.2 / 22.23.2 / 24.18.1, each against a **fresh Vault 1.13.3
+    instance in Docker**: `npm ci`, 306 unit tests, `lint`, the c8 threshold gate, and both e2e
+    suites (`test:e2e` 6 passing/1 pending, `test:e2e:kv2` 10 passing) pass on all four.
+
+- Two known limitations on Node 18, both pre-existing on 2.1.0 and neither hit by any npm script
+  or CI job. Documented here so they are not rediscovered as mysteries:
+  - `mocha --parallel` does not work on Node 18. `serialize-javascript@7.x` calls
+    `crypto.getRandomValues` on the global at module load, and Node 18 has no unflagged global
+    `crypto`, so mocha's parallel worker (`lib/nodejs/worker.js`) throws `ReferenceError: crypto is
+    not defined` — surfaced unhelpfully as `✖ ERROR: null`. None of the `test*` scripts use
+    `--parallel`; serial runs never load that module. Downgrading the override to `^6.0.2` restores
+    parallel mode on Node 18 but reinstates a high advisory (GHSA-5c6j-r48x-rmvq RCE via
+    `RegExp.flags`, GHSA-qj8w-gfj5-8c6v CPU-exhaustion DoS), so the patched version is kept.
+  - Brace glob patterns (`*.{js,mjs}`) throw `TypeError: expand is not a function` under the
+    `brace-expansion` override. v5 changed the export from a default function to a named
+    `{ expand }`, and the blanket override applies it to `minimatch@3.1.5` (via `eslint`, wants
+    `^1.1.7`) and `minimatch@9.0.9` (via `mocha`, wants `^2.0.2`), which still call it as a
+    function. Brace-free patterns are unaffected, and neither `eslint.config.js` nor any test glob
+    uses braces. Scoping the override per-major is not a way out: the backported `1.1.16`/`2.1.2`
+    releases clear GHSA-3jxr-9vmj-r5cp but are still flagged high by GHSA-mh99-v99m-4gvg
+    (unbounded-expansion OOM), which is only fixed in 5.0.8+.
+
 # 2.1.0 Release notes (2026-07-28)
 
 - Security: pin patched transitive tooling via `overrides` — `brace-expansion` to `^5.0.8`
