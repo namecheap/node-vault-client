@@ -1,11 +1,14 @@
-# Unreleased
+# 2.1.1 Release notes (2026-07-31)
 
 - Dependencies bumped, with **zero known vulnerabilities and Node 18 still working**. The selection
   rule is deliberately "newest version that still *runs* on Node 18", not "newest version whose
   `engines` field mentions Node 18" — for most packages the `engines` bump to Node 20 is policy
   rather than a technical requirement, and capping on the declaration alone would force downgrades
-  below patched releases. `npm audit` reports 0 vulnerabilities (down from 26 — 1 critical, 7 high,
-  18 moderate — in the intermediate declaration-based approach).
+  below patched releases. `npm audit` reports 0 vulnerabilities, as it did on 2.1.0; note that
+  capping purely on `engines` declarations was tried first and produced 26 advisories (1 critical,
+  7 high, 18 moderate), because every patched release of `@aws-sdk/credential-providers`,
+  `serialize-javascript` and `brace-expansion` requires Node 20+. That approach is preserved in the
+  branch history for auditability.
   - Bumped to latest: `@aws-sdk/credential-providers` → `^3.1100.0`, `aws4` `^1.8.0` → `^1.13.2`,
     `chai` → `^6.2.2`, `globals` → `^17.8.0`, `lodash` → `^4.18.1`, `sinon` → `^22.1.0`,
     `sinon-chai` → `^4.0.1`, `eslint`/`@eslint/js` → `^9.39.5`. Security overrides stay on their
