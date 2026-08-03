@@ -1,3 +1,12 @@
+# Unreleased
+
+- Internal refactor: `VaultBaseAuth` no longer overloads a single `__authToken` field with two
+  types. The in-flight login now lives in `__pendingLogin` (`Promise<AuthToken>|null`) and the
+  resolved token in `__authToken` (`AuthToken|null`), so `getAuthToken()` reads the auth state
+  directly instead of discriminating with `instanceof` at each use site. No behavior change —
+  the single-flight login (concurrent callers share one login) and the renewal-timer wiring are
+  unchanged, and both are now pinned by tests. Closes #120.
+
 # 2.1.1 Release notes (2026-07-31)
 
 - Dependencies bumped, with **zero known vulnerabilities and Node 18 still working**. The selection

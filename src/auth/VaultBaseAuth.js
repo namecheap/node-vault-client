@@ -38,8 +38,17 @@ class VaultBaseAuth {
         this._log = logger;
         this._mount = mount;
 
-        /** @type AuthToken */
+        /**
+         * The currently held token, or `null` when none has been obtained yet.
+         * @type {AuthToken|null}
+         */
         this.__authToken = null;
+        /**
+         * The in-flight login, or `null` when no login is running. Concurrent
+         * `getAuthToken()` callers await this same promise (single-flight).
+         * @type {Promise<AuthToken>|null}
+         */
+        this.__pendingLogin = null;
         this.__refreshTimeout = null;
     }
 
@@ -52,7 +61,12 @@ class VaultBaseAuth {
     }
 
     getAuthToken() {
-        const tokenExpired = this.__authToken instanceof AuthToken && this.__authToken.isExpired();
+        if (this.__pendingLogin !== null) {
+            this._log.debug('login already in flight');
+            return this.__pendingLogin;
+        }
+
+        const tokenExpired = this.__authToken !== null && this.__authToken.isExpired();
 
         if (tokenExpired && !this._reauthenticationAllowed()) {
             return Promise.reject(new errors.AuthTokenExpiredError(
@@ -60,32 +74,34 @@ class VaultBaseAuth {
             ));
         }
 
-        if (this.__authToken === null || tokenExpired) {
-            this._log.info('getting auth token (mount=%s)', this._mount);
-
-            const tokenPromise = this._authenticate().then(authToken => {
-                this.__authToken = authToken;
-
-                if (this.__authToken.isRenewable()) {
-                    this._log.debug(
-                        'setting refresh timer for token (accessor=%s)',
-                        authToken.getAccessor()
-                    );
-                    this.__setupTokenRefreshTimer(this.__authToken);
-                }
-
-                return this.__authToken;
-            }).catch(e => {
-                this.__authToken = null;
-                throw e;
-            });
-
-            this.__authToken = tokenPromise;
-            return tokenPromise;
+        if (this.__authToken !== null && !tokenExpired) {
+            this._log.debug('token already exist');
+            return Promise.resolve(this.__authToken);
         }
 
-        this._log.debug('token already exist');
-        return Promise.resolve(this.__authToken);
+        this._log.info('getting auth token (mount=%s)', this._mount);
+
+        const pendingLogin = this._authenticate().then(authToken => {
+            this.__pendingLogin = null;
+            this.__authToken = authToken;
+
+            if (authToken.isRenewable()) {
+                this._log.debug(
+                    'setting refresh timer for token (accessor=%s)',
+                    authToken.getAccessor()
+                );
+                this.__setupTokenRefreshTimer(authToken);
+            }
+
+            return authToken;
+        }).catch(e => {
+            this.__pendingLogin = null;
+            this.__authToken = null;
+            throw e;
+        });
+
+        this.__pendingLogin = pendingLogin;
+        return pendingLogin;
     }
 
     /**

@@ -134,6 +134,48 @@ describe('VaultBaseAuth', function () {
                 });
         });
 
+        it('coalesces concurrent callers onto a single in-flight login', function () {
+            const token = nonRenewableToken();
+            let release;
+            const authStub = sinon.stub().returns(new Promise((resolve) => { release = () => resolve(token); }));
+            const auth = new TestAuth(apiStub(), 'mount', { authStub });
+
+            // Both calls happen while the login is still pending, so they must share it.
+            const first = auth.getAuthToken();
+            const second = auth.getAuthToken();
+            expect(authStub).to.have.been.calledOnce;
+
+            release();
+
+            return Promise.all([first, second]).then(([t1, t2]) => {
+                expect(t1).to.equal(token);
+                expect(t2).to.equal(token);
+                expect(authStub).to.have.been.calledOnce;
+                // Once resolved, the pending-login slot is cleared and the token is cached.
+                expect(auth.__pendingLogin).to.equal(null);
+                expect(auth.__authToken).to.equal(token);
+                return auth.getAuthToken();
+            }).then((t3) => {
+                expect(t3).to.equal(token);
+                expect(authStub).to.have.been.calledOnce;
+            });
+        });
+
+        it('clears the in-flight login when it fails, so a later call retries', function () {
+            const boom = new Error('auth failed');
+            const authStub = sinon.stub().rejects(boom);
+            const auth = new TestAuth(apiStub(), 'mount', { authStub });
+
+            return auth.getAuthToken().then(
+                () => { throw new Error('expected rejection'); },
+                (err) => {
+                    expect(err).to.equal(boom);
+                    expect(auth.__pendingLogin).to.equal(null);
+                    expect(auth.__authToken).to.equal(null);
+                }
+            );
+        });
+
         it('resets state and propagates the error when authentication fails, allowing a retry', function () {
             const boom = new Error('auth failed');
             const token = nonRenewableToken();
