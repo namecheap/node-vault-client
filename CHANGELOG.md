@@ -1,4 +1,4 @@
-# Unreleased
+# 2.1.2 Release notes (2026-08-03)
 
 - Internal refactor: `VaultBaseAuth` no longer overloads a single `__authToken` field with two
   types. The in-flight login now lives in `__pendingLogin` (`Promise<AuthToken>|null`) and the
