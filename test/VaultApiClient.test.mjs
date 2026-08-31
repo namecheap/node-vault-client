@@ -5,10 +5,11 @@ import { expect, use } from 'chai';
 import sinonChai from 'sinon-chai';
 import VaultApiClient from '../src/VaultApiClient.js';
 import errors from '../src/errors.js';
+import { createNoopLogger } from './helpers/logger.mjs';
 
 use(sinonChai);
 
-const logger = _.fromPairs(_.map(['error', 'warn', 'info', 'debug', 'trace'], (prop) => [prop, _.noop]));
+const logger = createNoopLogger();
 
 describe('VaultApiClient', function () {
     let server;

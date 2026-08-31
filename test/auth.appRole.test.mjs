@@ -1,28 +1,14 @@
-import _ from 'lodash';
 import sinon from 'sinon';
 import { expect, use } from 'chai';
 import sinonChai from 'sinon-chai';
 import VaultApiClient from '../src/VaultApiClient.js';
 import VaultAppRoleAuth from '../src/auth/VaultAppRoleAuth.js';
 import errors from '../src/errors.js';
+import { createNoopLogger, createSpyLogger, loggedText } from './helpers/logger.mjs';
 
 use(sinonChai);
 
-const LOG_METHODS = ['error', 'warn', 'info', 'debug', 'trace'];
-
-const logger = _.fromPairs(_.map(LOG_METHODS, (prop) => [prop, _.noop]));
-
-function spyLogger() {
-  return _.fromPairs(_.map(LOG_METHODS, (prop) => [prop, sinon.spy()]));
-}
-
-// Flatten every argument passed to a logger call into a single searchable string,
-// covering both printf-style args and object logging (%j / %o).
-function loggedText(log) {
-  return _.flatMap(LOG_METHODS, (m) => _.flatMap(log[m].getCalls(), (c) => c.args))
-    .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
-    .join(' ');
-}
+const logger = createNoopLogger();
 
 describe('AppRole auth backend', function () {
   function getApiStub() {
@@ -132,7 +118,7 @@ describe('AppRole auth backend', function () {
 
     it('never passes the raw client_token to any log level, and logs the accessor instead', async () => {
       const api = getApiStub();
-      const log = spyLogger();
+      const log = createSpyLogger();
 
       const auth = new VaultAppRoleAuth(
         api,

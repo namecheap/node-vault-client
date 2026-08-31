@@ -4,7 +4,6 @@
 
 import http from 'http';
 import fs from 'fs';
-import _ from 'lodash';
 import sinon from 'sinon';
 import { expect, use } from 'chai';
 import sinonChai from 'sinon-chai';
@@ -18,10 +17,11 @@ import VaultTokenAuth from '../src/auth/VaultTokenAuth.js';
 import AuthToken from '../src/auth/AuthToken.js';
 import Lease from '../src/Lease.js';
 import errors from '../src/errors.js';
+import { createNoopLogger } from './helpers/logger.mjs';
 
 use(sinonChai);
 
-const logger = _.fromPairs(_.map(['error', 'warn', 'info', 'debug', 'trace'], (p) => [p, _.noop]));
+const logger = createNoopLogger();
 const apiStub = () => sinon.createStubInstance(VaultApiClient);
 const b64decode = (s) => Buffer.from(s, 'base64').toString();
 

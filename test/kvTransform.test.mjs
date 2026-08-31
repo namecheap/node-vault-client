@@ -215,6 +215,10 @@ describe('kvTransform', function () {
                     data: { current_version: 2, versions: { '1': {}, '2': {} } },
                 });
                 expect(result).to.not.equal(body);
+                // A new object is not enough on its own: the envelope fields have to
+                // survive the re-creation, so assert the carried-over ones explicitly.
+                expect(result).to.have.property('request_id', body.request_id);
+                expect(result).to.have.property('data');
                 // readMetadata only re-creates the envelope; the metadata payload
                 // is preserved (by reference) in result.data — it is not deep-copied.
                 expect(result.data).to.equal(body.data);

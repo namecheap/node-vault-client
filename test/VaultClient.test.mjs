@@ -11,6 +11,7 @@ import VaultIAMAuth from '../src/auth/VaultIAMAuth.js';
 import VaultKubernetesAuth from '../src/auth/VaultKubernetesAuth.js';
 import errors from '../src/errors.js';
 import MountResolver from '../src/MountResolver.js';
+import { createNoopLogger } from './helpers/logger.mjs';
 
 use(sinonChai);
 
@@ -212,7 +213,7 @@ describe('VaultClient', function () {
         });
 
         it('returns the supplied logger when it implements the full interface', function () {
-            const custom = _.fromPairs(_.map(['error', 'warn', 'info', 'debug', 'trace'], (p) => [p, _.noop]));
+            const custom = createNoopLogger();
             expect(client.__setupLogger(custom)).to.equal(custom);
         });
 
@@ -325,7 +326,7 @@ describe('VaultClient', function () {
                     data: { path: 'secret/', type: 'kv', options: { version: String(version) } },
                 }),
                 {},
-                { debug: _.noop, error: _.noop, info: _.noop, warn: _.noop, trace: _.noop }
+                createNoopLogger()
             );
         }
 
@@ -381,7 +382,7 @@ describe('VaultClient', function () {
                     data: { path: 'secret/', type: 'kv', options: { version: '1' } },
                 }),
                 {},
-                { debug: _.noop, error: _.noop, info: _.noop, warn: _.noop, trace: _.noop }
+                createNoopLogger()
             );
             client.__api = { makeRequest: sinon.stub().resolves({ data: { k: 'v' } }) };
             return client.read('secret/foo').then((lease) => {
@@ -396,7 +397,7 @@ describe('VaultClient', function () {
                     data: { path: 'secret/', type: 'kv', options: { version: '1' } },
                 }),
                 {},
-                { debug: _.noop, error: _.noop, info: _.noop, warn: _.noop, trace: _.noop }
+                createNoopLogger()
             );
             client.__api = { makeRequest: sinon.stub().resolves({ data: { k: 'v' } }) };
             return client.read('secret/foo').then((lease) => {

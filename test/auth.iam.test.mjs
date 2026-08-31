@@ -1,28 +1,14 @@
-import _ from 'lodash';
 import sinon from 'sinon';
 import { expect, use } from 'chai';
 import sinonChai from 'sinon-chai';
 import VaultApiClient from '../src/VaultApiClient.js';
 import VaultIAMAuth from '../src/auth/VaultIAMAuth.js';
 import errors from '../src/errors.js';
+import { createNoopLogger, createSpyLogger, loggedText } from './helpers/logger.mjs';
 
 use(sinonChai);
 
-const LOG_METHODS = ['error', 'warn', 'info', 'debug', 'trace'];
-
-const logger = _.fromPairs(_.map(LOG_METHODS, (prop) => [prop, _.noop]));
-
-function spyLogger() {
-    return _.fromPairs(_.map(LOG_METHODS, (prop) => [prop, sinon.spy()]));
-}
-
-// Flatten every argument passed to a logger call into a single searchable string,
-// covering both printf-style args and object logging (%j / %o).
-function loggedText(log) {
-    return _.flatMap(LOG_METHODS, (m) => _.flatMap(log[m].getCalls(), (c) => c.args))
-        .map((a) => (typeof a === 'string' ? a : JSON.stringify(a)))
-        .join(' ');
-}
+const logger = createNoopLogger();
 
 describe('Unit AWS auth backend :: IAM', function () {
 
@@ -218,7 +204,7 @@ describe('Unit AWS auth backend :: IAM', function () {
             const CLIENT_TOKEN = 's.RAWIAMTOKENSHOULDNEVERBELOGGED';
             const ACCESSOR = 'iam-accessor-1234';
             const api = getApiStub();
-            const log = spyLogger();
+            const log = createSpyLogger();
 
             const auth = new VaultIAMAuth(
                 api,

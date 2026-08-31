@@ -234,6 +234,12 @@ describe('MountResolver', function () {
 
             const unlisted = await resolver.resolve('other/bar');
             expect(unlisted.version).to.equal(1);
+
+            // Both resolutions above came from the constructor's snapshot, never from
+            // detection: `other` is absent from it and falls through to the passthrough
+            // default. Without this, a resolver that silently probed Vault for the
+            // unlisted path would still satisfy the version assertions.
+            expect(detectFn).to.not.have.been.called;
         });
     });
 
@@ -288,7 +294,9 @@ describe('MountResolver', function () {
             expect(detectFn.callCount).to.equal(4); // m2 was evicted and re-detected
         });
 
-        it('rejects an invalid maxCacheSize at construction (review: a negative cap would hang eviction)', function () {
+        // Non-positive caps are the dangerous ones: eviction would loop or never
+        // release an entry, so construction has to reject them outright.
+        it('rejects an invalid maxCacheSize at construction', function () {
             const detectFn = sinon.stub();
             for (const bad of [-1, 0, 1.5, NaN, Infinity, '10']) {
                 expect(
