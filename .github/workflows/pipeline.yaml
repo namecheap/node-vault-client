@@ -117,16 +117,18 @@ jobs:
       fail-fast: false
       matrix:
         node-version: [18, 20, 22, 24]
-        # Latest 1.x. Keep in step with the default in docker-compose.yml so a
-        # local `docker compose up` reproduces what CI runs.
-        vault-version: ['1.21.4']
+        # Latest 1.x. Minor-line tags, not patch pins: `1.21` follows the newest
+        # 1.21.x, so patch releases are covered without touching this file. Keep
+        # in step with the default in docker-compose.yml so a local
+        # `docker compose up` reproduces what CI runs.
+        vault-version: ['1.21']
         include:
           # Latest 2.x, on one Node version rather than crossed with the whole
           # matrix: the node-version axis exercises the client's runtime and the
           # vault-version axis the server's API, and the two have never
           # interacted. Node 20 is the version in .nvmrc.
           - node-version: 20
-            vault-version: '2.0.4'
+            vault-version: '2.0'
 
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -163,7 +165,7 @@ jobs:
         # merge-patch, version and metadata operations — is where a server-side
         # API change would show first, so this suite gets the full Vault axis
         # even though it stays on one Node version.
-        vault-version: ['1.21.4', '2.0.4']
+        vault-version: ['1.21', '2.0']
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
