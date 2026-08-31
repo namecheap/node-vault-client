@@ -31,12 +31,19 @@ class VaultBaseAuth {
      * @param {VaultApiClient} apiClient
      * @param {Object} logger
      * @param {String} mount - Vault's mount point
+     * @param {Object} [config] - the auth backend's `auth.config`. Only
+     *   `config.renewal` is read here; everything else belongs to the subclass.
+     * @param {boolean} [config.renewal=true] - Set `false` to never renew the Vault token
+     *   in the background. The client then keeps using the token until it expires and
+     *   re-authenticates on the next call (auth methods that cannot re-authenticate, such
+     *   as `token`, raise {@link AuthTokenExpiredError} instead, exactly as they do today).
      */
-    constructor(apiClient, logger, mount) {
+    constructor(apiClient, logger, mount, config) {
         this.__apiClient = apiClient;
         /** @protected */
         this._log = logger;
         this._mount = mount;
+        this.__renewalEnabled = !(config && config.renewal === false);
 
         /**
          * The currently held token, or `null` when none has been obtained yet.
@@ -151,7 +158,7 @@ class VaultBaseAuth {
             this.__refreshTimeout = null;
         }
 
-        if (!authToken.isRenewable() || authToken.isExpired()) {
+        if (!this.__renewalEnabled || !authToken.isRenewable() || authToken.isExpired()) {
             return;
         }
 

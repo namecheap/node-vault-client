@@ -187,6 +187,39 @@ Vault's JWT method also offers an interactive `oidc` login (a browser redirect f
 This library implements only the non-interactive `jwt` flow: a service client doing headless
 background renewal has no browser to redirect to, so `oidc` is deliberately not supported.
 
+### Token renewal
+
+Whenever Vault issues a **renewable** token, the client arms a background timer and renews it at
+half its remaining lifetime, for as long as the client lives. That is the default and suits
+long-running services.
+
+Set `renewal: false` in any backend's `config` to turn it off:
+
+```javascript
+auth: {
+    type: 'appRole',
+    config: {
+        role_id: '637c065f-...',
+        secret_id: '...',
+        renewal: false,
+    },
+}
+```
+
+With renewal off, the client keeps using the token until it expires and then simply logs in again
+on the next call — no background timer at all. Two reasons to want that:
+
+* **Short-lived processes.** The renewal timer keeps the Node.js event loop alive, so a script that
+  finishes its work does not exit on its own; you have to call
+  [`close()`](#vaultclientclose). With `renewal: false` there is no timer to hold it open.
+* **You would rather re-authenticate than renew** — for example where the auth backend can always
+  mint a fresh token (`jwtProvider`, Kubernetes, IAM) and you prefer a clean login over extending
+  an existing lease.
+
+The one backend where this changes failure behaviour is `token`: it cannot re-authenticate (it only
+has the token you gave it), so an expired token raises `AuthTokenExpiredError` — which is exactly
+what it does today once a token becomes unrenewable.
+
 ## API
 
 <a name="VaultClient"></a>

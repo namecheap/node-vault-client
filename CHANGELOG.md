@@ -1,5 +1,12 @@
 # Unreleased
 
+- Added `renewal: false` to every auth backend's `config`, which disables the background
+  token-renewal timer (#17). The client then uses the token until it expires and re-authenticates
+  on the next call instead of renewing it in the background. Useful for short-lived processes —
+  the renewal timer keeps the Node.js event loop alive, so without it a finished script does not
+  exit unless you call `close()` — and wherever re-login is preferable to extending a lease.
+  Default behaviour is unchanged: any value other than `false` renews as before.
+
 - Added a JWT auth backend (`auth.type: 'jwt'`, default mount `"jwt"`) for workload identity
   federation — GitHub Actions, other CI systems, GCP/Azure/SPIFFE workloads — against Vault's
   [JWT auth method](https://developer.hashicorp.com/vault/docs/auth/jwt). Models

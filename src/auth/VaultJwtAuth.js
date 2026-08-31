@@ -26,7 +26,7 @@ class VaultJwtAuth extends VaultBaseAuth {
      * @param {String} mount - Vault's mount point ("jwt" by default)
      */
     constructor(apiClient, logger, config, mount) {
-        super(apiClient, logger, mount || 'jwt');
+        super(apiClient, logger, mount || 'jwt', config);
 
         const providedSources = JWT_SOURCE_KEYS.filter((key) => config && config[key] !== undefined);
         if (providedSources.length !== 1) {

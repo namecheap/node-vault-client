@@ -14,7 +14,7 @@ class VaultKubernetesAuth extends VaultBaseAuth {
      * @param {String} mount - Vault's  mount point ("kubernetes" by default)
      */
     constructor(apiClient, logger, config, mount) {
-        super(apiClient, logger, mount || 'kubernetes');
+        super(apiClient, logger, mount || 'kubernetes', config);
 
         if (!config || !config.role) {
             throw new errors.InvalidArgumentsError('"role" should be provided for VaultKubernetesAuth');

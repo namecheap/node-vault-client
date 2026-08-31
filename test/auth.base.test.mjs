@@ -33,7 +33,7 @@ const nowSec = () => Math.floor(Date.now() / 1000);
 
 class TestAuth extends VaultBaseAuth {
     constructor(api, mount, opts) {
-        super(api, logger, mount);
+        super(api, logger, mount, (opts || {}).config);
         opts = opts || {};
         this.__authStub = opts.authStub || sinon.stub();
         this.__reauth = opts.reauth !== undefined ? opts.reauth : true;
@@ -52,7 +52,79 @@ function nonRenewableToken(id) {
     return new AuthToken(id || 'id', 'acc', 0, null, 0, 0, false);
 }
 
+/**
+ * A renewable token expiring far enough out to arm a refresh timer.
+ * AuthToken takes an absolute `expiresAt`, not a TTL.
+ */
+function renewableToken() {
+    return new AuthToken('renewable-id', 'acc', nowSec(), nowSec() + 3600, 0, 0, true);
+}
+
 describe('VaultBaseAuth', function () {
+    describe('config.renewal (#17)', function () {
+        const created = [];
+
+        function makeAuth(opts) {
+            const auth = new TestAuth(apiStub(), 'mount', opts);
+            created.push(auth);
+            return auth;
+        }
+
+        afterEach(function () {
+            // mocha runs test:unit without --exit, so a timer left armed by a failing
+            // assertion would hang the entire suite rather than fail one test.
+            created.splice(0).forEach((auth) => auth.cancelTokenRefresh());
+            sinon.restore();
+        });
+
+        it('arms a refresh timer for a renewable token by default', async function () {
+            const auth = makeAuth({ authStub: sinon.stub().resolves(renewableToken()) });
+            await auth.getAuthToken();
+            expect(auth.__refreshTimeout, 'a timer should be armed').to.not.equal(null);
+        });
+
+        it('arms no timer when config.renewal is false', async function () {
+            const auth = makeAuth({
+                authStub: sinon.stub().resolves(renewableToken()),
+                config: { renewal: false },
+            });
+            const token = await auth.getAuthToken();
+            expect(token.getId()).to.equal('renewable-id');
+            expect(auth.__refreshTimeout, 'no timer should be armed').to.equal(null);
+        });
+
+        it('still serves the token from cache while it is valid', async function () {
+            const authStub = sinon.stub().resolves(renewableToken());
+            const auth = makeAuth({ authStub, config: { renewal: false } });
+            await auth.getAuthToken();
+            await auth.getAuthToken();
+            expect(authStub, 'a valid token is reused, renewal or not').to.have.been.calledOnce;
+        });
+
+        it('re-authenticates once the un-renewed token expires', async function () {
+            const authStub = sinon.stub();
+            authStub.onFirstCall().resolves(new AuthToken('first', 'acc', nowSec() - 7200, nowSec() - 3600, 0, 0, true));
+            authStub.onSecondCall().resolves(renewableToken());
+            const auth = makeAuth({ authStub, config: { renewal: false } });
+            await auth.getAuthToken();
+            const second = await auth.getAuthToken();
+            expect(authStub).to.have.been.calledTwice;
+            expect(second.getId()).to.equal('renewable-id');
+            auth.cancelTokenRefresh();
+        });
+
+        it('treats any value other than false as renewal enabled', async function () {
+            for (const renewal of [undefined, true]) {
+                const auth = makeAuth({
+                    authStub: sinon.stub().resolves(renewableToken()),
+                    config: { renewal },
+                });
+                await auth.getAuthToken();
+                expect(auth.__refreshTimeout, `renewal=${String(renewal)} should arm a timer`).to.not.equal(null);
+            }
+        });
+    });
+
     describe('abstract members', function () {
         it('_authenticate must be overridden', function () {
             const auth = new VaultBaseAuth(apiStub(), logger, 'mount');
