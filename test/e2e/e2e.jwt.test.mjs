@@ -1,11 +1,11 @@
 /**
- * E2E for the JWT auth backend (#130/#134) against the real dev-mode Vault
- * started by docker-compose (127.0.0.1:8200). TDD: red until #131 lands.
+ * E2E for the JWT auth backend against the real dev-mode Vault started by
+ * docker-compose (127.0.0.1:8200).
  *
- * Setup follows the AppRole precedent in e2e.test.mjs: policy -> enable the
- * method -> configure -> role, all via the root token, and idempotent so the
- * suite can rerun against a running stack. Teardown disables the method again
- * so this suite leaves the shared dev server as it found it.
+ * Setup is idempotent (tolerates "already in use") so the suite can rerun
+ * against a stack it (or a previous run) already touched. Teardown removes
+ * everything it created -- mount, policy and fixture secret -- so this suite
+ * leaves the shared dev server as it found it.
  */
 import fs from 'fs';
 import os from 'os';
@@ -58,19 +58,25 @@ describe('E2E: JWT auth backend', function () {
 
     after(async function () {
         await rp({ method: 'DELETE', uri: `${VAULT}v1/sys/auth/jwt`, tolerate: ['no matching mount'] });
-        await rp({ method: 'DELETE', uri: `${VAULT}v1/sys/policy/jwt-tst`, tolerate: ['404'] });
+        await rp({ method: 'DELETE', uri: `${VAULT}v1/sys/policy/jwt-tst` });
+        await rp({ method: 'DELETE', uri: `${VAULT}v1/secret/jwt-tst` });
     });
 
+    let client;
     afterEach(function () {
-        VaultClient.clear();
+        if (client) {
+            client.close();
+            client = undefined;
+        }
     });
 
     function boot(config) {
-        return new VaultClient({
+        client = new VaultClient({
             api: { url: VAULT },
             logger: false,
             auth: { type: 'jwt', config },
         });
+        return client;
     }
 
     it('authenticates with a literal signed JWT and reads a secret', async function () {

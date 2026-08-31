@@ -1,6 +1,6 @@
 /**
- * Minimal RS256 JWT signer for the e2e suite (#130/#134). node:crypto only --
- * deliberately no jsonwebtoken dependency; the suite must stay offline.
+ * Minimal RS256 JWT signer for the e2e suite. node:crypto only -- deliberately
+ * no jsonwebtoken dependency; the suite must stay offline.
  */
 import crypto from 'node:crypto';
 

@@ -150,8 +150,7 @@ jobs:
       - name: Run e2e tests
         run: npm run test:e2e
 
-      # TDD (#130/#134): red until the JWT backend lands. Runs across the whole
-      # node x vault matrix like the rest of this job.
+      # Runs across the whole node x vault matrix like the rest of this job.
       - name: Run JWT e2e tests
         run: npm run test:e2e:jwt
 
