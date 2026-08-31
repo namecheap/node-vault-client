@@ -4,6 +4,7 @@ import deepFreeze from 'deep-freeze';
 import _ from 'lodash';
 import { expect } from 'chai';
 import VaultClient from '../../src/VaultClient.js';
+import errors from '../../src/errors.js';
 
 const _require = createRequire(import.meta.url);
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -60,12 +61,23 @@ describe('E2E', function () {
         expect(res.getData()).is.deep.equal(testData);
 
         const list = await vaultClient.list('secret');
-        expect(list.getData()).is.deep.equal({keys: ['tst-val']});
+        // `include`, not deep-equal: other tests in this suite write their own keys under
+        // secret/, and a rerun against a still-running compose stack sees the previous
+        // run's too (#137).
+        expect(list.getData().keys).to.include('tst-val');
     });
 
     it('Write for ssh backend should return response', async function () {
         const vaultClient = new VaultClient(this.bootOpts);
-        await vaultClient.write('/sys/mounts/ssh', {type: 'ssh'});
+        // Already mounted by a previous run against the same stack: Vault answers
+        // 400 "path is already in use", which is success for our purposes (#137).
+        try {
+            await vaultClient.write('/sys/mounts/ssh', {type: 'ssh'});
+        } catch (err) {
+            if (!(err instanceof errors.VaultHttpError) || !/already in use/.test(err.message)) {
+                throw err;
+            }
+        }
         await vaultClient.write('/ssh/roles/otp_key_role', {key_type: 'otp', default_user: 'ubuntu', cidr_list: '127.0.0.0/24'});
         const response = await vaultClient.write('/ssh/creds/otp_key_role', {ip: '127.0.0.1'});
 
