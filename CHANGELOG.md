@@ -1,3 +1,10 @@
+# Unreleased
+
+- Added a JWT auth backend (`auth.type: 'jwt'`), supporting a literal `config.jwt` or a
+  `config.jwtPath` file source (exactly one is required); `config.role` is optional, matching
+  Vault's `default_role` fallback. Models `VaultKubernetesAuth`; a `config.jwtProvider` async
+  source is reserved for a follow-up. Closes #131.
+
 # 2.1.2 Release notes (2026-08-03)
 
 - Internal refactor: `VaultBaseAuth` no longer overloads a single `__authToken` field with two
