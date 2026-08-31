@@ -187,6 +187,97 @@ Vault's JWT method also offers an interactive `oidc` login (a browser redirect f
 This library implements only the non-interactive `jwt` flow: a service client doing headless
 background renewal has no browser to redirect to, so `oidc` is deliberately not supported.
 
+### Token renewal
+
+Whenever Vault issues a **renewable** token, the client arms a background timer and renews it at
+half its remaining lifetime, for as long as the client lives. That is the default and suits
+long-running services.
+
+Set `renewal: false` on the `auth` block (beside `type`, not inside `config`) to turn it off:
+
+```javascript
+auth: {
+    type: 'appRole',
+    renewal: false,
+    config: {
+        role_id: '637c065f-...',
+        secret_id: '...',
+    },
+}
+```
+
+These keys sit on `auth` rather than in `auth.config` on purpose: `config` is the backend's own
+credential bag and may already carry keys of your own, so reserving names inside it could break an
+existing caller. Same reasoning that put the namespace at `api.namespace`.
+
+With renewal off, the client keeps using the token until it expires and then simply logs in again
+on the next call — no background timer at all. Two reasons to want that:
+
+* **Short-lived processes.** The renewal timer keeps the Node.js event loop alive, so a script that
+  finishes its work does not exit on its own; you have to call
+  [`close()`](#VaultClient+close). With `renewal: false` there is no timer to hold it open.
+* **You would rather re-authenticate than renew** — for example where the auth backend can always
+  mint a fresh token (`jwtProvider`, Kubernetes, IAM) and you prefer a clean login over extending
+  an existing lease.
+
+#### Before you turn it off
+
+Renewal off means the token is allowed to expire, and what happens next depends on whether your
+backend can obtain a *fresh* credential unaided:
+
+| backend | on expiry with `renewal: false` |
+| --- | --- |
+| `kubernetes`, `iam`, `jwt` with `jwtPath`/`jwtProvider` | clean re-login — the JWT or AWS credential is re-acquired, so this is the intended case |
+| `appRole` | re-login **replays the same `secret_id`**. Fine for a reusable one; with Vault's recommended hardening (`secret_id_num_uses=1`, or a short `secret_id_ttl`) the second login is rejected |
+| `jwt` with a literal `jwt` | replays the same JWT, so it works only until the IdP-issued token expires |
+| `token` | **cannot re-authenticate at all.** The client raises `AuthTokenExpiredError` from then on, permanently |
+
+Two consequences worth stating plainly:
+
+* For `token` auth this **is** a behaviour change, not a no-op. A renewable token handed to `token`
+  auth is renewed indefinitely today; with `renewal: false` it expires and every later call rejects
+  for the life of the process. `close()` does not reset it — recovery means
+  `VaultClient.clear(name)` and booting again.
+* For `appRole` and literal-`jwt`, a login that can no longer succeed is retried on **every**
+  subsequent call, since a failed login clears the cached token. That is a failing request per
+  `read()`, with no backoff. Prefer `jwtPath`/`jwtProvider`, a reusable `secret_id`, or leaving
+  renewal on.
+
+**Expiring a token also revokes its leases.** Vault revokes every lease created by a token when
+that token expires, and this client does not renew secret leases — only the auth token. If you read
+dynamic credentials (`database/creds/*`, cloud credentials) whose lease outlives the auth token,
+leaving renewal on is what currently keeps them alive. KV reads are unaffected.
+
+#### Tuning renewal instead of disabling it
+
+Two further keys, also on `auth`, shape *how* renewal happens. Both are optional, and leaving them
+out reproduces the behaviour the client has always had.
+
+| key | default | meaning |
+| --- | --- | --- |
+| `renewalFraction` | `0.5` | How much of the token's **remaining** lifetime to wait before renewing, as a fraction in `(0, 1)`. `0.5` renews at the halfway point. |
+| `renewalIncrement` | *(unset)* | Seconds of extra TTL to ask for, sent as `increment` to `auth/token/renew-self`. Unset means Vault applies the token's own period. |
+
+```javascript
+auth: {
+    type: 'kubernetes',
+    renewalFraction: 0.25,   // renew after a quarter of the remaining lifetime
+    renewalIncrement: 3600,  // ask Vault for another hour each time
+    config: { role: 'my-app' },
+}
+```
+
+Lower `renewalFraction` values renew earlier and more often, which buys headroom if Vault is briefly
+unreachable. A failed renewal is retried on the same rule against the *same* token, so the waits
+shrink geometrically as the remaining lifetime does — for a 1-hour token that is roughly 12 attempts
+at `0.5` (1800s, 900s, 450s, …) versus 27 at `0.25`, both bottoming out at a 1-second floor just
+before expiry. Higher values renew later and talk to Vault less.
+
+`renewalIncrement` is a request, not a guarantee: Vault grants at most the token's max TTL and may
+return less. Both keys are validated at construction — a `renewalFraction` outside `(0, 1)` or a
+non-positive/non-integer `renewalIncrement` raises `InvalidArgumentsError` rather than failing later
+inside a background timer.
+
 ## API
 
 <a name="VaultClient"></a>
@@ -241,6 +332,9 @@ Client constructor function.
 | [options.auth.mount] | <code>String</code> |  | Vault auth backend mount point; default varies per method (e.g. "aws" for iam, "approle", "token", "kubernetes", "jwt") |
 | options.auth.config | <code>Object</code> |  | auth configuration variables |
 | [options.auth.config.namespace] | <code>String</code> |  | Optional. Legacy location for the Vault namespace (see `api.namespace`). Sent as the `X-Vault-Namespace` header on **every** request for every auth type. |
+| [options.auth.renewal] | <code>boolean</code> | <code>true</code> | Set `false` to never renew the Vault token in the background; the token is used until it expires and the next call re-authenticates. See [Token renewal](#token-renewal). |
+| [options.auth.renewalFraction] | <code>number</code> | <code>0.5</code> | How much of the token's remaining lifetime to wait before renewing, as a fraction in `(0, 1)`. |
+| [options.auth.renewalIncrement] | <code>number</code> |  | Seconds of extra TTL to request on each renewal, sent as `increment` to `auth/token/renew-self`. Vault caps it at the token's max TTL. |
 | [options.logger] | <code>Object</code> \| <code>false</code> |  | Logger that must implement **all five** of "error", "warn", "info", "debug" and "trace" — an object missing any one of them is silently ignored and the default logger is used instead. The default logger writes to `console`, except `debug`, which is discarded so that sensitive data is never printed. Pass `false` to disable logging entirely. |
 
 ##### Custom transport (proxy / self-signed TLS)

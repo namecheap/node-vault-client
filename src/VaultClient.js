@@ -36,6 +36,15 @@ class VaultClient {
      * @param {Object} options.auth
      * @param {String} options.auth.type - one of: 'appRole' | 'token' | 'iam' | 'kubernetes' | 'jwt'
      * @param {Object} options.auth.config - auth configuration variables
+     * @param {boolean} [options.auth.renewal=true] - Set `false` to never renew the Vault token in
+     *      the background. The token is then used until it expires and the next call
+     *      re-authenticates. Note `token` auth cannot re-authenticate and will raise
+     *      {@link AuthTokenExpiredError} from that point on.
+     * @param {number} [options.auth.renewalFraction=0.5] - How much of the token's remaining
+     *      lifetime to wait before renewing, as a fraction in `(0, 1)`.
+     * @param {number} [options.auth.renewalIncrement] - Seconds of extra TTL to request on each
+     *      renewal, sent as `increment` to `auth/token/renew-self`. Vault caps it at the token's
+     *      max TTL. Omitted by default, which lets Vault apply the token's own period.
      * @param {Object|false} options.logger - Logger that supports "error", "info", "warn", "trace", "debug" methods. Uses `console` by default. Pass `false` to disable logging.
      */
     constructor(options) {
@@ -63,6 +72,12 @@ class VaultClient {
             options.auth,
             this.__api
         );
+
+        // Renewal options live on `auth`, not inside `auth.config`: `auth.config` is the
+        // backend's own credential bag and may already carry consumer-specific keys, so
+        // reserving names in it could break an existing caller. Same reasoning that moved
+        // `namespace` to `api.namespace`.
+        this.__auth.configureRenewal(options.auth);
 
         // KV v2 support
         const kvOpts = (options.api && options.api.kv) || {};

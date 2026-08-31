@@ -34,6 +34,10 @@ const nowSec = () => Math.floor(Date.now() / 1000);
 class TestAuth extends VaultBaseAuth {
     constructor(api, mount, opts) {
         super(api, logger, mount);
+        if ((opts || {}).config !== undefined) {
+            // what VaultClient does with the `auth` block
+            this.configureRenewal(opts.config);
+        }
         opts = opts || {};
         this.__authStub = opts.authStub || sinon.stub();
         this.__reauth = opts.reauth !== undefined ? opts.reauth : true;
@@ -52,7 +56,120 @@ function nonRenewableToken(id) {
     return new AuthToken(id || 'id', 'acc', 0, null, 0, 0, false);
 }
 
+/**
+ * A renewable token expiring far enough out to arm a refresh timer.
+ * AuthToken takes an absolute `expiresAt`, not a TTL.
+ */
+function renewableToken() {
+    return new AuthToken('renewable-id', 'acc', nowSec(), nowSec() + 3600, 0, 0, true);
+}
+
 describe('VaultBaseAuth', function () {
+    describe('config.renewal (#17)', function () {
+        const created = [];
+
+        function makeAuth(opts) {
+            const auth = new TestAuth(apiStub(), 'mount', opts);
+            created.push(auth);
+            return auth;
+        }
+
+        afterEach(function () {
+            // mocha runs test:unit without --exit, so a timer left armed by a failing
+            // assertion would hang the entire suite rather than fail one test.
+            created.splice(0).forEach((auth) => auth.cancelTokenRefresh());
+            sinon.restore();
+        });
+
+        it('arms a refresh timer for a renewable token by default', async function () {
+            const auth = makeAuth({ authStub: sinon.stub().resolves(renewableToken()) });
+            await auth.getAuthToken();
+            expect(auth.__refreshTimeout, 'a timer should be armed').to.not.equal(null);
+        });
+
+        it('arms no timer when config.renewal is false', async function () {
+            const auth = makeAuth({
+                authStub: sinon.stub().resolves(renewableToken()),
+                config: { renewal: false },
+            });
+            const token = await auth.getAuthToken();
+            expect(token.getId()).to.equal('renewable-id');
+            expect(auth.__refreshTimeout, 'no timer should be armed').to.equal(null);
+        });
+
+        it('still serves the token from cache while it is valid', async function () {
+            const authStub = sinon.stub().resolves(renewableToken());
+            const auth = makeAuth({ authStub, config: { renewal: false } });
+            await auth.getAuthToken();
+            await auth.getAuthToken();
+            expect(authStub, 'a valid token is reused, renewal or not').to.have.been.calledOnce;
+        });
+
+        it('re-authenticates once the un-renewed token expires', async function () {
+            const authStub = sinon.stub();
+            authStub.onFirstCall().resolves(new AuthToken('first', 'acc', nowSec() - 7200, nowSec() - 3600, 0, 0, true));
+            authStub.onSecondCall().resolves(renewableToken());
+            const auth = makeAuth({ authStub, config: { renewal: false } });
+            await auth.getAuthToken();
+            const second = await auth.getAuthToken();
+            expect(authStub).to.have.been.calledTwice;
+            expect(second.getId()).to.equal('renewable-id');
+            auth.cancelTokenRefresh();
+        });
+
+        it('rejects a non-boolean renewal at construction', function () {
+            // node-config's custom-environment-variables yields strings: VAULT_RENEWAL=false
+            // arrives as 'false'. Accepting it silently would leave the timer armed, which is
+            // precisely the hang the flag exists to prevent.
+            for (const bad of ['false', 'true', 0, 1, null, {}]) {
+                expect(
+                    () => makeAuth({ config: { renewal: bad } }),
+                    `renewal=${JSON.stringify(bad)} must be rejected`
+                ).to.throw(errors.InvalidArgumentsError, 'renewal');
+            }
+        });
+
+        it('does not disable re-authentication (only the background timer)', async function () {
+            // Guards a plausible mis-implementation: wiring _reauthenticationAllowed() to the
+            // renewal flag would still pass every other test here, because TestAuth overrides
+            // that method. This subclass deliberately does not.
+            class PlainAuth extends VaultBaseAuth {
+                constructor(api, config) {
+                    super(api, logger, 'mount');
+                    this.configureRenewal(config);
+                    this.calls = 0;
+                }
+
+                _authenticate() {
+                    this.calls++;
+                    return Promise.resolve(
+                        this.calls === 1
+                            ? new AuthToken('expired', 'acc', nowSec() - 7200, nowSec() - 3600, 0, 0, true)
+                            : renewableToken()
+                    );
+                }
+            }
+
+            const auth = new PlainAuth(apiStub(), { renewal: false });
+            created.push(auth);
+            await auth.getAuthToken();
+            const second = await auth.getAuthToken();
+            expect(auth.calls, 'an expired token must still trigger a fresh login').to.equal(2);
+            expect(second.getId()).to.equal('renewable-id');
+        });
+
+        it('treats any value other than false as renewal enabled', async function () {
+            for (const renewal of [undefined, true]) {
+                const auth = makeAuth({
+                    authStub: sinon.stub().resolves(renewableToken()),
+                    config: { renewal },
+                });
+                await auth.getAuthToken();
+                expect(auth.__refreshTimeout, `renewal=${String(renewal)} should arm a timer`).to.not.equal(null);
+            }
+        });
+    });
+
     describe('abstract members', function () {
         it('_authenticate must be overridden', function () {
             const auth = new VaultBaseAuth(apiStub(), logger, 'mount');
@@ -196,6 +313,135 @@ describe('VaultBaseAuth', function () {
                     expect(t).to.equal(token);
                     expect(authStub).to.have.been.calledTwice;
                 });
+        });
+    });
+
+    describe('config.renewalFraction / config.renewalIncrement (#17)', function () {
+        let clock;
+
+        function flush(times) {
+            let p = Promise.resolve();
+            for (let i = 0; i < (times || 8); i++) {
+                p = p.then(() => undefined);
+            }
+            return p;
+        }
+
+        // expiresAt 100s with the clock at 0: the default halfway point is 50s.
+        function renewableFor100s() {
+            return new AuthToken('rid', 'racc', 0, 100, 0, 0, true);
+        }
+
+        function armedAuth(config) {
+            const api = apiStub();
+            api.makeRequest.resolves({});
+            const auth = new TestAuth(api, 'mount', {
+                authStub: sinon.stub().resolves(renewableFor100s()),
+                config,
+            });
+            sinon.stub(auth, '_getTokenEntity').resolves(nonRenewableToken('rid2'));
+            return { auth, api };
+        }
+
+        beforeEach(function () {
+            clock = sinon.useFakeTimers();
+        });
+
+        afterEach(function () {
+            clock.restore();
+            sinon.restore();
+        });
+
+        it('renews at the halfway point by default (unchanged)', function () {
+            const { auth, api } = armedAuth(undefined);
+            return auth.getAuthToken()
+                .then(() => {
+                    clock.tick(49999);
+                    return flush();
+                })
+                .then(() => {
+                    expect(api.makeRequest, 'must not renew before half the lifetime').to.not.have.been.called;
+                    clock.tick(1);
+                    return flush();
+                })
+                .then(() => {
+                    expect(api.makeRequest).to.have.been.calledWith('POST', '/auth/token/renew-self');
+                });
+        });
+
+        it('renews earlier with a smaller renewalFraction', function () {
+            const { auth, api } = armedAuth({ renewalFraction: 0.25 });
+            return auth.getAuthToken()
+                .then(() => {
+                    clock.tick(24999);
+                    return flush();
+                })
+                .then(() => {
+                    expect(api.makeRequest).to.not.have.been.called;
+                    clock.tick(1);
+                    return flush();
+                })
+                .then(() => {
+                    expect(api.makeRequest, 'should renew at a quarter of the lifetime').to.have.been.called;
+                });
+        });
+
+        it('sends no increment by default (unchanged)', function () {
+            const { auth, api } = armedAuth(undefined);
+            return auth.getAuthToken()
+                .then(() => {
+                    clock.tick(50000);
+                    return flush();
+                })
+                .then(() => {
+                    expect(api.makeRequest).to.have.been.calledWith(
+                        'POST', '/auth/token/renew-self', null, { 'X-Vault-Token': 'rid' }
+                    );
+                });
+        });
+
+        it('sends the configured renewalIncrement to renew-self', function () {
+            const { auth, api } = armedAuth({ renewalIncrement: 3600 });
+            return auth.getAuthToken()
+                .then(() => {
+                    clock.tick(50000);
+                    return flush();
+                })
+                .then(() => {
+                    expect(api.makeRequest).to.have.been.calledWith(
+                        'POST', '/auth/token/renew-self', { increment: 3600 }, { 'X-Vault-Token': 'rid' }
+                    );
+                });
+        });
+
+        it('rejects an invalid renewalFraction at construction', function () {
+            for (const bad of [0, -0.5, 1.5, NaN, Infinity, '0.5', null]) {
+                expect(
+                    () => new TestAuth(apiStub(), 'mount', { config: { renewalFraction: bad } }),
+                    `renewalFraction=${String(bad)} must be rejected`
+                ).to.throw(errors.InvalidArgumentsError, 'renewalFraction');
+            }
+        });
+
+        it('rejects an invalid renewalIncrement at construction', function () {
+            for (const bad of [0, -60, 1.5, NaN, '3600', null]) {
+                expect(
+                    () => new TestAuth(apiStub(), 'mount', { config: { renewalIncrement: bad } }),
+                    `renewalIncrement=${String(bad)} must be rejected`
+                ).to.throw(errors.InvalidArgumentsError, 'renewalIncrement');
+            }
+        });
+
+        it('rejects the boundary fraction 1', function () {
+            // At exactly 1 the timer fires when the client already treats the token as
+            // expired, racing its own re-auth and leaving no time for the renewal request.
+            expect(() => new TestAuth(apiStub(), 'mount', { config: { renewalFraction: 1 } }))
+                .to.throw(errors.InvalidArgumentsError, 'renewalFraction');
+        });
+
+        it('accepts a fraction just under 1', function () {
+            expect(() => new TestAuth(apiStub(), 'mount', { config: { renewalFraction: 0.99 } }))
+                .to.not.throw();
         });
     });
 

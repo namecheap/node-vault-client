@@ -6,6 +6,9 @@
 // only if a maintained alternative or a Node.js core fix appears.
 const lt = require('long-timeout');
 const AuthToken = require('./AuthToken');
+
+/** Renew at the halfway point of the token's remaining lifetime. */
+const DEFAULT_RENEWAL_FRACTION = 0.5;
 const errors = require('../errors');
 
 /**
@@ -37,6 +40,9 @@ class VaultBaseAuth {
         /** @protected */
         this._log = logger;
         this._mount = mount;
+        this.__renewalEnabled = true;
+        this.__renewalFraction = DEFAULT_RENEWAL_FRACTION;
+        this.__renewalIncrement = undefined;
 
         /**
          * The currently held token, or `null` when none has been obtained yet.
@@ -50,6 +56,89 @@ class VaultBaseAuth {
          */
         this.__pendingLogin = null;
         this.__refreshTimeout = null;
+    }
+
+    /**
+     * Apply the renewal options from `auth`. Separate from the constructor so that the
+     * subclass signatures -- and this one -- stay exactly as they were: anything already
+     * subclassing VaultBaseAuth keeps working untouched.
+     *
+     * @param {Object} [authConfig] - the `auth` block from VaultClient's options
+     * @param {boolean} [authConfig.renewal=true]
+     * @param {number} [authConfig.renewalFraction=0.5]
+     * @param {number} [authConfig.renewalIncrement]
+     * @returns {void}
+     */
+    configureRenewal(authConfig) {
+        this.__renewalEnabled = VaultBaseAuth.__validateRenewal(authConfig);
+        this.__renewalFraction = VaultBaseAuth.__validateFraction(authConfig);
+        this.__renewalIncrement = VaultBaseAuth.__validateIncrement(authConfig);
+    }
+
+    /**
+     * Strict on purpose: node-config's `custom-environment-variables` yields strings, so a
+     * loose check would read `VAULT_RENEWAL=false` as `'false'` and leave renewal on -- the
+     * exact hang the flag exists to prevent, silently.
+     *
+     * @param {Object} [authConfig]
+     * @returns {boolean}
+     * @private
+     */
+    static __validateRenewal(config) {
+        if (!config || config.renewal === undefined) {
+            return true;
+        }
+
+        if (typeof config.renewal !== 'boolean') {
+            throw new errors.InvalidArgumentsError(
+                `"renewal" should be a boolean, got ${String(config.renewal)}`
+            );
+        }
+
+        return config.renewal;
+    }
+
+    /**
+     * @param {Object} [authConfig]
+     * @returns {number}
+     * @private
+     */
+    static __validateFraction(config) {
+        if (!config || config.renewalFraction === undefined) {
+            return DEFAULT_RENEWAL_FRACTION;
+        }
+
+        const fraction = config.renewalFraction;
+        // Exclusive upper bound: at exactly 1 the timer fires at the same instant
+        // getAuthToken() starts treating the token as expired, racing the client's own
+        // re-authentication and leaving no headroom for the renewal request itself.
+        if (typeof fraction !== 'number' || !Number.isFinite(fraction) || fraction <= 0 || fraction >= 1) {
+            throw new errors.InvalidArgumentsError(
+                `"renewalFraction" should be a number in (0, 1), got ${String(fraction)}`
+            );
+        }
+
+        return fraction;
+    }
+
+    /**
+     * @param {Object} [authConfig]
+     * @returns {number|undefined}
+     * @private
+     */
+    static __validateIncrement(config) {
+        if (!config || config.renewalIncrement === undefined) {
+            return undefined;
+        }
+
+        const increment = config.renewalIncrement;
+        if (!Number.isInteger(increment) || increment <= 0) {
+            throw new errors.InvalidArgumentsError(
+                `"renewalIncrement" should be a positive integer number of seconds, got ${String(increment)}`
+            );
+        }
+
+        return increment;
     }
 
     /**
@@ -86,10 +175,21 @@ class VaultBaseAuth {
             this.__authToken = authToken;
 
             if (authToken.isRenewable()) {
-                this._log.debug(
-                    'setting refresh timer for token (accessor=%s)',
-                    authToken.getAccessor()
-                );
+                // Gate the log on the flag too: the guard lives inside
+                // __setupTokenRefreshTimer, so without this the client claims it armed a
+                // timer while arming nothing -- the one diagnostic an operator reads when a
+                // `renewal: false` process still hangs.
+                if (this.__renewalEnabled) {
+                    this._log.debug(
+                        'setting refresh timer for token (accessor=%s)',
+                        authToken.getAccessor()
+                    );
+                } else {
+                    this._log.debug(
+                        'renewal disabled by config; not arming a refresh timer (accessor=%s)',
+                        authToken.getAccessor()
+                    );
+                }
                 this.__setupTokenRefreshTimer(authToken);
             }
 
@@ -151,11 +251,12 @@ class VaultBaseAuth {
             this.__refreshTimeout = null;
         }
 
-        if (!authToken.isRenewable() || authToken.isExpired()) {
+        if (!this.__renewalEnabled || !authToken.isRenewable() || authToken.isExpired()) {
             return;
         }
 
-        const timer = Math.max((authToken.getExpiresAt() - Math.floor(Date.now() / 1000)) / 2, 1) * 1000;
+        const remaining = authToken.getExpiresAt() - Math.floor(Date.now() / 1000);
+        const timer = Math.max(remaining * this.__renewalFraction, 1) * 1000;
 
         this.__refreshTimeout = lt.setTimeout(() => {
             this.__renewToken(authToken).then(authToken => {
@@ -183,7 +284,10 @@ class VaultBaseAuth {
     __renewToken(authToken) {
         this._log.debug('renewing vault token');
 
-        return this.__apiClient.makeRequest('POST', '/auth/token/renew-self', null, {'X-Vault-Token': authToken.getId()})
+        // null, not {}, when unset: that is the body the client has always sent.
+        const data = this.__renewalIncrement === undefined ? null : {increment: this.__renewalIncrement};
+
+        return this.__apiClient.makeRequest('POST', '/auth/token/renew-self', data, {'X-Vault-Token': authToken.getId()})
             .then(() => {
                 this._log.info('successfully renewed token');
                 return this._getTokenEntity(authToken.getId());
