@@ -6,6 +6,13 @@
   makes a silent mismatch visible. Silent when the options match (compared order-insensitively,
   as a hash, so no credential is retained for the comparison) and when `logger: false`.
 
+- Fixed renewal callbacks acting on state they no longer own (#145). A renewal request still in
+  flight when its token was replaced, or when `close()` / `cancelTokenRefresh()` was called, would
+  apply its result anyway: overwriting the newer token, clearing the newer token's timer and then
+  bailing on its own expired one (leaving a live token permanently un-renewed), or re-arming a
+  timer after the client had been closed. Superseded callbacks are now discarded. Renewal that is
+  not superseded behaves exactly as before.
+
 - Added `auth.renewal: false`, which disables the background
   token-renewal timer (#17). The client then uses the token until it expires and re-authenticates
   on the next call instead of renewing it in the background. Useful for short-lived processes —

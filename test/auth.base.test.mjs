@@ -445,6 +445,118 @@ describe('VaultBaseAuth', function () {
         });
     });
 
+    describe('superseded renewal callbacks (#145)', function () {
+        let clock;
+
+        function flush(times) {
+            let p = Promise.resolve();
+            for (let i = 0; i < (times || 8); i++) {
+                p = p.then(() => undefined);
+            }
+            return p;
+        }
+
+        function deferred() {
+            let settle;
+            const promise = new Promise((resolve, reject) => { settle = { resolve, reject }; });
+            return { promise, ...settle };
+        }
+
+        /** Token A: renewable, expires at 100s, so its timer fires at 50s on a clock at 0. */
+        function tokenA() {
+            return new AuthToken('A', 'accA', 0, 100, 0, 0, true);
+        }
+
+        function tokenB() {
+            return new AuthToken('B', 'accB', 0, 1000, 0, 0, true);
+        }
+
+        /** Arms A's timer, fires it, and leaves the renew request hanging. */
+        async function renewalInFlight() {
+            const api = apiStub();
+            const renewCall = deferred();
+            api.makeRequest.returns(renewCall.promise);
+            const auth = new TestAuth(api, 'mount', { authStub: sinon.stub().resolves(tokenA()) });
+            sinon.stub(auth, '_getTokenEntity').resolves(new AuthToken('A-renewed', 'accA', 0, 200, 0, 0, true));
+
+            await auth.getAuthToken();
+            clock.tick(50000);
+            await flush();
+            expect(api.makeRequest, 'the renewal should be in flight').to.have.been.called;
+            return { auth, renewCall };
+        }
+
+        beforeEach(function () {
+            clock = sinon.useFakeTimers();
+        });
+
+        afterEach(function () {
+            clock.restore();
+            sinon.restore();
+        });
+
+        it('a stale renewal that succeeds does not overwrite the newer token', async function () {
+            const { auth, renewCall } = await renewalInFlight();
+
+            const b = tokenB();
+            auth.__authToken = b;
+            auth.__setupTokenRefreshTimer(b);
+
+            renewCall.resolve({});
+            await flush();
+
+            expect(auth.__authToken, 'the newer token must survive').to.equal(b);
+        });
+
+        it('a stale renewal that fails does not clear the newer token timer', async function () {
+            const { auth, renewCall } = await renewalInFlight();
+
+            const b = tokenB();
+            auth.__authToken = b;
+            auth.__setupTokenRefreshTimer(b);
+            const bTimer = auth.__refreshTimeout;
+
+            renewCall.reject(new Error('vault unreachable'));
+            await flush();
+
+            expect(auth.__refreshTimeout, "the newer token's timer must stay armed").to.equal(bTimer);
+            expect(auth.__refreshTimeout).to.not.equal(null);
+        });
+
+        it('a renewal in flight when cancelTokenRefresh() runs does not re-arm', async function () {
+            const { auth, renewCall } = await renewalInFlight();
+
+            auth.cancelTokenRefresh();
+            expect(auth.__refreshTimeout).to.equal(null);
+
+            renewCall.resolve({});
+            await flush();
+
+            expect(auth.__refreshTimeout, 'close() must not be undone by an in-flight renewal').to.equal(null);
+        });
+
+        it('a failing renewal in flight when cancelTokenRefresh() runs does not re-arm', async function () {
+            const { auth, renewCall } = await renewalInFlight();
+
+            auth.cancelTokenRefresh();
+            renewCall.reject(new Error('vault unreachable'));
+            await flush();
+
+            expect(auth.__refreshTimeout).to.equal(null);
+        });
+
+        it('an undisturbed renewal still applies and re-arms', async function () {
+            const { auth, renewCall } = await renewalInFlight();
+
+            renewCall.resolve({});
+            await flush();
+
+            expect(auth.__authToken.getId(), 'the renewed token should be adopted').to.equal('A-renewed');
+            expect(auth.__refreshTimeout, 'and a new timer armed').to.not.equal(null);
+            auth.cancelTokenRefresh();
+        });
+    });
+
     describe('token refresh timer', function () {
         let clock;
 

@@ -558,6 +558,12 @@ vaultClient.close(); // process can now exit
 
 **Kind**: instance method of [<code>VaultClient</code>](#VaultClient)  
 
+
+`close()` also settles a renewal that is already in flight: a request that lands after the call is
+discarded rather than arming a fresh timer, so the client stops holding the event loop open. The
+same applies when a token is replaced by a new login — a renewal still running against the previous
+token cannot overwrite the newer one or cancel its timer.
+
 <a name="Lease"></a>
 
 ### Lease
