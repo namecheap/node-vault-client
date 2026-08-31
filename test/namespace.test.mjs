@@ -21,6 +21,7 @@ import VaultTokenAuth from '../src/auth/VaultTokenAuth.js';
 import VaultAppRoleAuth from '../src/auth/VaultAppRoleAuth.js';
 import VaultIAMAuth from '../src/auth/VaultIAMAuth.js';
 import VaultKubernetesAuth from '../src/auth/VaultKubernetesAuth.js';
+import VaultJwtAuth from '../src/auth/VaultJwtAuth.js';
 
 use(sinonChai);
 
@@ -47,7 +48,7 @@ function stubFetch() {
     });
 }
 
-const TYPES = ['token', 'appRole', 'iam', 'kubernetes'];
+const TYPES = ['token', 'appRole', 'iam', 'kubernetes', 'jwt'];
 
 describe('X-Vault-Namespace is applied to every request (regression #106)', function () {
     let fetchStub;
@@ -83,6 +84,8 @@ describe('X-Vault-Namespace is applied to every request (regression #106)', func
                 });
             case 'kubernetes':
                 return new VaultKubernetesAuth(api, logger, { role: 'r', tokenPath: jwtPath });
+            case 'jwt':
+                return new VaultJwtAuth(api, logger, { role: 'r', jwt: 'header.payload.sig' });
             default:
                 throw new Error(`unknown type ${type}`);
         }

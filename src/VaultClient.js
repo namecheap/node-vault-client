@@ -8,6 +8,7 @@ const VaultTokenAuth = require('./auth/VaultTokenAuth');
 const VaultIAMAuth = require('./auth/VaultIAMAuth');
 const VaultNodeConfig = require('./VaultNodeConfig');
 const VaultKubernetesAuth = require('./auth/VaultKubernetesAuth');
+const VaultJwtAuth = require('./auth/VaultJwtAuth');
 const MountResolver = require('./MountResolver');
 const { rewritePath, normalizeResponse } = require('./kvTransform');
 
@@ -33,7 +34,7 @@ class VaultClient {
      *      every request across all auth backends. For backward compatibility `options.auth.config.namespace`
      *      is also honored when this is not set.
      * @param {Object} options.auth
-     * @param {String} options.auth.type
+     * @param {String} options.auth.type - one of: 'appRole' | 'token' | 'iam' | 'kubernetes' | 'jwt'
      * @param {Object} options.auth.config - auth configuration variables
      * @param {Object|false} options.logger - Logger that supports "error", "info", "warn", "trace", "debug" methods. Uses `console` by default. Pass `false` to disable logging.
      */
@@ -203,6 +204,13 @@ class VaultClient {
                 );
             case 'kubernetes':
                 return new VaultKubernetesAuth(
+                    api,
+                    this.__log,
+                    authConfig.config,
+                    authConfig.mount
+                );
+            case 'jwt':
+                return new VaultJwtAuth(
                     api,
                     this.__log,
                     authConfig.config,

@@ -1,3 +1,20 @@
+# Unreleased
+
+- Added a JWT auth backend (`auth.type: 'jwt'`, default mount `"jwt"`) for workload identity
+  federation — GitHub Actions, other CI systems, GCP/Azure/SPIFFE workloads — against Vault's
+  [JWT auth method](https://developer.hashicorp.com/vault/docs/auth/jwt). Models
+  `VaultKubernetesAuth`. `config.role` is optional, matching Vault's `default_role` fallback.
+  Exactly one of three mutually-exclusive sources supplies the JWT: a literal `config.jwt`
+  string (CI jobs / processes shorter-lived than the token — a re-login resends that same
+  string, so it fails once the IdP-issued token itself expires); `config.jwtPath`, a file
+  re-read on every login (rotated projected tokens); or `config.jwtProvider`, an (optionally
+  async) function invoked fresh at login time — never at construction, never cached — for
+  tokens minted per login such as GitHub Actions' `core.getIDToken()` or a cloud metadata
+  endpoint. A `jwtProvider` resolving a non-string/empty string, or a non-function
+  `jwtProvider`, fails fast with `InvalidArgumentsError` without sending a login request. Only
+  the non-interactive `jwt` flow is implemented; the browser-redirect `oidc` flow is out of
+  scope for this service client. See the README's "JWT auth" section.
+
 # 2.1.2 Release notes (2026-08-03)
 
 - Internal refactor: `VaultBaseAuth` no longer overloads a single `__authToken` field with two

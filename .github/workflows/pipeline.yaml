@@ -150,6 +150,10 @@ jobs:
       - name: Run e2e tests
         run: npm run test:e2e
 
+      # Runs across the whole node x vault matrix like the rest of this job.
+      - name: Run JWT e2e tests
+        run: npm run test:e2e:jwt
+
   # KV v2 integration suite — exercises mount auto-detection, data/metadata path
   # rewriting, merge-patch update, version ops and metadata ops against a real
   # KV v2 Vault (the vault-server-kv2 compose service). A single Node version is
