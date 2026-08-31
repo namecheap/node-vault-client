@@ -64,6 +64,12 @@ class VaultClient {
             this.__api
         );
 
+        // Renewal options live on `auth`, not inside `auth.config`: `auth.config` is the
+        // backend's own credential bag and may already carry consumer-specific keys, so
+        // reserving names in it could break an existing caller. Same reasoning that moved
+        // `namespace` to `api.namespace`.
+        this.__auth.configureRenewal(options.auth);
+
         // KV v2 support
         const kvOpts = (options.api && options.api.kv) || {};
         const autoDetect = kvOpts.autoDetect === true;

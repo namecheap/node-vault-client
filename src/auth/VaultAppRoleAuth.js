@@ -16,7 +16,7 @@ class VaultAppRoleAuth extends VaultBaseAuth {
      * @param {String} mount - Vault's  mount point ("approle" by default)
      */
     constructor(apiClient, logger, config, mount) {
-        super(apiClient, logger, mount || 'approle', config);
+        super(apiClient, logger, mount || 'approle');
 
         if (!config || !config.role_id) {
             throw new errors.InvalidArgumentsError('"role_id" should be provided for VaultAppRoleAuth');

@@ -33,7 +33,11 @@ const nowSec = () => Math.floor(Date.now() / 1000);
 
 class TestAuth extends VaultBaseAuth {
     constructor(api, mount, opts) {
-        super(api, logger, mount, (opts || {}).config);
+        super(api, logger, mount);
+        if ((opts || {}).config !== undefined) {
+            // what VaultClient does with the `auth` block
+            this.configureRenewal(opts.config);
+        }
         opts = opts || {};
         this.__authStub = opts.authStub || sinon.stub();
         this.__reauth = opts.reauth !== undefined ? opts.reauth : true;
@@ -131,7 +135,8 @@ describe('VaultBaseAuth', function () {
             // that method. This subclass deliberately does not.
             class PlainAuth extends VaultBaseAuth {
                 constructor(api, config) {
-                    super(api, logger, 'mount', config);
+                    super(api, logger, 'mount');
+                    this.configureRenewal(config);
                     this.calls = 0;
                 }
 

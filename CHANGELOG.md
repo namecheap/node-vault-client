@@ -1,6 +1,6 @@
 # Unreleased
 
-- Added `renewal: false` to every auth backend's `config`, which disables the background
+- Added `auth.renewal: false`, which disables the background
   token-renewal timer (#17). The client then uses the token until it expires and re-authenticates
   on the next call instead of renewing it in the background. Useful for short-lived processes —
   the renewal timer keeps the Node.js event loop alive, so without it a finished script does not
@@ -11,14 +11,16 @@
   `appRole`/literal-`jwt` replay the same credential. Expiring a token also revokes the leases it
   created, which matters if you read dynamic secrets.
 
-- Added `renewalFraction` and `renewalIncrement` to the same `config`, for tuning renewal rather
-  than turning it off (#17). `renewalFraction` (default `0.5`, range `(0, 1)`) sets how much of
+- Added `auth.renewalFraction` and `auth.renewalIncrement`, for tuning renewal rather than
+  turning it off (#17). `renewalFraction` (default `0.5`, range `(0, 1)`) sets how much of
   the token's remaining lifetime to wait before renewing; a lower value renews earlier and leaves
   room for more retries, which shrink geometrically as the lifetime does. `renewalIncrement` (unset by default)
   is sent as `increment` to `auth/token/renew-self` to request a specific extra TTL, which Vault
   caps at the token's max TTL. Both are validated at construction and raise
   `InvalidArgumentsError` on bad input. Defaults reproduce the previous behaviour exactly: the
-  halfway point, and a renew request with a `null` body.
+  halfway point, and a renew request with a `null` body. All three keys live on `auth`, not in
+  `auth.config`, so they cannot collide with a key an existing caller already passes to a backend;
+  no constructor signature changed either, so anything subclassing `VaultBaseAuth` is unaffected.
 
 - Added a JWT auth backend (`auth.type: 'jwt'`, default mount `"jwt"`) for workload identity
   federation — GitHub Actions, other CI systems, GCP/Azure/SPIFFE workloads — against Vault's

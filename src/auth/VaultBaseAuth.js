@@ -34,29 +34,15 @@ class VaultBaseAuth {
      * @param {VaultApiClient} apiClient
      * @param {Object} logger
      * @param {String} mount - Vault's mount point
-     * @param {Object} [config] - the auth backend's `auth.config`. Only
-     *   `config.renewal` is read here; everything else belongs to the subclass.
-     * @param {boolean} [config.renewal=true] - Set `false` to never renew the Vault token
-     *   in the background. The client then keeps using the token until it expires and
-     *   re-authenticates on the next call (auth methods that cannot re-authenticate, such
-     *   as `token`, raise {@link AuthTokenExpiredError} instead, exactly as they do today).
-     * @param {number} [config.renewalFraction=0.5] - How much of the token's remaining
-     *   lifetime to wait before renewing, as a fraction in `(0, 1]`. The default renews at
-     *   the halfway point. Lower renews earlier and more often (more headroom if Vault is
-     *   briefly unreachable); higher renews later.
-     * @param {number} [config.renewalIncrement] - Seconds of additional TTL to request on
-     *   each renewal, sent as `increment` to `auth/token/renew-self`. Omitted by default,
-     *   which lets Vault apply the token's own period. Vault may grant less, capped by the
-     *   token's max TTL.
      */
-    constructor(apiClient, logger, mount, config) {
+    constructor(apiClient, logger, mount) {
         this.__apiClient = apiClient;
         /** @protected */
         this._log = logger;
         this._mount = mount;
-        this.__renewalEnabled = VaultBaseAuth.__validateRenewal(config);
-        this.__renewalFraction = VaultBaseAuth.__validateFraction(config);
-        this.__renewalIncrement = VaultBaseAuth.__validateIncrement(config);
+        this.__renewalEnabled = true;
+        this.__renewalFraction = DEFAULT_RENEWAL_FRACTION;
+        this.__renewalIncrement = undefined;
 
         /**
          * The currently held token, or `null` when none has been obtained yet.
@@ -73,11 +59,28 @@ class VaultBaseAuth {
     }
 
     /**
+     * Apply the renewal options from `auth`. Separate from the constructor so that the
+     * subclass signatures -- and this one -- stay exactly as they were: anything already
+     * subclassing VaultBaseAuth keeps working untouched.
+     *
+     * @param {Object} [authConfig] - the `auth` block from VaultClient's options
+     * @param {boolean} [authConfig.renewal=true]
+     * @param {number} [authConfig.renewalFraction=0.5]
+     * @param {number} [authConfig.renewalIncrement]
+     * @returns {void}
+     */
+    configureRenewal(authConfig) {
+        this.__renewalEnabled = VaultBaseAuth.__validateRenewal(authConfig);
+        this.__renewalFraction = VaultBaseAuth.__validateFraction(authConfig);
+        this.__renewalIncrement = VaultBaseAuth.__validateIncrement(authConfig);
+    }
+
+    /**
      * Strict on purpose: node-config's `custom-environment-variables` yields strings, so a
      * loose check would read `VAULT_RENEWAL=false` as `'false'` and leave renewal on -- the
      * exact hang the flag exists to prevent, silently.
      *
-     * @param {Object} [config]
+     * @param {Object} [authConfig]
      * @returns {boolean}
      * @private
      */
@@ -96,7 +99,7 @@ class VaultBaseAuth {
     }
 
     /**
-     * @param {Object} [config]
+     * @param {Object} [authConfig]
      * @returns {number}
      * @private
      */
@@ -119,7 +122,7 @@ class VaultBaseAuth {
     }
 
     /**
-     * @param {Object} [config]
+     * @param {Object} [authConfig]
      * @returns {number|undefined}
      * @private
      */

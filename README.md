@@ -193,18 +193,22 @@ Whenever Vault issues a **renewable** token, the client arms a background timer 
 half its remaining lifetime, for as long as the client lives. That is the default and suits
 long-running services.
 
-Set `renewal: false` in any backend's `config` to turn it off:
+Set `renewal: false` on the `auth` block (beside `type`, not inside `config`) to turn it off:
 
 ```javascript
 auth: {
     type: 'appRole',
+    renewal: false,
     config: {
         role_id: '637c065f-...',
         secret_id: '...',
-        renewal: false,
     },
 }
 ```
+
+These keys sit on `auth` rather than in `auth.config` on purpose: `config` is the backend's own
+credential bag and may already carry keys of your own, so reserving names inside it could break an
+existing caller. Same reasoning that put the namespace at `api.namespace`.
 
 With renewal off, the client keeps using the token until it expires and then simply logs in again
 on the next call — no background timer at all. Two reasons to want that:
@@ -246,8 +250,8 @@ leaving renewal on is what currently keeps them alive. KV reads are unaffected.
 
 #### Tuning renewal instead of disabling it
 
-Two further keys shape *how* renewal happens. Both are optional, and leaving them out reproduces the
-behaviour the client has always had.
+Two further keys, also on `auth`, shape *how* renewal happens. Both are optional, and leaving them
+out reproduces the behaviour the client has always had.
 
 | key | default | meaning |
 | --- | --- | --- |
@@ -257,11 +261,9 @@ behaviour the client has always had.
 ```javascript
 auth: {
     type: 'kubernetes',
-    config: {
-        role: 'my-app',
-        renewalFraction: 0.25,   // renew after a quarter of the remaining lifetime
-        renewalIncrement: 3600,  // ask Vault for another hour each time
-    },
+    renewalFraction: 0.25,   // renew after a quarter of the remaining lifetime
+    renewalIncrement: 3600,  // ask Vault for another hour each time
+    config: { role: 'my-app' },
 }
 ```
 

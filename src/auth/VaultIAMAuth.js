@@ -63,7 +63,7 @@ class VaultIAMAuth extends VaultBaseAuth {
      * @param {String} mount - Vault's AWS Auth Backend mount point ("aws" by default)
      */
     constructor(api, logger, config, mount) {
-        super(api, logger, mount || 'aws', config);
+        super(api, logger, mount || 'aws');
 
         if (!config || !config.role) {
             throw new errors.InvalidArgumentsError('"role" should be provided for VaultIAMAuth');

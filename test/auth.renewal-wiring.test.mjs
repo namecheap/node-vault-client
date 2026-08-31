@@ -1,13 +1,12 @@
 /**
  * Per-backend wiring for the renewal options.
  *
- * The base class holds the behaviour, but every backend has to forward its `config` to
- * `super(...)` for any of it to reach a real user. Nothing else covers those five one-line
- * forwards: the suites in auth.base.test.mjs drive a local subclass that supplies `config`
- * itself, so deleting all five forwards — turning `renewal`, `renewalFraction` and
- * `renewalIncrement` into no-ops for every backend anyone actually constructs — leaves them
- * green. This file is the matrix that fails instead, in the shape namespace.test.mjs uses
- * for the same class of per-backend guarantee.
+ * The base class holds the behaviour, but VaultClient has to apply the options for any of it
+ * to reach a real user. The suites in auth.base.test.mjs drive a local subclass that applies
+ * them itself, so dropping the wiring in VaultClient — turning `renewal`, `renewalFraction`
+ * and `renewalIncrement` into no-ops for every backend anyone actually constructs — leaves
+ * them green. This file drives the real path instead, for every auth type, in the shape
+ * namespace.test.mjs uses for the same class of per-backend guarantee.
  */
 import fs from 'fs';
 import os from 'os';
@@ -15,18 +14,11 @@ import path from 'path';
 import sinon from 'sinon';
 import { expect, use } from 'chai';
 import sinonChai from 'sinon-chai';
-import VaultApiClient from '../src/VaultApiClient.js';
-import VaultTokenAuth from '../src/auth/VaultTokenAuth.js';
-import VaultAppRoleAuth from '../src/auth/VaultAppRoleAuth.js';
-import VaultIAMAuth from '../src/auth/VaultIAMAuth.js';
-import VaultKubernetesAuth from '../src/auth/VaultKubernetesAuth.js';
-import VaultJwtAuth from '../src/auth/VaultJwtAuth.js';
+import VaultClient from '../src/VaultClient.js';
 import errors from '../src/errors.js';
-import { createNoopLogger } from './helpers/logger.mjs';
 
 use(sinonChai);
 
-const logger = createNoopLogger();
 const TYPES = ['token', 'appRole', 'iam', 'kubernetes', 'jwt'];
 
 /** A renewable token with real TTL, so a timer is armed unless renewal is off. */
@@ -67,26 +59,22 @@ describe('renewal options reach every auth backend (#17)', function () {
         fetchStub.restore();
     });
 
-    function makeAuth(type, config) {
-        const api = new VaultApiClient({ url: 'https://vault.example' }, logger);
-        switch (type) {
-            case 'token':
-                return new VaultTokenAuth(api, logger, { token: 'tok', ...config });
-            case 'appRole':
-                return new VaultAppRoleAuth(api, logger, { role_id: 'r', secret_id: 's', ...config });
-            case 'iam':
-                return new VaultIAMAuth(api, logger, {
-                    role: 'r',
-                    credentials: { accessKeyId: 'AK', secretAccessKey: 'SK' },
-                    ...config,
-                });
-            case 'kubernetes':
-                return new VaultKubernetesAuth(api, logger, { role: 'r', tokenPath: jwtFile, ...config });
-            case 'jwt':
-                return new VaultJwtAuth(api, logger, { role: 'r', jwt: 'header.payload.sig', ...config });
-            default:
-                throw new Error(`unknown type ${type}`);
-        }
+    const CONFIGS = {
+        token: { token: 'tok' },
+        appRole: { role_id: 'r', secret_id: 's' },
+        iam: { role: 'r', credentials: { accessKeyId: 'AK', secretAccessKey: 'SK' } },
+        jwt: { role: 'r', jwt: 'header.payload.sig' },
+    };
+
+    /** Builds through VaultClient, the path a consumer actually uses. */
+    function makeAuth(type, renewalOpts) {
+        const config = type === 'kubernetes' ? { role: 'r', tokenPath: jwtFile } : CONFIGS[type];
+        const client = new VaultClient({
+            api: { url: 'https://vault.example' },
+            logger: false,
+            auth: { type, config, ...renewalOpts },
+        });
+        return client.__auth;
     }
 
     TYPES.forEach((type) => {
