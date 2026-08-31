@@ -26,7 +26,7 @@ const VaultClient = require('node-vault-client');
 const vaultClient = VaultClient.boot('main', {
     api: { url: 'https://vault.example.com:8200/' },
     auth: { 
-        type: 'appRole', // one of: 'appRole' | 'token' | 'iam' | 'kubernetes'
+        type: 'appRole', // one of: 'appRole' | 'token' | 'iam' | 'kubernetes' | 'jwt'
         config: { role_id: '637c065f-c644-5e12-d3d1-e9fa4363af61' } 
     },
 });
@@ -42,6 +42,7 @@ vaultClient.read('secret/tst').then(lease => {
 * [AppRole](https://developer.hashicorp.com/vault/docs/auth/approle)
 * [Token](https://developer.hashicorp.com/vault/docs/auth/token)
 * [Kubernetes](https://developer.hashicorp.com/vault/docs/auth/kubernetes)
+* [JWT](https://developer.hashicorp.com/vault/docs/auth/jwt)
 
 ### AWS IAM auth
 
@@ -125,6 +126,67 @@ const vaultClient = VaultClient.boot('main', {
 });
 ```
 
+### JWT auth
+
+```javascript
+const vaultClient = VaultClient.boot('main', {
+    api: { url: 'https://vault.example.com:8200/' },
+    auth: {
+        type: 'jwt',
+        mount: 'jwt',                                  // Optional. Vault JWT auth mount point ("jwt" by default)
+        config: {
+            role: 'my-app',                             // Optional. Role configured in Vault's JWT auth backend; omitted uses the mount's `default_role`
+            jwt: process.env.CI_JOB_JWT,                // Exactly one of `jwt` / `jwtPath` / `jwtProvider` is required (see below)
+        },
+    },
+});
+```
+
+Exactly one of three mutually exclusive `config` keys supplies the JWT:
+
+* **`jwt`** — a literal token string. Use it for CI jobs and other processes that are guaranteed
+  to finish before the token expires. Caveat: the value is fixed at construction, so if the
+  client re-authenticates (its Vault-issued token TTL runs out while the process is still up) it
+  re-sends that exact same JWT — which works only until the IdP-issued token itself expires,
+  after which Vault rejects every further login attempt. Do not use `jwt` in a long-running
+  process.
+* **`jwtPath`** — path to a file containing the JWT, re-read on every login (mirrors
+  [Kubernetes auth](#kubernetes-auth)'s `tokenPath`). Use it for rotated *projected* tokens, such
+  as a Kubernetes projected service-account token the kubelet refreshes on disk, so each login
+  picks up whatever is currently on disk instead of a token captured once at startup.
+* **`jwtProvider`** — an (optionally async) function, called fresh at login time (never at
+  construction, never cached), returning `string | Promise<string>`. Use it when the JWT has to
+  be minted per login — GitHub Actions' `core.getIDToken()`, a cloud metadata endpoint, a
+  SPIFFE/SPIRE workload API.
+
+#### Authenticating from GitHub Actions
+
+```yaml
+permissions:
+  id-token: write
+```
+
+```javascript
+const core = require('@actions/core');
+const VaultClient = require('node-vault-client');
+
+const vaultClient = VaultClient.boot('ci', {
+    api: { url: process.env.VAULT_ADDR },
+    auth: {
+        type: 'jwt',
+        mount: 'gha',                                  // matches wherever the JWT method was mounted, e.g. `vault auth enable -path=gha jwt`
+        config: { role: 'ci', jwtProvider: () => core.getIDToken('vault') },
+    },
+});
+```
+
+`role` is optional here too — omit it to use the mount's `default_role`. `mount` and
+`api.namespace` behave exactly as they do for the other four backends.
+
+Vault's JWT method also offers an interactive `oidc` login (a browser redirect for a human user).
+This library implements only the non-interactive `jwt` flow: a service client doing headless
+background renewal has no browser to redirect to, so `oidc` is deliberately not supported.
+
 ## API
 
 <a name="VaultClient"></a>
@@ -175,8 +237,8 @@ Client constructor function.
 | [options.api.kv.autoDetect] | <code>boolean</code> | `false` | auto-detect the KV version of each mount on first use (see [KV v2 & generic backends](#kv-v2--generic-backends)) |
 | [options.api.engines] | <code>Object</code> | `{}` | static mount-to-version map, e.g. `{ secret: 2, legacy: 1 }` (see [KV v2 & generic backends](#kv-v2--generic-backends)) |
 | options.auth | <code>Object</code> |  |  |
-| options.auth.type | <code>String</code> |  |  |
-| [options.auth.mount] | <code>String</code> |  | Vault auth backend mount point; default varies per method (e.g. "aws" for iam, "approle", "token", "kubernetes") |
+| options.auth.type | <code>String</code> |  | one of: 'appRole' \| 'token' \| 'iam' \| 'kubernetes' \| 'jwt' |
+| [options.auth.mount] | <code>String</code> |  | Vault auth backend mount point; default varies per method (e.g. "aws" for iam, "approle", "token", "kubernetes", "jwt") |
 | options.auth.config | <code>Object</code> |  | auth configuration variables |
 | [options.auth.config.namespace] | <code>String</code> |  | Optional. Legacy location for the Vault namespace (see `api.namespace`). Sent as the `X-Vault-Namespace` header on **every** request for every auth type. |
 | [options.logger] | <code>Object</code> \| <code>false</code> |  | Logger that must implement **all five** of "error", "warn", "info", "debug" and "trace" — an object missing any one of them is silently ignored and the default logger is used instead. The default logger writes to `console`, except `debug`, which is discarded so that sensitive data is never printed. Pass `false` to disable logging entirely. |
