@@ -220,6 +220,37 @@ The one backend where this changes failure behaviour is `token`: it cannot re-au
 has the token you gave it), so an expired token raises `AuthTokenExpiredError` — which is exactly
 what it does today once a token becomes unrenewable.
 
+#### Tuning renewal instead of disabling it
+
+Two further keys shape *how* renewal happens. Both are optional, and leaving them out reproduces the
+behaviour the client has always had.
+
+| key | default | meaning |
+| --- | --- | --- |
+| `renewalFraction` | `0.5` | How much of the token's **remaining** lifetime to wait before renewing, as a fraction in `(0, 1]`. `0.5` renews at the halfway point. |
+| `renewalIncrement` | *(unset)* | Seconds of extra TTL to ask for, sent as `increment` to `auth/token/renew-self`. Unset means Vault applies the token's own period. |
+
+```javascript
+auth: {
+    type: 'kubernetes',
+    config: {
+        role: 'my-app',
+        renewalFraction: 0.25,   // renew after a quarter of the remaining lifetime
+        renewalIncrement: 3600,  // ask Vault for another hour each time
+    },
+}
+```
+
+Lower `renewalFraction` values renew earlier and more often, which buys headroom if Vault is briefly
+unreachable — a renewal that fails is retried on the same schedule, so renewing at `0.25` gives you
+roughly three attempts before the token expires where `0.5` gives you one. Higher values renew later
+and talk to Vault less.
+
+`renewalIncrement` is a request, not a guarantee: Vault grants at most the token's max TTL and may
+return less. Both keys are validated at construction — a `renewalFraction` outside `(0, 1]` or a
+non-positive/non-integer `renewalIncrement` raises `InvalidArgumentsError` rather than failing later
+inside a background timer.
+
 ## API
 
 <a name="VaultClient"></a>

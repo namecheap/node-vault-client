@@ -271,6 +271,140 @@ describe('VaultBaseAuth', function () {
         });
     });
 
+    describe('config.renewalFraction / config.renewalIncrement (#17)', function () {
+        let clock;
+
+        function flush(times) {
+            let p = Promise.resolve();
+            for (let i = 0; i < (times || 8); i++) {
+                p = p.then(() => undefined);
+            }
+            return p;
+        }
+
+        // expiresAt 100s with the clock at 0: the default halfway point is 50s.
+        function renewableFor100s() {
+            return new AuthToken('rid', 'racc', 0, 100, 0, 0, true);
+        }
+
+        function armedAuth(config) {
+            const api = apiStub();
+            api.makeRequest.resolves({});
+            const auth = new TestAuth(api, 'mount', {
+                authStub: sinon.stub().resolves(renewableFor100s()),
+                config,
+            });
+            sinon.stub(auth, '_getTokenEntity').resolves(nonRenewableToken('rid2'));
+            return { auth, api };
+        }
+
+        beforeEach(function () {
+            clock = sinon.useFakeTimers();
+        });
+
+        afterEach(function () {
+            clock.restore();
+            sinon.restore();
+        });
+
+        it('renews at the halfway point by default (unchanged)', function () {
+            const { auth, api } = armedAuth(undefined);
+            return auth.getAuthToken()
+                .then(() => {
+                    clock.tick(49999);
+                    return flush();
+                })
+                .then(() => {
+                    expect(api.makeRequest, 'must not renew before half the lifetime').to.not.have.been.called;
+                    clock.tick(1);
+                    return flush();
+                })
+                .then(() => {
+                    expect(api.makeRequest).to.have.been.calledWith('POST', '/auth/token/renew-self');
+                });
+        });
+
+        it('renews earlier with a smaller renewalFraction', function () {
+            const { auth, api } = armedAuth({ renewalFraction: 0.25 });
+            return auth.getAuthToken()
+                .then(() => {
+                    clock.tick(24999);
+                    return flush();
+                })
+                .then(() => {
+                    expect(api.makeRequest).to.not.have.been.called;
+                    clock.tick(1);
+                    return flush();
+                })
+                .then(() => {
+                    expect(api.makeRequest, 'should renew at a quarter of the lifetime').to.have.been.called;
+                });
+        });
+
+        it('sends no increment by default (unchanged)', function () {
+            const { auth, api } = armedAuth(undefined);
+            return auth.getAuthToken()
+                .then(() => {
+                    clock.tick(50000);
+                    return flush();
+                })
+                .then(() => {
+                    expect(api.makeRequest).to.have.been.calledWith(
+                        'POST', '/auth/token/renew-self', null, { 'X-Vault-Token': 'rid' }
+                    );
+                });
+        });
+
+        it('sends the configured renewalIncrement to renew-self', function () {
+            const { auth, api } = armedAuth({ renewalIncrement: 3600 });
+            return auth.getAuthToken()
+                .then(() => {
+                    clock.tick(50000);
+                    return flush();
+                })
+                .then(() => {
+                    expect(api.makeRequest).to.have.been.calledWith(
+                        'POST', '/auth/token/renew-self', { increment: 3600 }, { 'X-Vault-Token': 'rid' }
+                    );
+                });
+        });
+
+        it('rejects an invalid renewalFraction at construction', function () {
+            for (const bad of [0, -0.5, 1.5, NaN, Infinity, '0.5', null]) {
+                expect(
+                    () => new TestAuth(apiStub(), 'mount', { config: { renewalFraction: bad } }),
+                    `renewalFraction=${String(bad)} must be rejected`
+                ).to.throw(errors.InvalidArgumentsError, 'renewalFraction');
+            }
+        });
+
+        it('rejects an invalid renewalIncrement at construction', function () {
+            for (const bad of [0, -60, 1.5, NaN, '3600', null]) {
+                expect(
+                    () => new TestAuth(apiStub(), 'mount', { config: { renewalIncrement: bad } }),
+                    `renewalIncrement=${String(bad)} must be rejected`
+                ).to.throw(errors.InvalidArgumentsError, 'renewalIncrement');
+            }
+        });
+
+        it('accepts the boundary fraction 1 (renew only at expiry)', function () {
+            const { auth, api } = armedAuth({ renewalFraction: 1 });
+            return auth.getAuthToken()
+                .then(() => {
+                    clock.tick(99999);
+                    return flush();
+                })
+                .then(() => {
+                    expect(api.makeRequest).to.not.have.been.called;
+                    clock.tick(1);
+                    return flush();
+                })
+                .then(() => {
+                    expect(api.makeRequest).to.have.been.called;
+                });
+        });
+    });
+
     describe('token refresh timer', function () {
         let clock;
 

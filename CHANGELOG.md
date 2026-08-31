@@ -7,6 +7,15 @@
   exit unless you call `close()` — and wherever re-login is preferable to extending a lease.
   Default behaviour is unchanged: any value other than `false` renews as before.
 
+- Added `renewalFraction` and `renewalIncrement` to the same `config`, for tuning renewal rather
+  than turning it off (#17). `renewalFraction` (default `0.5`) sets how much of the token's
+  remaining lifetime to wait before renewing, so a lower value renews earlier and leaves room for
+  a failed attempt to be retried before the token expires. `renewalIncrement` (unset by default)
+  is sent as `increment` to `auth/token/renew-self` to request a specific extra TTL, which Vault
+  caps at the token's max TTL. Both are validated at construction and raise
+  `InvalidArgumentsError` on bad input. Defaults reproduce the previous behaviour exactly: the
+  halfway point, and a renew request with a `null` body.
+
 - Added a JWT auth backend (`auth.type: 'jwt'`, default mount `"jwt"`) for workload identity
   federation — GitHub Actions, other CI systems, GCP/Azure/SPIFFE workloads — against Vault's
   [JWT auth method](https://developer.hashicorp.com/vault/docs/auth/jwt). Models
