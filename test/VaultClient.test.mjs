@@ -10,6 +10,7 @@ import VaultAppRoleAuth from '../src/auth/VaultAppRoleAuth.js';
 import VaultIAMAuth from '../src/auth/VaultIAMAuth.js';
 import VaultKubernetesAuth from '../src/auth/VaultKubernetesAuth.js';
 import errors from '../src/errors.js';
+import { createSpyLogger, loggedText } from './helpers/logger.mjs';
 import MountResolver from '../src/MountResolver.js';
 
 use(sinonChai);
@@ -196,6 +197,55 @@ describe('VaultClient', function () {
                     (err) => { expect(err).to.equal(boom); }
                 );
             });
+        });
+    });
+
+    describe('.boot() with options for an existing instance (#146)', function () {
+        const bootOpts = (overrides) => _.merge({
+            api: { url: 'https://example.com/' },
+            auth: { type: 'token', config: { token: 'tok-123' } },
+        }, overrides);
+
+        afterEach(function () {
+            VaultClient.clear();
+        });
+
+        it('returns the existing instance and warns when the options differ', function () {
+            const log = createSpyLogger();
+            const first = VaultClient.boot('dup', bootOpts({ logger: log }));
+            const second = VaultClient.boot('dup', bootOpts({ logger: log, api: { url: 'https://other.example/' } }));
+
+            expect(second, 'the memoized instance is still returned').to.equal(first);
+            expect(loggedText(log)).to.contain('different options');
+            expect(loggedText(log)).to.contain('VaultClient.get');
+        });
+
+        it('stays silent when the options are equivalent', function () {
+            const log = createSpyLogger();
+            VaultClient.boot('same', bootOpts({ logger: log }));
+            VaultClient.boot('same', bootOpts({ logger: log }));
+
+            expect(loggedText(log), 'a re-boot with the same config must not warn').to.not.contain('different options');
+        });
+
+        it('ignores key order when comparing', function () {
+            const log = createSpyLogger();
+            VaultClient.boot('order', { logger: log, api: { url: 'https://example.com/' }, auth: { type: 'token', config: { token: 't' } } });
+            VaultClient.boot('order', { auth: { config: { token: 't' }, type: 'token' }, api: { url: 'https://example.com/' }, logger: log });
+
+            expect(loggedText(log)).to.not.contain('different options');
+        });
+
+        it('does not warn for a name that was never booted', function () {
+            const log = createSpyLogger();
+            VaultClient.boot('fresh', bootOpts({ logger: log }));
+
+            expect(loggedText(log)).to.not.contain('different options');
+        });
+
+        it('still throws when options are omitted entirely', function () {
+            VaultClient.boot('needs-opts', bootOpts({ logger: false }));
+            expect(() => VaultClient.boot('needs-opts')).to.throw(errors.InvalidArgumentsError);
         });
     });
 
