@@ -332,6 +332,9 @@ Client constructor function.
 | [options.auth.mount] | <code>String</code> |  | Vault auth backend mount point; default varies per method (e.g. "aws" for iam, "approle", "token", "kubernetes", "jwt") |
 | options.auth.config | <code>Object</code> |  | auth configuration variables |
 | [options.auth.config.namespace] | <code>String</code> |  | Optional. Legacy location for the Vault namespace (see `api.namespace`). Sent as the `X-Vault-Namespace` header on **every** request for every auth type. |
+| [options.auth.renewal] | <code>boolean</code> | <code>true</code> | Set `false` to never renew the Vault token in the background; the token is used until it expires and the next call re-authenticates. See [Token renewal](#token-renewal). |
+| [options.auth.renewalFraction] | <code>number</code> | <code>0.5</code> | How much of the token's remaining lifetime to wait before renewing, as a fraction in `(0, 1)`. |
+| [options.auth.renewalIncrement] | <code>number</code> |  | Seconds of extra TTL to request on each renewal, sent as `increment` to `auth/token/renew-self`. Vault caps it at the token's max TTL. |
 | [options.logger] | <code>Object</code> \| <code>false</code> |  | Logger that must implement **all five** of "error", "warn", "info", "debug" and "trace" — an object missing any one of them is silently ignored and the default logger is used instead. The default logger writes to `console`, except `debug`, which is discarded so that sensitive data is never printed. Pass `false` to disable logging entirely. |
 
 ##### Custom transport (proxy / self-signed TLS)
