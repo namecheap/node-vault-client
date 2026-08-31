@@ -13,8 +13,7 @@
   endpoint. A `jwtProvider` resolving a non-string/empty string, or a non-function
   `jwtProvider`, fails fast with `InvalidArgumentsError` without sending a login request. Only
   the non-interactive `jwt` flow is implemented; the browser-redirect `oidc` flow is out of
-  scope for this service client. See the README's "JWT auth" section. Closes #130, #131 and
-  #132.
+  scope for this service client. See the README's "JWT auth" section.
 
 # 2.1.2 Release notes (2026-08-03)
 
