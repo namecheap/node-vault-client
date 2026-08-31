@@ -4,6 +4,13 @@
   `config.jwtPath` file source (exactly one is required); `config.role` is optional, matching
   Vault's `default_role` fallback. Models `VaultKubernetesAuth`; a `config.jwtProvider` async
   source is reserved for a follow-up. Closes #131.
+- `VaultJwtAuth` now also accepts `config.jwtProvider`, a (optionally async) function returning
+  the JWT, as its third mutually-exclusive source. It is invoked at login time, never at
+  construction and never cached, so every login — including re-logins after expiry — gets a
+  fresh token; this is what GitHub Actions' `core.getIDToken()`, cloud metadata endpoints and
+  SPIFFE workloads need. A provider resolving a non-string or empty string, or a non-function
+  `jwtProvider`, fails fast with `InvalidArgumentsError` without sending a login request. Closes
+  #132.
 
 # 2.1.2 Release notes (2026-08-03)
 
