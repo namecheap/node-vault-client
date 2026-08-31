@@ -54,6 +54,38 @@ describe('VaultClient request pipeline (characterization, #110)', function () {
         return { client, makeRequest };
     }
 
+    describe('the harness itself', function () {
+        // Twenty-odd tests below assume makeClientWithApi wired both doubles and
+        // handed back the same stub it installed. If that assumption broke, those
+        // tests would assert against a stub the client never calls -- and a
+        // "was not called" expectation would pass for the wrong reason.
+        it('hands back the very stub it installed on the client', function () {
+            const { client, makeRequest } = makeClientWithApi({ api: { engines: { secret: 2 } } }, {});
+            expect(client.__api.makeRequest).to.equal(makeRequest);
+        });
+
+        it('resolves the response it was given, and stubs auth with the shared token', async function () {
+            const response = { data: { data: { k: 'v' } } };
+            const { client, makeRequest } = makeClientWithApi({}, response);
+
+            expect(await makeRequest(), 'the stub must resolve the supplied response').to.equal(response);
+            const authToken = await client.__auth.getAuthToken();
+            expect(authToken.getId(), 'auth must be stubbed, or every call would hit the network')
+                .to.equal('tid');
+        });
+
+        it('defaults to resolving undefined when no response is supplied', function () {
+            // The rejects-path tests rely on this: they take the client with no
+            // response and then reconfigure the stub.
+            const { client, makeRequest } = makeClientWithApi({});
+            makeRequest.rejects(new Error('boom'));
+            return client.request('GET', 'sys/health').then(
+                () => { throw new Error('expected rejection'); },
+                (err) => { expect(err.message).to.equal('boom'); }
+            );
+        });
+    });
+
     describe('#__resolveAndRequest() contract', function () {
         it('resolves { body, version, mount, apiPath } on a KV v2 mount', function () {
             const body = { data: { data: { k: 'v' } } };

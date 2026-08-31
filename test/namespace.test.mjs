@@ -157,6 +157,29 @@ describe('X-Vault-Namespace is applied to every request (regression #106)', func
         expect(requests()[0].namespace).to.equal('team-b');
     });
 
+    it('fails only the paths named in statusByPath, leaving the rest on defaultStatus', async function () {
+        // Covers the stub itself. The 403 test below is only meaningful if the
+        // status map is selective -- a stub that failed everything, or nothing,
+        // would make it either trivially true or silently unreached.
+        fetchStub.restore();
+        fetchStub = stubFetch({ statusByPath: { '/sys/seal-status': 503 } });
+
+        const api = new VaultApiClient({ url: 'https://vault.example' }, logger);
+
+        let thrown;
+        try {
+            await api.makeRequest('GET', '/sys/seal-status');
+        } catch (err) {
+            thrown = err;
+        }
+        expect(thrown, 'the listed path must fail').to.be.instanceOf(errors.VaultHttpError);
+        expect(thrown.statusCode, 'with the status the map named').to.equal(503);
+
+        // An unlisted path is untouched and still answers the default status.
+        const body = await api.makeRequest('GET', '/sys/health');
+        expect(body, 'an unlisted path must still succeed').to.deep.equal({});
+    });
+
     it('still sends the namespace header on a request Vault rejects', async function () {
         // A namespaced client whose token lookup is denied. The header has to be
         // on the wire for the 403 to even be attributable to the right namespace,
