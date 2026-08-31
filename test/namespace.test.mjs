@@ -9,7 +9,6 @@
  * kubernetes did on lookup-self / login) fails here.
  */
 
-import { createRequire } from 'module';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -22,6 +21,7 @@ import VaultTokenAuth from '../src/auth/VaultTokenAuth.js';
 import VaultAppRoleAuth from '../src/auth/VaultAppRoleAuth.js';
 import VaultIAMAuth from '../src/auth/VaultIAMAuth.js';
 import VaultKubernetesAuth from '../src/auth/VaultKubernetesAuth.js';
+import VaultJwtAuth from '../src/auth/VaultJwtAuth.js';
 
 use(sinonChai);
 
@@ -49,11 +49,6 @@ function stubFetch() {
 }
 
 const TYPES = ['token', 'appRole', 'iam', 'kubernetes', 'jwt'];
-
-// TDD (#130/#133): required lazily so that, until src/auth/VaultJwtAuth.js
-// exists, only the jwt rows of this suite fail -- the other backends' coverage
-// stays green. Once the module lands, this may become a static import.
-const _require = createRequire(import.meta.url);
 
 describe('X-Vault-Namespace is applied to every request (regression #106)', function () {
     let fetchStub;
@@ -89,10 +84,8 @@ describe('X-Vault-Namespace is applied to every request (regression #106)', func
                 });
             case 'kubernetes':
                 return new VaultKubernetesAuth(api, logger, { role: 'r', tokenPath: jwtPath });
-            case 'jwt': {
-                const VaultJwtAuth = _require('../src/auth/VaultJwtAuth.js');
+            case 'jwt':
                 return new VaultJwtAuth(api, logger, { role: 'r', jwt: 'header.payload.sig' });
-            }
             default:
                 throw new Error(`unknown type ${type}`);
         }

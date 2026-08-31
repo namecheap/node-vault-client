@@ -8,7 +8,6 @@
  * until every test here is green without editing this file.
  */
 
-import { createRequire } from 'module';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -17,6 +16,7 @@ import { expect, use } from 'chai';
 import sinonChai from 'sinon-chai';
 import VaultApiClient from '../src/VaultApiClient.js';
 import VaultClient from '../src/VaultClient.js';
+import VaultJwtAuth from '../src/auth/VaultJwtAuth.js';
 import errors from '../src/errors.js';
 import { createNoopLogger, createSpyLogger, loggedText } from './helpers/logger.mjs';
 
@@ -60,20 +60,8 @@ function loginCalls(fetchStub) {
         }));
 }
 
-// TDD: loaded lazily so that, until src/auth/VaultJwtAuth.js exists, THIS
-// suite fails (every test, via the failing hook below, with a clear
-// module-not-found message) while the rest of `npm run test:unit` still runs
-// and reports. A static ESM import would abort the whole mocha run instead.
-// Once the module lands this may become a static import.
-const _require = createRequire(import.meta.url);
-let VaultJwtAuth;
-
 describe('VaultJwtAuth (TDD spec for #130)', function () {
     let fetchStub;
-
-    before(function () {
-        VaultJwtAuth = _require('../src/auth/VaultJwtAuth.js');
-    });
 
     beforeEach(function () {
         fetchStub = stubFetch();
