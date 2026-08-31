@@ -112,15 +112,28 @@ jobs:
   # instance started via docker-compose.
   e2e:
     runs-on: ubuntu-latest
+    name: e2e (node ${{ matrix.node-version }}, vault ${{ matrix.vault-version }})
     strategy:
       fail-fast: false
       matrix:
         node-version: [18, 20, 22, 24]
+        # Latest 1.x. Keep in step with the default in docker-compose.yml so a
+        # local `docker compose up` reproduces what CI runs.
+        vault-version: ['1.21.4']
+        include:
+          # Latest 2.x, on one Node version rather than crossed with the whole
+          # matrix: the node-version axis exercises the client's runtime and the
+          # vault-version axis the server's API, and the two have never
+          # interacted. Node 20 is the version in .nvmrc.
+          - node-version: 20
+            vault-version: '2.0.4'
 
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - name: Start Vault (docker compose)
+      - name: Start Vault ${{ matrix.vault-version }} (docker compose)
+        env:
+          VAULT_IMAGE: hashicorp/vault:${{ matrix.vault-version }}
         run: docker compose up -d --wait
 
       - name: Use Node.js ${{ matrix.node-version }}
@@ -142,10 +155,21 @@ jobs:
   # matrix above already covers runtime compatibility.
   e2e-kv2:
     runs-on: ubuntu-latest
+    name: e2e-kv2 (vault ${{ matrix.vault-version }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both supported Vault lines. The KV v2 surface — data/metadata paths,
+        # merge-patch, version and metadata operations — is where a server-side
+        # API change would show first, so this suite gets the full Vault axis
+        # even though it stays on one Node version.
+        vault-version: ['1.21.4', '2.0.4']
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - name: Start Vault (docker compose)
+      - name: Start Vault ${{ matrix.vault-version }} (docker compose)
+        env:
+          VAULT_IMAGE: hashicorp/vault:${{ matrix.vault-version }}
         run: docker compose up -d --wait
 
       - name: Use Node.js 20

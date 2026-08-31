@@ -1,3 +1,13 @@
+# Vault version is overridable so CI can run the e2e suites against more than one
+# server line, and so you can reproduce a CI failure locally:
+#
+#   docker compose up -d --wait                                   # default, latest 1.x
+#   VAULT_IMAGE=hashicorp/vault:2.0.4 docker compose up -d --wait # latest 2.x
+#
+# Note the image moved from the deprecated Docker Hub `vault` repository (which
+# stopped receiving updates after 1.13.x) to `hashicorp/vault`. Bump the default
+# below and the matrix in .github/workflows/pipeline.yaml together.
+
 services:
   # Both services are ephemeral dev-mode servers for the e2e suites.
   #
@@ -9,23 +19,52 @@ services:
   # KV v1 server, used by test/e2e/e2e.test.mjs (npm run test:e2e).
   # Note: -dev-kv-v1 implicitly enables dev mode.
   vault-server:
-    image: vault:1.13.3
+    image: ${VAULT_IMAGE:-hashicorp/vault:1.21.4}
     environment:
       VAULT_DEV_ROOT_TOKEN_ID: 8274d2a1-c80c-ff56-c6ed-1b99f7bcea78
+      # for the `vault status` health check below, not the server itself
+      VAULT_ADDR: http://127.0.0.1:8200
     command: [ "server", "-dev-kv-v1" ]
     cap_add:
       - IPC_LOCK
     ports:
       - 127.0.0.1:8200:8200
+    # `docker compose up -d --wait` only waits for "running" unless a health
+    # check exists, and neither this compose file nor the image defined one, so
+    # the e2e jobs raced the server's startup. It was masked in CI because
+    # `npm ci` runs afterwards and takes long enough for Vault to come up;
+    # locally, tests started immediately and failed with "SocketError: other
+    # side closed". `vault status` exits 0 only once the server answers and is
+    # unsealed, which is exactly the readiness this suite needs.
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+      start_period: 2s
 
   # KV v2 server (dev mode mounts secret/ as KV v2 by default), used by
   # test/e2e/e2e.kv2.test.mjs (npm run test:e2e:kv2).
   vault-server-kv2:
-    image: vault:1.13.3
+    image: ${VAULT_IMAGE:-hashicorp/vault:1.21.4}
     environment:
       VAULT_DEV_ROOT_TOKEN_ID: 34c9c953-4ff5-368a-ac5c-a1e1a8e13a52
+      VAULT_ADDR: http://127.0.0.1:8200
     command: [ "server", "-dev" ]
     cap_add:
       - IPC_LOCK
     ports:
       - 127.0.0.1:8202:8200
+    # `docker compose up -d --wait` only waits for "running" unless a health
+    # check exists, and neither this compose file nor the image defined one, so
+    # the e2e jobs raced the server's startup. It was masked in CI because
+    # `npm ci` runs afterwards and takes long enough for Vault to come up;
+    # locally, tests started immediately and failed with "SocketError: other
+    # side closed". `vault status` exits 0 only once the server answers and is
+    # unsealed, which is exactly the readiness this suite needs.
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+      start_period: 2s
