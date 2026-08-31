@@ -5,12 +5,16 @@
   on the next call instead of renewing it in the background. Useful for short-lived processes —
   the renewal timer keeps the Node.js event loop alive, so without it a finished script does not
   exit unless you call `close()` — and wherever re-login is preferable to extending a lease.
-  Default behaviour is unchanged: any value other than `false` renews as before.
+  Default behaviour is unchanged. Note this is only a no-op for backends that can obtain a fresh
+  credential on their own (`kubernetes`, `iam`, `jwt` via `jwtPath`/`jwtProvider`): `token` auth
+  cannot re-authenticate at all and will raise `AuthTokenExpiredError` once the token expires, and
+  `appRole`/literal-`jwt` replay the same credential. Expiring a token also revokes the leases it
+  created, which matters if you read dynamic secrets.
 
 - Added `renewalFraction` and `renewalIncrement` to the same `config`, for tuning renewal rather
-  than turning it off (#17). `renewalFraction` (default `0.5`) sets how much of the token's
-  remaining lifetime to wait before renewing, so a lower value renews earlier and leaves room for
-  a failed attempt to be retried before the token expires. `renewalIncrement` (unset by default)
+  than turning it off (#17). `renewalFraction` (default `0.5`, range `(0, 1)`) sets how much of
+  the token's remaining lifetime to wait before renewing; a lower value renews earlier and leaves
+  room for more retries, which shrink geometrically as the lifetime does. `renewalIncrement` (unset by default)
   is sent as `increment` to `auth/token/renew-self` to request a specific extra TTL, which Vault
   caps at the token's max TTL. Both are validated at construction and raise
   `InvalidArgumentsError` on bad input. Defaults reproduce the previous behaviour exactly: the

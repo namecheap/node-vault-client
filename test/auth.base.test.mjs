@@ -113,6 +113,46 @@ describe('VaultBaseAuth', function () {
             auth.cancelTokenRefresh();
         });
 
+        it('rejects a non-boolean renewal at construction', function () {
+            // node-config's custom-environment-variables yields strings: VAULT_RENEWAL=false
+            // arrives as 'false'. Accepting it silently would leave the timer armed, which is
+            // precisely the hang the flag exists to prevent.
+            for (const bad of ['false', 'true', 0, 1, null, {}]) {
+                expect(
+                    () => makeAuth({ config: { renewal: bad } }),
+                    `renewal=${JSON.stringify(bad)} must be rejected`
+                ).to.throw(errors.InvalidArgumentsError, 'renewal');
+            }
+        });
+
+        it('does not disable re-authentication (only the background timer)', async function () {
+            // Guards a plausible mis-implementation: wiring _reauthenticationAllowed() to the
+            // renewal flag would still pass every other test here, because TestAuth overrides
+            // that method. This subclass deliberately does not.
+            class PlainAuth extends VaultBaseAuth {
+                constructor(api, config) {
+                    super(api, logger, 'mount', config);
+                    this.calls = 0;
+                }
+
+                _authenticate() {
+                    this.calls++;
+                    return Promise.resolve(
+                        this.calls === 1
+                            ? new AuthToken('expired', 'acc', nowSec() - 7200, nowSec() - 3600, 0, 0, true)
+                            : renewableToken()
+                    );
+                }
+            }
+
+            const auth = new PlainAuth(apiStub(), { renewal: false });
+            created.push(auth);
+            await auth.getAuthToken();
+            const second = await auth.getAuthToken();
+            expect(auth.calls, 'an expired token must still trigger a fresh login').to.equal(2);
+            expect(second.getId()).to.equal('renewable-id');
+        });
+
         it('treats any value other than false as renewal enabled', async function () {
             for (const renewal of [undefined, true]) {
                 const auth = makeAuth({
@@ -387,21 +427,16 @@ describe('VaultBaseAuth', function () {
             }
         });
 
-        it('accepts the boundary fraction 1 (renew only at expiry)', function () {
-            const { auth, api } = armedAuth({ renewalFraction: 1 });
-            return auth.getAuthToken()
-                .then(() => {
-                    clock.tick(99999);
-                    return flush();
-                })
-                .then(() => {
-                    expect(api.makeRequest).to.not.have.been.called;
-                    clock.tick(1);
-                    return flush();
-                })
-                .then(() => {
-                    expect(api.makeRequest).to.have.been.called;
-                });
+        it('rejects the boundary fraction 1', function () {
+            // At exactly 1 the timer fires when the client already treats the token as
+            // expired, racing its own re-auth and leaving no time for the renewal request.
+            expect(() => new TestAuth(apiStub(), 'mount', { config: { renewalFraction: 1 } }))
+                .to.throw(errors.InvalidArgumentsError, 'renewalFraction');
+        });
+
+        it('accepts a fraction just under 1', function () {
+            expect(() => new TestAuth(apiStub(), 'mount', { config: { renewalFraction: 0.99 } }))
+                .to.not.throw();
         });
     });
 

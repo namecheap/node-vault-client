@@ -54,7 +54,7 @@ class VaultBaseAuth {
         /** @protected */
         this._log = logger;
         this._mount = mount;
-        this.__renewalEnabled = !(config && config.renewal === false);
+        this.__renewalEnabled = VaultBaseAuth.__validateRenewal(config);
         this.__renewalFraction = VaultBaseAuth.__validateFraction(config);
         this.__renewalIncrement = VaultBaseAuth.__validateIncrement(config);
 
@@ -73,6 +73,29 @@ class VaultBaseAuth {
     }
 
     /**
+     * Strict on purpose: node-config's `custom-environment-variables` yields strings, so a
+     * loose check would read `VAULT_RENEWAL=false` as `'false'` and leave renewal on -- the
+     * exact hang the flag exists to prevent, silently.
+     *
+     * @param {Object} [config]
+     * @returns {boolean}
+     * @private
+     */
+    static __validateRenewal(config) {
+        if (!config || config.renewal === undefined) {
+            return true;
+        }
+
+        if (typeof config.renewal !== 'boolean') {
+            throw new errors.InvalidArgumentsError(
+                `"renewal" should be a boolean, got ${String(config.renewal)}`
+            );
+        }
+
+        return config.renewal;
+    }
+
+    /**
      * @param {Object} [config]
      * @returns {number}
      * @private
@@ -83,9 +106,12 @@ class VaultBaseAuth {
         }
 
         const fraction = config.renewalFraction;
-        if (typeof fraction !== 'number' || !Number.isFinite(fraction) || fraction <= 0 || fraction > 1) {
+        // Exclusive upper bound: at exactly 1 the timer fires at the same instant
+        // getAuthToken() starts treating the token as expired, racing the client's own
+        // re-authentication and leaving no headroom for the renewal request itself.
+        if (typeof fraction !== 'number' || !Number.isFinite(fraction) || fraction <= 0 || fraction >= 1) {
             throw new errors.InvalidArgumentsError(
-                `"renewalFraction" should be a number in (0, 1], got ${String(fraction)}`
+                `"renewalFraction" should be a number in (0, 1), got ${String(fraction)}`
             );
         }
 
@@ -146,10 +172,21 @@ class VaultBaseAuth {
             this.__authToken = authToken;
 
             if (authToken.isRenewable()) {
-                this._log.debug(
-                    'setting refresh timer for token (accessor=%s)',
-                    authToken.getAccessor()
-                );
+                // Gate the log on the flag too: the guard lives inside
+                // __setupTokenRefreshTimer, so without this the client claims it armed a
+                // timer while arming nothing -- the one diagnostic an operator reads when a
+                // `renewal: false` process still hangs.
+                if (this.__renewalEnabled) {
+                    this._log.debug(
+                        'setting refresh timer for token (accessor=%s)',
+                        authToken.getAccessor()
+                    );
+                } else {
+                    this._log.debug(
+                        'renewal disabled by config; not arming a refresh timer (accessor=%s)',
+                        authToken.getAccessor()
+                    );
+                }
                 this.__setupTokenRefreshTimer(authToken);
             }
 
