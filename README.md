@@ -148,7 +148,7 @@ const vaultClient = VaultClient.boot('main', {
         * [.deleteMetadata(path)](#VaultClient+deleteMetadata) ⇒ <code>Promise.&lt;Object&gt;</code>
         * [.close()](#VaultClient+close)
     * _static_
-        * [.boot(name, [options])](#VaultClient.boot) ⇒ <code>VaultClient</code>
+        * [.boot(name, options)](#VaultClient.boot) ⇒ <code>VaultClient</code>
         * [.get(name)](#VaultClient.get) ⇒ <code>VaultClient</code>
         * [.clear([name])](#VaultClient.clear)
 * [Lease](#Lease)
@@ -179,7 +179,7 @@ Client constructor function.
 | [options.auth.mount] | <code>String</code> |  | Vault auth backend mount point; default varies per method (e.g. "aws" for iam, "approle", "token", "kubernetes") |
 | options.auth.config | <code>Object</code> |  | auth configuration variables |
 | [options.auth.config.namespace] | <code>String</code> |  | Optional. Legacy location for the Vault namespace (see `api.namespace`). Sent as the `X-Vault-Namespace` header on **every** request for every auth type. |
-| [options.logger] | <code>Object</code> \| <code>false</code> |  | Logger that supports "error", "info", "warn", "trace", "debug" methods. Uses `console` by default. Pass `false` to disable logging. |
+| [options.logger] | <code>Object</code> \| <code>false</code> |  | Logger that must implement **all five** of "error", "warn", "info", "debug" and "trace" — an object missing any one of them is silently ignored and the default logger is used instead. The default logger writes to `console`, except `debug`, which is discarded so that sensitive data is never printed. Pass `false` to disable logging entirely. |
 
 ##### Custom transport (proxy / self-signed TLS)
 
@@ -219,7 +219,7 @@ MITM protection.
 #### vaultClient.fillNodeConfig() ⇒ <code>Promise</code>
 Populates Vault's values to NPM "config" module
 
-Resolves once the npm `config` module has been populated from Vault.
+Resolves once the npm `config` module has been populated from Vault. Note that setup failures are thrown **synchronously**, not returned as a rejected promise: a missing `config` peer dependency and an unreadable `<NODE_CONFIG_DIR>/custom-vault-variables.js` both throw `VaultError` before the promise is created, so use `await` or wrap the call in `try`/`catch` rather than relying on `.catch()` alone.
 
 **Kind**: instance method of [<code>VaultClient</code>](#VaultClient)  
 <a name="VaultClient+read"></a>
@@ -358,7 +358,7 @@ The destroyed version data cannot be recovered. KV v2 only — rejects with
 #### vaultClient.readMetadata(path) ⇒ <code>Promise.&lt;Object&gt;</code>
 Reads KV v2 metadata for a secret
 
-Resolves to the metadata document (`current_version`, the `versions` map, timestamps, etc.).
+Resolves to the raw parsed Vault response body; the metadata document (`current_version`, the `versions` map, timestamps, etc.) is under its `data` property, e.g. `(await client.readMetadata('secret/foo')).data.current_version`.
 KV v2 only — rejects with `UnsupportedOperationError` on non-v2 mounts.
 
 **Kind**: instance method of [<code>VaultClient</code>](#VaultClient)  
@@ -415,7 +415,7 @@ accessors to extract the secret data:
 
 <a name="VaultClient.boot"></a>
 
-#### VaultClient.boot(name, [options]) ⇒ <code>VaultClient</code>
+#### VaultClient.boot(name, options) ⇒ <code>VaultClient</code>
 Boot an instance of Vault
 
 The instance will be stored in a local hash. Calling Vault.boot multiple
@@ -427,7 +427,7 @@ times with the same name will return the same instance.
 | Param | Type | Description |
 | --- | --- | --- |
 | name | <code>String</code> | Vault instance name |
-| [options] | <code>Object</code> | options for [Vault#constructor](#new_VaultClient_new). |
+| options | <code>Object</code> | options for [Vault#constructor](#new_VaultClient_new). Required on every call, including for a name that was already booted — use [VaultClient.get(name)](#VaultClient.get) to fetch an existing instance. |
 
 <a name="VaultClient.get"></a>
 
@@ -507,7 +507,7 @@ const client = VaultClient.boot('main', {
 
 ### KV v2-specific methods
 
-These methods require a KV v2 mount and throw `UnsupportedOperationError` on v1 / non-KV mounts.
+These methods require a KV v2 mount and throw `UnsupportedOperationError` on v1 / non-KV mounts. They also require the mount to be *resolved* as v2: with neither `api.kv.autoDetect: true` nor an `api.engines` entry covering the mount, every path resolves as v1 passthrough with no detection call, and these methods fail with `UnsupportedOperationError` (`Mount "secret" is not a KV v2 engine.`) even against a genuine KV v2 mount.
 
 ```javascript
 // Soft-delete specific versions
@@ -519,7 +519,8 @@ await client.undeleteVersions('secret/foo', [1]);
 // Permanently destroy versions
 await client.destroyVersions('secret/foo', [1, 2]);
 
-// Read version metadata (current_version, versions map, etc.)
+// Read version metadata. The full Vault envelope is returned, so the metadata
+// fields live under `.data` (meta.data.current_version, meta.data.versions, ...)
 const meta = await client.readMetadata('secret/foo');
 
 // Delete all metadata and version history (permanent)
@@ -591,7 +592,7 @@ await client.request('GET', 'secret/data/foo');
 
 ### Mount detection caching
 
-- Each canonical mount is detected at most once per `VaultClient` instance.
+- Each canonical mount is detected once and then cached for the life of the `VaultClient` instance. The cache is a bounded LRU with a fixed cap of 500 mounts (not configurable through client options); a long-lived client that touches more than 500 distinct mounts evicts the least-recently-used entries, and an evicted mount is detected again on its next use.
 - Concurrent first-touch requests for the same mount share a single in-flight detection promise.
 - The detection endpoint used is `GET sys/internal/ui/mounts/<path>` (readable by any authenticated token).
 - When the token lacks permission on that endpoint, set `api.engines` to skip detection.
