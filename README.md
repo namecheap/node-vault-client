@@ -191,6 +191,34 @@ Exactly one of three mutually exclusive `config` keys supplies the JWT:
   be minted per login — GitHub Actions' `core.getIDToken()`, a cloud metadata endpoint, a
   SPIFFE/SPIRE workload API.
 
+##### The Vault role needs `bound_audiences` when your JWT carries an `aud` claim
+
+This is server-side configuration rather than a client option, but it is the most common reason a
+first login fails. Vault requires a `jwt` role to bind the audience your token carries, and it does
+**not** catch the omission when the role is created — as long as the role has some other bound
+constraint (`bound_subject`, `bound_claims`, ...) it is accepted, and the problem only surfaces at
+login:
+
+```
+VaultHttpError: 400 - {"errors":["audience claim found in JWT but no audiences bound to the role"]}
+```
+
+A wrong (rather than missing) audience fails with `error validating token: invalid audience (aud)
+claim: audience claim does not match any expected audience`. So bind the audience the token
+actually has:
+
+```shell
+vault write auth/jwt/role/my-app \
+    role_type=jwt user_claim=sub bound_audiences=my-audience token_policies=my-policy
+```
+
+A role with *no* bound constraint at all is rejected when you create it (`must have at least one
+bound constraint when creating/updating a role`), so that case is self-correcting. An `aud` array
+is fine — Vault matches `bound_audiences` against any entry.
+
+Vault also does not require an `exp` claim: a token minted without one is accepted and never
+expires. If you write your own `jwtProvider`, give the tokens it mints a short `exp`.
+
 #### Authenticating from GitHub Actions
 
 ```yaml
@@ -211,6 +239,18 @@ const vaultClient = VaultClient.boot('ci', {
     },
 });
 ```
+
+`core.getIDToken('vault')` mints a token whose `aud` is `vault`, so the role has to bind that
+audience or the login fails with `audience claim found in JWT but no audiences bound to the role`:
+
+```shell
+vault write auth/gha/role/ci \
+    role_type=jwt user_claim=sub bound_audiences=vault \
+    bound_claims='{"repository":"my-org/my-repo"}' token_policies=ci
+```
+
+Pass the same string to `core.getIDToken()` and to `bound_audiences`. Calling `getIDToken()` with
+no argument uses GitHub's default audience instead, which then will not match.
 
 `role` is optional here too — omit it to use the mount's `default_role`. `mount` and
 `api.namespace` behave exactly as they do for the other four backends.

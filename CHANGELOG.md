@@ -1,3 +1,17 @@
+# Unreleased
+
+- Documented the `bound_audiences` requirement for JWT auth, which is the most common reason a
+  first login fails and was previously absent from the README. Vault requires a `jwt` role to bind
+  the audience the token carries, but does not catch the omission when the role is created: as long
+  as the role has some other bound constraint it is accepted, and the failure only appears at login
+  as `audience claim found in JWT but no audiences bound to the role`. The JWT section now gives
+  that error verbatim, the wrong-audience variant, and a `vault write .../role/...` example that
+  binds the audience. The GitHub Actions section additionally spells out that
+  `core.getIDToken('vault')` mints `aud: vault`, so the role must bind `vault` — following that
+  snippet without it was a guaranteed failed login. Also recorded that Vault does not require an
+  `exp` claim, so a `jwtProvider` that omits one produces a credential that never expires. Every
+  quoted error string was taken from a live Vault and is identical on 1.21 and 2.0. No code change.
+
 # 2.2.0 Release notes (2026-09-01)
 
 - Documented three things about the HTTP transport that were true but unwritten, and scoped the
