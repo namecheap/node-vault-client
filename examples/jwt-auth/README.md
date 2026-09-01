@@ -16,6 +16,10 @@ VAULT_ADDR=https://vault.example.com:8200 VAULT_TOKEN=<root-or-admin-token> \
   node examples/jwt-auth/vault-jwt-demo.mjs
 ```
 
+CI runs this on every pull request, in the `e2e` job, against both supported Vault lines — so if the
+client changes in a way that breaks any scenario below, the build fails rather than the example
+quietly going stale.
+
 The app configures everything it needs (two `jwt` mounts, roles, a policy, a demo secret), runs the
 scenarios, then removes all of it again. It needs a token allowed to manage `sys/auth`, `sys/policy`
 and the demo secret — a dev-mode root token is the intended use.

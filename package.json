@@ -18,8 +18,9 @@
     "test:e2e": "mocha --exit \"test/e2e/e2e.test.mjs\"",
     "test:e2e:kv2": "mocha --exit \"test/e2e/e2e.kv2.test.mjs\"",
     "test:e2e:jwt": "mocha --exit \"test/e2e/e2e.jwt.test.mjs\"",
+    "test:example": "node examples/jwt-auth/vault-jwt-demo.mjs",
     "coverage": "c8 npm run test:unit",
-    "lint": "eslint src/ test/",
+    "lint": "eslint src/ test/ examples/",
     "version": "git add -A ."
   },
   "c8": {
