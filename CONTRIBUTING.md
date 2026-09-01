@@ -40,6 +40,12 @@ code you change. Mock HTTP interactions with sinon — **never** use real Vault 
 credentials in unit tests. The integration and `test/e2e` suites talk to the dev Vault started by
 `docker compose up -d`.
 
+The published artifact is checked separately, because the suites run against the working tree and
+cannot see what `npm pack` includes. `node test/verify-package.mjs` packs the repository, installs
+the tarball into a throwaway project and requires it, so an artifact left out of `package.json`'s
+`files` fails there rather than reaching npm. CI runs it on every pull request, and again before
+publishing.
+
 ## DCO sign-off
 
 This project uses the [Developer Certificate of Origin](https://developercertificate.org/). Add
