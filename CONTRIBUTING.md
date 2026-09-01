@@ -19,18 +19,44 @@ By participating in this project you agree to abide by our [Code of Conduct](COD
 ```shell
 npm ci                 # install dependencies from the lockfile
 npm install config     # peer dependency used by the node-config integration and coverage
-docker compose up -d   # start local dev Vaults: KV v1 on 127.0.0.1:8200, KV v2 on 127.0.0.1:8202
+docker compose up -d --wait   # local dev Vaults: KV v1 on 127.0.0.1:8200, KV v2 on 127.0.0.1:8202
 
 npm run lint           # ESLint (must be clean)
 npm run test:unit      # fast unit tests (no Vault required)
-npm test               # full suite, including integration/e2e (needs the Vault container)
 npm run coverage       # unit tests with c8 coverage report
+npm test               # everything, including the e2e suites (needs the Vault containers)
 ```
 
+The e2e suites can also be run one at a time, which is what you want while iterating on one of
+them. All three need `docker compose up -d --wait` first:
+
+```shell
+npm run test:e2e       # KV v1 server: read/write, node-config, token renewal, auth backends
+npm run test:e2e:kv2   # KV v2 server: mount detection, data/metadata paths, version operations
+npm run test:e2e:jwt   # JWT auth against a throwaway mount it configures and removes itself
+```
+
+To reproduce a failure from the Vault 2.x leg of CI, point compose at that image:
+
+```shell
+docker compose down -v && VAULT_IMAGE=hashicorp/vault:2.0 docker compose up -d --wait
+```
+
+When touching an auth backend, `node examples/jwt-auth/vault-jwt-demo.mjs` is a useful
+check: it exercises the JWT backend against a real Vault over positive and negative scenarios and
+exits non-zero if any of them behaves unexpectedly.
+
 Run `npm run lint` and the tests before pushing — the same checks run in CI
-(`.github/workflows/pipeline.yaml`: audit, lint, coverage, a `test:unit` matrix on Node
-18/20/22/24, an `e2e` matrix on the same four versions, and a single-version `e2e-kv2` job; both
-e2e jobs run against the Vault servers started by `docker compose up -d --wait`).
+(`.github/workflows/pipeline.yaml`): audit, lint, coverage, a `test:unit` matrix on Node
+18/20/22/24, two e2e jobs that cover both supported Vault lines, and `package`, which verifies the
+packed tarball. `e2e` runs the KV v1 and JWT suites across Node 18/20/22/24 against Vault 1.21,
+plus one Node 20 job against Vault 2.0; `e2e-kv2` runs the KV v2 suite against Vault 1.21 and 2.0.
+Every e2e job starts its own Vault containers with `docker compose up -d --wait`.
+
+A final `ci-ok` job depends on all of the above and fails unless every one of them succeeded. It
+exists so branch protection can require one stable status check instead of matrix-derived job
+names, which change whenever the Node or Vault matrix changes. A new job has to be added to its
+`needs` list to be covered by it.
 
 ## Tests
 
