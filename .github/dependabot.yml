@@ -1,0 +1,48 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    # Matches the history: runtime bumps land as `fix(deps)` because they ship to
+    # consumers, tooling as `chore(deps)`.
+    commit-message:
+      prefix: fix
+      prefix-development: chore
+      include: scope
+    groups:
+      # One PR per week for the routine tooling churn, rather than one per package.
+      dev-dependencies:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # Node 18 is still in `engines` and in the CI matrix, and these majors drop
+      # it. See the 2.1.1 release notes, which record that each was tried.
+      - dependency-name: c8
+        # 11+ requires Node "20 || >=22"; 12 pulls an ESM-only yargs that dies
+        # with ERR_REQUIRE_ESM on Node 18.
+        update-types: ["version-update:semver-major"]
+      - dependency-name: eslint
+        # 10.x declares ^20.19.0 || ^22.13.0 || >=24.
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@eslint/js"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: config
+        # Peer range is deliberately <4: config 4 requires Node >=20.
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    # Actions are CI-only, so they must not cut a release.
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      github-actions:
+        patterns:
+          - "*"

@@ -55,6 +55,20 @@ which posts its own status check on the pull request — it is not a job in
 commits authored by members of the `namecheap` organization, so in practice the check blocks
 unsigned commits from outside contributors.
 
+## Dependency updates
+
+Dependabot proposes updates weekly, configured in
+[`.github/dependabot.yml`](.github/dependabot.yml): runtime dependencies individually as
+`fix(deps)`, dev tooling grouped into one `chore(deps)` PR, and GitHub Actions as `ci(deps)`.
+
+Some majors are deliberately ignored there because they drop Node 18, which is still in `engines`
+and in the CI matrix — `c8` 11+, `eslint` 10.x and `config` 4. If you need one of those, it comes
+with raising the minimum Node version, not with a lockfile bump.
+
+Security advisories are separate: `npm audit --audit-level=high` runs as a blocking CI job, and the
+`overrides` block in `package.json` is how a patched transitive dependency gets pinned when the
+direct dependency has not released one yet.
+
 ## Pull requests
 
 1. Fork the repo and create a topic branch off `master`.
