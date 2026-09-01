@@ -1,5 +1,8 @@
+import { readFileSync } from 'node:fs';
 import { expect } from 'chai';
 import errors from '../src/errors.js';
+
+const readRepoFile = (name) => readFileSync(new URL(`../${name}`, import.meta.url), 'utf8');
 
 describe('errors', function () {
     it('exposes the expected error classes', function () {
@@ -91,5 +94,27 @@ describe('errors', function () {
             expect(err.message).to.equal('500 - ');
             expect(err.error).to.equal(undefined);
         });
+    });
+});
+
+describe('documented import path', function () {
+    it('publishes src/errors.js, which the README gives as the import path', function () {
+        const pkg = JSON.parse(readRepoFile('package.json'));
+        const published = pkg.files.some((entry) => ['src', 'src/', 'src/errors.js'].includes(entry));
+
+        expect(
+            published,
+            `package.json "files" (${pkg.files.join(', ')}) must publish src/errors.js`
+        ).to.equal(true);
+    });
+
+    it('documents every exported class in the README', function () {
+        const readme = readRepoFile('README.md');
+        const section = readme.slice(readme.indexOf('### Error classes')).split(/^## /m)[0];
+
+        expect(section).to.contain('### Error classes');
+        for (const name of Object.keys(errors)) {
+            expect(section, `${name} is exported but missing from the README table`).to.contain(name);
+        }
     });
 });
