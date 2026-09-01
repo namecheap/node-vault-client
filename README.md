@@ -606,6 +606,9 @@ accessors to extract the secret data:
 * `getValue(key)` ⇒ <code>String</code> — value for a single key. Throws `Requested key does not exist` when the key is absent.
 * `getData()` ⇒ <code>Object</code> — a deep-cloned copy of the whole secret data object.
 * `isRenewable()` ⇒ <code>boolean</code> — whether the underlying lease is renewable.
+* `getMetadata()` ⇒ <code>Object</code> | <code>undefined</code> — KV v2 version metadata
+  (`version`, `created_time`, `deletion_time`, `destroyed`, `custom_metadata`), or `undefined`
+  on KV v1 and non-KV mounts. See [Lease.getMetadata()](#leasegetmetadata).
 
 <a name="VaultClient.boot"></a>
 
