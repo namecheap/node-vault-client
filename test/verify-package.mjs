@@ -81,3 +81,4 @@ try {
 } finally {
     rmSync(workdir, { recursive: true, force: true });
 }
+
