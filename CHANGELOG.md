@@ -1,4 +1,4 @@
-# Unreleased
+# 2.2.0 Release notes (2026-09-01)
 
 - Documented three things about the HTTP transport that were true but unwritten, and scoped the
   `version` npm hook. No runtime change. `api.requestOptions` now carries a note that the `undici`
