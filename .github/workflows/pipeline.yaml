@@ -58,6 +58,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Type-check the published declarations
+        run: npm run test:types
+
   coverage:
     runs-on: ubuntu-latest
     steps:

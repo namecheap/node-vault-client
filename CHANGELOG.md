@@ -35,6 +35,28 @@
   `auth.config`, so they cannot collide with a key an existing caller already passes to a backend;
   no constructor signature changed either, so anything subclassing `VaultBaseAuth` is unaffected.
 
+- Added first-party TypeScript declarations (`index.d.ts`), referenced by the `types` field and
+  included in the published `files` (#159). The package previously shipped none, leaving
+  TypeScript consumers on the third-party `@types/node-vault-client`, which stops at the 1.x API:
+  it has no `jwt` backend, no `close()`, no `delete()`/`update()`/`request()`, none of the KV v2
+  version or metadata methods, none of the `api.namespace`/`api.kv`/`api.engines`/
+  `api.requestOptions` or renewal options, and it declares `AuthToken`, `Lease` and the other
+  sibling classes as runtime exports of the entry point even though it exports only the
+  `VaultClient` class — so `new VaultClient.Lease(...)` type-checked and then threw. `auth` is
+  typed as a discriminated union on `type`, and the three mutually-exclusive JWT sources are
+  enforced at compile time. Types that appear in signatures are exposed in type space under the
+  `VaultClient` namespace. Declarations are verified by `npm run test:types` in CI, which
+  compiles positive usage together with `@ts-expect-error` cases so a wrong signature fails the
+  build. `src/errors.d.ts` covers the error classes, which the README documents as
+  `node-vault-client/src/errors` because the entry point does not export them; that import
+  previously raised `TS7016` under `strict`, so the documented path was the one TypeScript
+  rejected. The declarations are deliberately permissive wherever the runtime tolerates more than
+  the JSDoc suggests, so that no usage which compiled against the third-party types and works at
+  runtime is newly rejected: a partial `logger` object is accepted (missing methods fall back to
+  `console`, as before), and the methods returning a Vault response body stay assignable to
+  `Promise<void>`. Runtime behaviour is unchanged; no file under `src/` was touched. If you have
+  `@types/node-vault-client` installed, uninstall it.
+
 - Added a JWT auth backend (`auth.type: 'jwt'`, default mount `"jwt"`) for workload identity
   federation — GitHub Actions, other CI systems, GCP/Azure/SPIFFE workloads — against Vault's
   [JWT auth method](https://developer.hashicorp.com/vault/docs/auth/jwt). Models
