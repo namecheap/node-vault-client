@@ -121,7 +121,7 @@ version number — `# <version> Release notes (YYYY-MM-DD)` — and leave that e
 
 ```shell
 npm version [major | minor | patch]   # bumps package.json, stages the CHANGELOG edit (the
-                                      # `version` script runs `git add -A .`) and tags the commit
+                                      # `version` script stages it) and tags the commit
 # review the version-bump commit, then:
 git push && git push --tags
 ```

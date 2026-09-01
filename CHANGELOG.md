@@ -1,5 +1,22 @@
 # Unreleased
 
+- Documented three things about the HTTP transport that were true but unwritten, and scoped the
+  `version` npm hook. No runtime change. `api.requestOptions` now carries a note that the `undici`
+  you install has to be interface-compatible with the one Node bundles: on Node 24 a dispatcher
+  from `undici@8` is rejected by the global `fetch()` with `cause.code` of
+  `invalid onRequestStart method` before the request leaves the process, so the proxy and
+  self-signed-CA recipes need `undici@^7`. A new "Request timeouts" section records that there is
+  no default timeout — a Vault that accepts the connection and never answers leaves calls pending
+  indefinitely — and gives the dispatcher-based fix, plus why a single
+  `signal: AbortSignal.timeout(ms)` in `requestOptions` is the wrong tool: it is shared by every
+  request, so it works once and then aborts the rest. A new "Redirects and the Vault token"
+  section records that requests follow redirects (Vault HA answers standbys with a 307 to the
+  active node) and that Node's `fetch()` forwards `X-Vault-Token` across a cross-origin redirect,
+  since it strips only `Authorization`, `Cookie` and `Proxy-Authorization` — so `api.url`, its DNS
+  and any load balancer in front of it are trusted infrastructure. Finally, the `version` hook was
+  `git add -A .`, which swept any unrelated working-tree change into the release commit; it now
+  stages only `CHANGELOG.md`, `package.json` and `package-lock.json`.
+
 - `VaultClient.boot()` now logs a warning when it is called for a name that already exists with
   options that differ from the ones the instance was booted with (#146). The options were, and
   still are, ignored in that case — the memoized instance is returned unchanged — so this only

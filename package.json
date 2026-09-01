@@ -24,7 +24,7 @@
     "test:example": "node examples/jwt-auth/vault-jwt-demo.mjs",
     "coverage": "c8 npm run test:unit",
     "lint": "eslint src/ test/ examples/",
-    "version": "git add -A ."
+    "version": "git add CHANGELOG.md package.json package-lock.json"
   },
   "c8": {
     "include": [
