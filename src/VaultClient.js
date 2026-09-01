@@ -1,6 +1,7 @@
 'use strict';
 
 const Lease = require('./Lease');
+const crypto = require('crypto');
 const errors = require('./errors');
 const VaultApiClient = require('./VaultApiClient');
 const VaultAppRoleAuth = require('./auth/VaultAppRoleAuth');
@@ -14,6 +15,36 @@ const { rewritePath, normalizeResponse } = require('./kvTransform');
 
 const noop = () => {};
 const vaultInstances = {};
+
+/**
+ * Order-insensitive canonical form of the boot options, hashed so that no credential is
+ * retained just to compare two boot() calls. Functions compare by identity, which is what
+ * a caller passing `jwtProvider` expects.
+ */
+function fingerprintOptions(value, seen) {
+    if (typeof value === 'function') {
+        return 'fn';
+    }
+    if (value === null || typeof value !== 'object') {
+        return JSON.stringify(value) || String(value);
+    }
+    seen = seen || new Set();
+    if (seen.has(value)) {
+        return 'circular';
+    }
+    seen.add(value);
+    if (Array.isArray(value)) {
+        return `[${value.map((item) => fingerprintOptions(item, seen)).join(',')}]`;
+    }
+    const body = Object.keys(value).sort()
+        .map((key) => `${JSON.stringify(key)}:${fingerprintOptions(value[key], seen)}`)
+        .join(',');
+    return `{${body}}`;
+}
+
+function optionsDigest(options) {
+    return crypto.createHash('sha256').update(fingerprintOptions(options)).digest('hex');
+}
 
 class VaultClient {
 
@@ -105,8 +136,15 @@ class VaultClient {
      * The instance will be stored in a local hash. Calling Vault.boot multiple
      * times with the same name will return the same instance.
      *
+     * `options` are used only when the instance is first created. A later call for a name
+     * that already exists returns the existing instance and ignores the options it was
+     * given; when those options differ from the ones the instance was booted with, that is
+     * logged as a warning rather than passing silently. Use {@link VaultClient.get} to
+     * fetch an existing instance, or {@link VaultClient.clear} to replace one.
+     *
      * @param {String} name - Vault instance name
-     * @param {Object} [options] - options for {@link VaultClient#constructor}.
+     * @param {Object} options - options for {@link VaultClient#constructor}. Required on
+     *      every call, including for a name that already exists.
      * @return {VaultClient}
      */
     static boot(name, options) {
@@ -117,6 +155,15 @@ class VaultClient {
         let instance = vaultInstances[name];
         if (instance === undefined) {
             vaultInstances[name] = instance = new VaultClient(options);
+            instance.__bootDigest = optionsDigest(options);
+        } else if (instance.__bootDigest !== optionsDigest(options)) {
+            instance.__log.warn(
+                'VaultClient.boot("%s") was called with different options than the existing ' +
+                'instance was booted with; the existing instance is returned and these options ' +
+                'are ignored. Use VaultClient.get("%s") to fetch it, or VaultClient.clear("%s") ' +
+                'first to replace it.',
+                name, name, name
+            );
         }
         return instance;
     }

@@ -577,6 +577,12 @@ Boot an instance of Vault
 The instance will be stored in a local hash. Calling Vault.boot multiple
 times with the same name will return the same instance.
 
+`options` are used only when the instance is first created. A later call for a name that already
+exists returns the existing instance and ignores the options passed to it; when those differ from
+the ones it was booted with, the client logs a warning rather than letting the difference pass
+silently. Use [`VaultClient.get(name)`](#VaultClient.get) to fetch an existing instance, or
+[`VaultClient.clear(name)`](#VaultClient.clear) before booting to replace one.
+
 **Kind**: static method of [<code>VaultClient</code>](#VaultClient)  
 **Returns**: <code>VaultClient</code>  
 

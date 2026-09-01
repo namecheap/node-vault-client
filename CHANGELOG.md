@@ -1,5 +1,11 @@
 # Unreleased
 
+- `VaultClient.boot()` now logs a warning when it is called for a name that already exists with
+  options that differ from the ones the instance was booted with (#146). The options were, and
+  still are, ignored in that case — the memoized instance is returned unchanged — so this only
+  makes a silent mismatch visible. Silent when the options match (compared order-insensitively,
+  as a hash, so no credential is retained for the comparison) and when `logger: false`.
+
 - Added `auth.renewal: false`, which disables the background
   token-renewal timer (#17). The client then uses the token until it expires and re-authenticates
   on the next call instead of renewing it in the background. Useful for short-lived processes —
