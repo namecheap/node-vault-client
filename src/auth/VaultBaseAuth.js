@@ -56,6 +56,7 @@ class VaultBaseAuth {
          */
         this.__pendingLogin = null;
         this.__refreshTimeout = null;
+        this.__renewalEpoch = 0;
     }
 
     /**
@@ -173,6 +174,7 @@ class VaultBaseAuth {
         const pendingLogin = this._authenticate().then(authToken => {
             this.__pendingLogin = null;
             this.__authToken = authToken;
+            this.__renewalEpoch++;
 
             if (authToken.isRenewable()) {
                 // Gate the log on the flag too: the guard lives inside
@@ -216,6 +218,7 @@ class VaultBaseAuth {
      * @returns {void}
      */
     cancelTokenRefresh() {
+        this.__renewalEpoch++;
         if (this.__refreshTimeout !== null) {
             lt.clearTimeout(this.__refreshTimeout);
             this.__refreshTimeout = null;
@@ -258,11 +261,28 @@ class VaultBaseAuth {
         const remaining = authToken.getExpiresAt() - Math.floor(Date.now() / 1000);
         const timer = Math.max(remaining * this.__renewalFraction, 1) * 1000;
 
+        // A renewal that is still in flight when the token is replaced or cancelled must not
+        // act on what it finds when it lands: it would overwrite the newer token, or clear
+        // the newer token's timer and then bail on its own expired one, leaving a live token
+        // permanently un-renewed. Anything that supersedes this timer bumps the epoch.
+        const epoch = ++this.__renewalEpoch;
+        const superseded = () => this.__renewalEpoch !== epoch;
+
         this.__refreshTimeout = lt.setTimeout(() => {
-            this.__renewToken(authToken).then(authToken => {
-                this.__authToken = authToken;
-                this.__setupTokenRefreshTimer(authToken);
+            if (superseded()) {
+                return;
+            }
+
+            this.__renewToken(authToken).then(renewedToken => {
+                if (superseded()) {
+                    return;
+                }
+                this.__authToken = renewedToken;
+                this.__setupTokenRefreshTimer(renewedToken);
             }).catch(err => {
+                if (superseded()) {
+                    return;
+                }
                 this.__setupTokenRefreshTimer(authToken);
 
                 this._log.error(`Cannot refresh auth token with "${authToken.getAccessor()}" accessor. Error: ${err.message}`);
