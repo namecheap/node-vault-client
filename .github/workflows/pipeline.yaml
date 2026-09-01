@@ -208,3 +208,22 @@ jobs:
       # `files` omission fails here instead of reaching npm.
       - name: Verify the packed artifact
         run: node test/verify-package.mjs
+
+  # Single aggregate gate, so branch protection needs one context instead of matrix-derived
+  # names that change whenever the Node or Vault matrix changes (see issue #168).
+  ci-ok:
+    if: always()
+    needs: [audit, lint, coverage, test, e2e, e2e-kv2, package]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report job results
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: printf '%s\n' "$RESULTS"
+
+      - name: Fail unless every job succeeded
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: |
+          echo "::error::one or more pipeline jobs did not succeed"
+          exit 1
+
