@@ -402,6 +402,44 @@ env var with no code change. Only disable verification
 (`new Agent({ connect: { rejectUnauthorized: false } })`) in throwaway/dev setups — it removes
 MITM protection.
 
+The `undici` you install must be interface-compatible with the one Node bundles
+(`process.versions.undici`). A dispatcher from a mismatched major is rejected by the global
+`fetch()` before the request leaves the process — on Node 24, `undici@8` fails immediately with
+`TypeError: fetch failed` and `cause.code` of `invalid onRequestStart method`. Node 22 and 24
+bundle undici 7.x, so pin `undici@^7`.
+
+##### Request timeouts
+
+There is no default timeout. A Vault that accepts the connection and never answers will leave
+`read()` (and every other call) pending indefinitely. Set one through the dispatcher:
+
+```javascript
+const { Agent } = require('undici');
+
+const vaultClient = VaultClient.boot('main', {
+    api: {
+        url: 'https://vault.example.com:8200/',
+        requestOptions: { dispatcher: new Agent({ headersTimeout: 5000, bodyTimeout: 5000 }) },
+    },
+    auth: { type: 'token', config: { token: '...' } },
+});
+```
+
+A failed request rejects with `TypeError: fetch failed`, with `cause.code` set to
+`UND_ERR_HEADERS_TIMEOUT` or `UND_ERR_BODY_TIMEOUT`.
+
+Do **not** put `signal: AbortSignal.timeout(ms)` in `requestOptions`. It is created once and
+shared by every request the client makes, so it works for the first call and then aborts all
+later ones with `TimeoutError`. Pass a fresh signal per call, or use the dispatcher above.
+
+##### Redirects and the Vault token
+
+Requests follow HTTP redirects, because Vault HA clusters answer standby nodes with a 307 to the
+active node. Node's `fetch()` strips only `Authorization`, `Cookie` and `Proxy-Authorization` when
+a redirect crosses origins — `X-Vault-Token` is **not** on that list and is forwarded. A host that
+can answer for `api.url` can therefore redirect the client and receive its Vault token, so treat
+`api.url` (and the DNS and any load balancer in front of it) as trusted infrastructure.
+
 <a name="VaultClient+fillNodeConfig"></a>
 
 #### vaultClient.fillNodeConfig() ⇒ <code>Promise</code>
