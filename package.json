@@ -1,6 +1,6 @@
 {
   "name": "node-vault-client",
-  "version": "2.1.2",
+  "version": "2.2.0",
   "description": "A Vault Client implemented in pure javascript for HashiCorp Vault. It supports variety of Auth Backends and performs lease renewal for issued auth token.",
   "repository": {
     "url": "git+https://github.com/namecheap/node-vault-client.git"
