@@ -755,10 +755,31 @@ await client.request('GET', 'secret/data/foo');
 
 ### Error classes
 
-| Class | When thrown |
-|---|---|
-| `UnsupportedOperationError` | A v2-only method (`deleteVersions`, `undeleteVersions`, `destroyVersions`, `readMetadata`, `deleteMetadata`) is called against a non-v2 mount. |
-| `VaultError` | Mount detection fails (e.g. permission denied) and no `api.engines` override was provided. |
+Every error the client raises extends `VaultError`. The package entry point exports the
+`VaultClient` class only, so the classes themselves are imported from `node-vault-client/src/errors`:
+
+```javascript
+const errors = require('node-vault-client/src/errors');
+
+try {
+    await client.readMetadata('secret/app');
+} catch (err) {
+    if (err instanceof errors.UnsupportedOperationError) {
+        // the mount did not resolve as KV v2 - see "Path requirements" above
+        return null;
+    }
+    throw err;
+}
+```
+
+| Class | Extends | When thrown |
+|---|---|---|
+| `VaultError` | `Error` | Base class for every error below. Raised directly when mount detection fails (e.g. permission denied) and no `api.engines` override was provided. |
+| `VaultHttpError` | `VaultError` | Vault answered with a non-2xx status. Carries the status as `statusCode` and the parsed body as `error`. |
+| `InvalidArgumentsError` | `VaultError` | Bad arguments or configuration: `boot()` called without options, an unknown instance name passed to `get()`, an unsupported `auth.type`, invalid renewal options, or an invalid node-config substitution map. |
+| `InvalidAWSCredentialsError` | `InvalidArgumentsError` | `auth.config.credentials` was supplied but is not a usable `accessKeyId` / `secretAccessKey` pair. |
+| `AuthTokenExpiredError` | `VaultError` | The Vault token expired and the backend cannot obtain a new one. `token` auth can never re-authenticate; other backends reach this only with `renewal: false` and a credential they cannot replay. |
+| `UnsupportedOperationError` | `VaultError` | A v2-only method (`deleteVersions`, `undeleteVersions`, `destroyVersions`, `readMetadata`, `deleteMetadata`) was called against a mount that did not resolve as KV v2. |
 
 ## Contributing
 
