@@ -18,6 +18,38 @@ npm install --save node-vault-client
 
 Node.js >= 18 — the client uses the native `fetch` API.
 
+### TypeScript
+
+Type declarations ship with the package, so no separate install is needed:
+
+```typescript
+import VaultClient = require('node-vault-client');
+
+const client = new VaultClient({
+    api: { url: 'http://127.0.0.1:8200' },
+    auth: { type: 'appRole', config: { role_id: 'roleId', secret_id: 'secretId' } },
+});
+
+const lease = await client.read('secret/app');
+const password = lease.getValue<string>('password');
+```
+
+`auth` is a discriminated union on `type`, so each backend only accepts its own
+configuration, and the three mutually-exclusive JWT sources (`jwt`, `jwtPath`,
+`jwtProvider`) are enforced at compile time.
+
+Types that appear in signatures are exported in type space under the `VaultClient`
+namespace — `VaultClient.Lease`, `VaultClient.VaultOptions`, `VaultClient.AuthToken`
+and the per-backend config interfaces. They are types only; the classes behind them
+are not exported at runtime.
+
+If you previously installed the third-party `@types/node-vault-client`, remove it —
+it stops at the 1.x API and its declarations take precedence in some setups:
+
+```
+npm uninstall @types/node-vault-client
+```
+
 ## Example
 
 ```javascript
