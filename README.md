@@ -126,6 +126,11 @@ const vaultClient = VaultClient.boot('main', {
 });
 ```
 
+The token file is read on every login, so a projected service-account token that the kubelet
+rotates is picked up without a restart. If that read fails — the file missing mid-rotation, or
+unreadable — the error is delivered as a rejection of the call you made, so `read().catch(...)` and
+`await` inside `try`/`catch` both see it.
+
 ### JWT auth
 
 ```javascript

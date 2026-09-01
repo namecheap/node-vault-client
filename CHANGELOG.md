@@ -1,5 +1,11 @@
 # Unreleased
 
+- Fixed the Kubernetes backend throwing a token-file read error synchronously out of `read()`
+  instead of rejecting the returned promise (#144). A `.catch()` attached to the call never ran and
+  the error could reach the process as an uncaught exception; it is now delivered as a rejection,
+  matching the JWT backend and the documented `Promise` return type. Callers using `await` inside
+  `try`/`catch` are unaffected — they caught it before and still do.
+
 - Added `auth.renewal: false`, which disables the background
   token-renewal timer (#17). The client then uses the token until it expires and re-authenticates
   on the next call instead of renewing it in the background. Useful for short-lived processes —

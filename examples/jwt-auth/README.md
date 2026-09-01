@@ -46,6 +46,9 @@ and the demo secret — a dev-mode root token is the intended use.
 | `jwtProvider` resolving a non-string | `InvalidArgumentsError`, no login attempted |
 | `jwtProvider` that rejects | the provider's own error, unwrapped |
 
+Every one of these arrives as a **rejected promise**, never a synchronous throw — so a single
+`.catch()` on the call is enough, whichever way the login fails.
+
 The 400-vs-403 distinction is the one worth internalising: **400 means Vault rejected the JWT**
 (audience, expiry, signature, unknown role), **403 means the login worked and the resulting token
 lacks a policy for that path**. They point at completely different fixes.
