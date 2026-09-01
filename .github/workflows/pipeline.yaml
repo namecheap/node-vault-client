@@ -154,6 +154,11 @@ jobs:
       - name: Run JWT e2e tests
         run: npm run test:e2e:jwt
 
+      # The example is a smoke test that exits non-zero if any scenario deviates,
+      # so running it here keeps it from rotting into stale documentation.
+      - name: Run the example app
+        run: npm run test:example
+
   # KV v2 integration suite — exercises mount auto-detection, data/metadata path
   # rewriting, merge-patch update, version ops and metadata ops against a real
   # KV v2 Vault (the vault-server-kv2 compose service). A single Node version is
