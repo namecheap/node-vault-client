@@ -37,6 +37,16 @@
   the non-interactive `jwt` flow is implemented; the browser-redirect `oidc` flow is out of
   scope for this service client. See the README's "JWT auth" section.
 
+- Documented how to import the error classes (#161). The README named
+  `UnsupportedOperationError` in eight places and `VaultError` in the error table, but nothing in
+  the repository showed a consumer how to obtain either: the only `require` of the errors module
+  was the example app's in-tree relative path. The `Error classes` section now gives the
+  `node-vault-client/src/errors` import with a worked `instanceof` example, and the table lists
+  all six exported classes with what raises each; it previously listed two. Two tests guard it:
+  one fails if `files` would stop publishing `src/errors.js`, and one fails if a class is exported
+  but missing from the README table. No runtime change, and no `exports` field was added, so every
+  existing deep import keeps working.
+
 # 2.1.2 Release notes (2026-08-03)
 
 - Internal refactor: `VaultBaseAuth` no longer overloads a single `__authToken` field with two

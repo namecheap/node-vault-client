@@ -44,5 +44,14 @@ jobs:
             exit 1
           fi
 
+      - name: Lint
+        run: npm run lint
+
+      - name: Run unit tests
+        run: npm run test:unit
+
+      - name: Verify the packed artifact
+        run: node test/verify-package.mjs
+
       - name: Publish
         run: npm publish --provenance --access public
