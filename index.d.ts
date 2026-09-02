@@ -79,12 +79,18 @@ declare namespace VaultClient {
         namespace?: string;
     }
 
+    type JwtDistributedClaimConfig =
+        | { distributedClaimAccessToken?: never; distributedClaimAccessTokenProvider?: never }
+        | { distributedClaimAccessToken: string; distributedClaimAccessTokenProvider?: never }
+        | { distributedClaimAccessTokenProvider: () => string | Promise<string>; distributedClaimAccessToken?: never };
+
     type JwtAuthConfig = JwtAuthConfigCommon &
         (
             | { jwt: string; jwtPath?: never; jwtProvider?: never }
             | { jwtPath: string; jwt?: never; jwtProvider?: never }
             | { jwtProvider: () => string | Promise<string>; jwt?: never; jwtPath?: never }
-        );
+        ) &
+        JwtDistributedClaimConfig;
 
     interface AuthOptionsCommon {
         mount?: string;

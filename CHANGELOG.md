@@ -1,5 +1,28 @@
 # Unreleased
 
+- Added optional `distributedClaimAccessToken` and `distributedClaimAccessTokenProvider` keys to
+  the `jwt` backend's `config` (#175), which supply Vault's optional
+  `distributed_claim_access_token` login parameter. It matters only for Microsoft Entra ID (Azure
+  AD): past 200 groups Azure stops putting group membership in the token and sends OIDC distributed
+  claims instead — `_claim_names`/`_claim_sources` pointing at the Microsoft Graph API — and a mount
+  whose `provider_config` sets `fetch_groups` skips the claim unconditionally and always asks Graph.
+  Either way Vault has to call Graph itself, and the JWT being logged in with is not a credential
+  for that call, so without this parameter such a login fails at the group-fetch step — after the
+  JWT has already validated, so the failure names the group lookup rather than the token, which was
+  fine. `distributedClaimAccessToken` takes a literal Graph access token; it is fixed at
+  construction and re-sent on every re-login, so it inherits the literal-`jwt` staleness caveat —
+  more sharply, since an Entra access token lasts about an hour.
+  `distributedClaimAccessTokenProvider` takes an (optionally async) function invoked fresh at login
+  time — never at construction, never cached — exactly mirroring `jwtProvider`, and is the option
+  for anything longer-lived than the Graph token. Providing both raises `InvalidArgumentsError` at
+  construction, as does a non-function provider; a provider resolving to a non-string or empty
+  string raises it at login, without a request being sent. Purely additive: both keys are optional and
+  absent by default, and with neither set the login request body is byte-for-byte what it was
+  before, so no existing configuration changes behaviour. The README's JWT section gains a
+  subsection on when this is needed, and records that `fetch_groups` is a `provider_config` option
+  on the auth mount's config rather than on the role, while `groups_claim` — without which Vault
+  resolves no groups and ignores any Graph token passed — is on the role.
+
 - Documented the `bound_audiences` requirement for JWT auth, which is the most common reason a
   first login fails and was previously absent from the README. Vault requires a `jwt` role to bind
   the audience the token carries, but does not catch the omission when the role is created: as long
