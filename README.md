@@ -36,7 +36,8 @@ const password = lease.getValue<string>('password');
 
 `auth` is a discriminated union on `type`, so each backend only accepts its own
 configuration, and the three mutually-exclusive JWT sources (`jwt`, `jwtPath`,
-`jwtProvider`) are enforced at compile time.
+`jwtProvider`) are enforced at compile time — as is the mutually-exclusive pair
+`distributedClaimAccessToken` / `distributedClaimAccessTokenProvider`.
 
 Types that appear in signatures are exported in type space under the `VaultClient`
 namespace — `VaultClient.Lease`, `VaultClient.VaultOptions`, `VaultClient.AuthToken`
@@ -167,8 +168,9 @@ const vaultClient = VaultClient.boot('main', {
         type: 'jwt',
         mount: 'jwt',                                  // Optional. Vault JWT auth mount point ("jwt" by default)
         config: {
-            role: 'my-app',                             // Optional. Role configured in Vault's JWT auth backend; omitted uses the mount's `default_role`
-            jwt: process.env.CI_JOB_JWT,                // Exactly one of `jwt` / `jwtPath` / `jwtProvider` is required (see below)
+            role: 'my-app',                                       // Optional. Role configured in Vault's JWT auth backend; omitted uses the mount's `default_role`
+            jwt: process.env.CI_JOB_JWT,                          // Exactly one of `jwt` / `jwtPath` / `jwtProvider` is required (see below)
+            distributedClaimAccessToken: process.env.GRAPH_TOKEN, // Optional. Azure/Entra ID group lookups only (see below); or `distributedClaimAccessTokenProvider`
         },
     },
 });
@@ -218,6 +220,68 @@ is fine — Vault matches `bound_audiences` against any entry.
 
 Vault also does not require an `exp` claim: a token minted without one is accepted and never
 expires. If you write your own `jwtProvider`, give the tokens it mints a short `exp`.
+
+##### Azure / Entra ID group lookups need `distributedClaimAccessToken`
+
+Skip this unless you log in with Microsoft Entra ID (Azure AD) tokens *and* the Vault role sets
+`groups_claim`. Vault's `distributed_claim_access_token` parameter
+["only applies to the Azure (Entra ID) provider"](https://developer.hashicorp.com/vault/api-docs/auth/jwt#distributed_claim_access_token);
+on every other IdP these two keys do nothing at all.
+
+Azure does not always put group membership in the token. Past 200 groups it sends OIDC
+[distributed claims](https://openid.net/specs/openid-connect-core-1_0.html#AggregatedDistributedClaims)
+instead — `_claim_names`/`_claim_sources` pointing at the Microsoft Graph API rather than the group
+names themselves — and a mount configured with `fetch_groups` skips the claim entirely and always
+asks Graph. Either way Vault has to call Graph itself, and the JWT you logged in with is not a
+credential for that call: it needs a separate Graph access token, sent on the login request as the
+optional `distributed_claim_access_token`. Leave it out on a mount/role set up this way and the
+login fails at the group-fetch step — *after* the JWT has already validated, so the error names the
+group lookup rather than anything about your token.
+
+Two optional, mutually exclusive `config` keys supply it. Passing both raises
+`InvalidArgumentsError` at construction; passing neither leaves the login request byte-for-byte
+what it was before these keys existed.
+
+* **`distributedClaimAccessToken`** — a literal Graph access token. It carries exactly the caveat
+  the literal `jwt` above does, for the same reason: the value is fixed at construction and every
+  re-login re-sends it, so it works until that token expires. Entra access tokens last about an
+  hour, which is shorter than most processes — fine for a one-shot script, wrong for a service.
+* **`distributedClaimAccessTokenProvider`** — an (optionally async) function, called fresh at login
+  time (never at construction, never cached), returning `string | Promise<string>`. Acquire the
+  Graph token inside it — an MSAL client-credentials call, the Azure IMDS managed-identity endpoint
+  — and every login gets a current one. Resolving to a non-string or an empty string raises
+  `InvalidArgumentsError` without sending a login request.
+
+```javascript
+const vaultClient = VaultClient.boot('main', {
+    api: { url: 'https://vault.example.com:8200/' },
+    auth: {
+        type: 'jwt',
+        config: {
+            role: 'my-app',
+            jwtProvider: () => getEntraIdToken(),
+            distributedClaimAccessTokenProvider: () => getGraphAccessToken(),
+        },
+    },
+});
+```
+
+On the Vault side, `fetch_groups` lives in `provider_config` on the **mount's config, not on the
+role** — which is where people tend to look for it:
+
+```shell
+vault write auth/jwt/config \
+    oidc_discovery_url=https://login.microsoftonline.com/<tenant-id>/v2.0 \
+    provider_config='{"provider":"azure","fetch_groups":true}'
+
+vault write auth/jwt/role/my-app \
+    role_type=jwt user_claim=sub bound_audiences=<application-client-id> \
+    groups_claim=groups token_policies=my-policy
+```
+
+`fetch_groups` is optional — the distributed-claim path is taken without it whenever Azure omits
+the groups claim. `groups_claim` on the role is not: with it unset Vault never resolves groups at
+all, so a Graph token you pass is accepted and never used.
 
 #### Authenticating from GitHub Actions
 

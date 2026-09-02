@@ -35,6 +35,9 @@ new VaultClient({ api: { url: 'u' }, auth: { type: 'jwt', config: { jwt: 'e.y.z'
 new VaultClient({ api: { url: 'u' }, auth: { type: 'jwt', config: { role: 'r', jwtPath: '/tmp/jwt' } } });
 new VaultClient({ api: { url: 'u' }, auth: { type: 'jwt', config: { jwtProvider: async () => 'e.y.z' } } });
 new VaultClient({ api: { url: 'u' }, auth: { type: 'jwt', config: { jwtProvider: () => 'e.y.z' } } });
+new VaultClient({ api: { url: 'u' }, auth: { type: 'jwt', config: { jwt: 'e.y.z', distributedClaimAccessToken: 'graph-token' } } });
+new VaultClient({ api: { url: 'u' }, auth: { type: 'jwt', config: { jwt: 'e.y.z', distributedClaimAccessTokenProvider: () => 'graph-token' } } });
+new VaultClient({ api: { url: 'u' }, auth: { type: 'jwt', config: { jwtProvider: async () => 'e.y.z', distributedClaimAccessTokenProvider: async () => 'graph-token' } } });
 
 new VaultClient({
     api: { url: 'u' },
@@ -112,6 +115,18 @@ new VaultClient({ api: { url: 'u' }, auth: { type: 'jwt', config: { jwt: 'a', jw
 
 // @ts-expect-error a JWT source is required
 new VaultClient({ api: { url: 'u' }, auth: { type: 'jwt', config: { role: 'r' } } });
+
+// @ts-expect-error only one distributed claim access token source may be supplied
+new VaultClient({ api: { url: 'u' }, auth: { type: 'jwt', config: { jwt: 'a', distributedClaimAccessToken: 't', distributedClaimAccessTokenProvider: () => 't' } } });
+
+// @ts-expect-error distributedClaimAccessTokenProvider must be a function
+new VaultClient({ api: { url: 'u' }, auth: { type: 'jwt', config: { jwt: 'a', distributedClaimAccessTokenProvider: 't' } } });
+
+// @ts-expect-error distributedClaimAccessTokenProvider must resolve to a string
+new VaultClient({ api: { url: 'u' }, auth: { type: 'jwt', config: { jwt: 'a', distributedClaimAccessTokenProvider: () => 42 } } });
+
+// @ts-expect-error distributedClaimAccessToken is a string
+new VaultClient({ api: { url: 'u' }, auth: { type: 'jwt', config: { jwt: 'a', distributedClaimAccessToken: 42 } } });
 
 // @ts-expect-error renewalFraction is a number
 new VaultClient({ api: { url: 'u' }, auth: { type: 'token', config: { token: 't' }, renewalFraction: '0.5' } });

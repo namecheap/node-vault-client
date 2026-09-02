@@ -21,6 +21,15 @@ class VaultJwtAuth extends VaultBaseAuth {
      *   returning `string | Promise<string>`. Called fresh on every login (never at construction
      *   or cached across logins) so it can mint a short-lived token -- the shape GitHub Actions'
      *   `core.getIDToken()`, cloud metadata endpoints and SPIFFE workloads need.
+     * @param {String} [config.distributedClaimAccessToken] - A literal OAuth access token forwarded
+     *   to Vault as `distributed_claim_access_token`. Azure/Entra roles with `fetch_groups` enabled
+     *   need it so Vault can resolve the distributed group-membership claim against the Microsoft
+     *   Graph API. Optional, and mutually exclusive with `distributedClaimAccessTokenProvider`.
+     * @param {Function} [config.distributedClaimAccessTokenProvider] - (optionally async) function
+     *   invoked at login time, returning `string | Promise<string>`. Called fresh on every login
+     *   (never at construction or cached across logins) because Graph access tokens are short-lived
+     *   and are usually acquired next to the JWT itself. Mutually exclusive with
+     *   `distributedClaimAccessToken`.
      * @param {String} [config.namespace] - Optional. Vault namespace. Applied as the X-Vault-Namespace
      *   header to every request by {@link VaultApiClient}; see {@link VaultClient#constructor}.
      * @param {String} mount - Vault's mount point ("jwt" by default)
@@ -37,34 +46,57 @@ class VaultJwtAuth extends VaultBaseAuth {
         if (config.jwtProvider !== undefined && typeof config.jwtProvider !== 'function') {
             throw new errors.InvalidArgumentsError('"jwtProvider" should be a function for VaultJwtAuth');
         }
+        if (config.distributedClaimAccessToken !== undefined
+            && config.distributedClaimAccessTokenProvider !== undefined) {
+            throw new errors.InvalidArgumentsError(
+                'Only one of "distributedClaimAccessToken" or "distributedClaimAccessTokenProvider"'
+                + ' should be provided for VaultJwtAuth'
+            );
+        }
+        if (config.distributedClaimAccessTokenProvider !== undefined
+            && typeof config.distributedClaimAccessTokenProvider !== 'function') {
+            throw new errors.InvalidArgumentsError(
+                '"distributedClaimAccessTokenProvider" should be a function for VaultJwtAuth'
+            );
+        }
 
         this.__role = config.role;
         this.__jwt = config.jwt;
         this.__jwtPath = config.jwtPath;
         this.__jwtProvider = config.jwtProvider;
+        this.__distributedClaimAccessToken = config.distributedClaimAccessToken;
+        this.__distributedClaimAccessTokenProvider = config.distributedClaimAccessTokenProvider;
     }
 
     _authenticate() {
         return Promise.resolve()
             .then(() => this.__acquireJwt())
-            .then(({ jwt, source }) => {
-                this._log.info(
-                    'making authentication request: Vault role: "%s"; JWT source: %s (%d bytes)',
-                    this.__role !== undefined ? this.__role : '(default_role)', source, jwt.length
-                );
+            .then(({ jwt, source }) => Promise.resolve()
+                .then(() => this.__acquireDistributedClaimAccessToken())
+                .then((distributedClaim) => {
+                    this._log.info(
+                        'making authentication request: Vault role: "%s"; JWT source: %s (%d bytes)%s',
+                        this.__role !== undefined ? this.__role : '(default_role)', source, jwt.length,
+                        distributedClaim === undefined
+                            ? ''
+                            : `; distributed claim access token: ${distributedClaim.source}`
+                    );
 
-                const body = { jwt };
-                if (this.__role !== undefined) {
-                    body.role = this.__role;
-                }
+                    const body = { jwt };
+                    if (this.__role !== undefined) {
+                        body.role = this.__role;
+                    }
+                    if (distributedClaim !== undefined) {
+                        body.distributed_claim_access_token = distributedClaim.accessToken;
+                    }
 
-                return this.__apiClient.makeRequest('POST', `/auth/${this._mount}/login`, body)
-                    .then((res) => {
-                        this._log.debug('received Vault client token from JWT login');
+                    return this.__apiClient.makeRequest('POST', `/auth/${this._mount}/login`, body)
+                        .then((res) => {
+                            this._log.debug('received Vault client token from JWT login');
 
-                        return this._getTokenEntity(res.auth.client_token);
-                    });
-            });
+                            return this._getTokenEntity(res.auth.client_token);
+                        });
+                }));
     }
 
     /**
@@ -88,6 +120,33 @@ class VaultJwtAuth extends VaultBaseAuth {
                 );
             }
             return { jwt, source: 'provider' };
+        });
+    }
+
+    /**
+     * Resolves to `undefined` when neither option is configured, so that the login body stays
+     * byte-identical to what it was before this option existed.
+     *
+     * @returns {undefined|{accessToken: String, source: String}|Promise<{accessToken: String, source: String}>}
+     * @private
+     */
+    __acquireDistributedClaimAccessToken() {
+        if (this.__distributedClaimAccessToken !== undefined) {
+            return { accessToken: this.__distributedClaimAccessToken, source: 'literal' };
+        }
+        if (this.__distributedClaimAccessTokenProvider === undefined) {
+            return undefined;
+        }
+
+        // Wrapping in Promise.resolve().then() normalizes both a sync provider (plain return)
+        // and a synchronous throw into the same rejection path as an async one.
+        return Promise.resolve().then(() => this.__distributedClaimAccessTokenProvider()).then((accessToken) => {
+            if (typeof accessToken !== 'string' || accessToken.length === 0) {
+                throw new errors.InvalidArgumentsError(
+                    '"distributedClaimAccessTokenProvider" must resolve to a non-empty access token string'
+                );
+            }
+            return { accessToken, source: 'provider' };
         });
     }
 }
