@@ -33,6 +33,10 @@ updates:
       - dependency-name: config
         # Peer range is deliberately <4: config 4 requires Node >=20.
         update-types: ["version-update:semver-major"]
+      - dependency-name: mocha
+        # 12.x requires Node "^20.19.0 || >=22.12.0" and hard-crashes with
+        # ERR_REQUIRE_ESM under Node 18 (tried in PR #181).
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
