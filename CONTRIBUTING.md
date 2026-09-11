@@ -94,8 +94,9 @@ Dependabot proposes updates weekly, configured in
 `fix(deps)`, dev tooling grouped into one `chore(deps)` PR, and GitHub Actions as `ci(deps)`.
 
 Some majors are deliberately ignored there because they drop Node 18, which is still in `engines`
-and in the CI matrix — `c8` 11+, `eslint` 10.x and `config` 4. If you need one of those, it comes
-with raising the minimum Node version, not with a lockfile bump.
+and in the CI matrix — `c8` 11+, `eslint` 10.x, `config` 4 and `mocha` 12+ (12.x requires Node
+`^20.19.0 || >=22.12.0` and hard-crashes with `ERR_REQUIRE_ESM` under Node 18). If you need one of
+those, it comes with raising the minimum Node version, not with a lockfile bump.
 
 Security advisories are separate: `npm audit --audit-level=high` runs as a blocking CI job, and the
 `overrides` block in `package.json` is how a patched transitive dependency gets pinned when the
