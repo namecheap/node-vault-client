@@ -1,5 +1,16 @@
 # Unreleased
 
+- **This is the last release of node-vault-client to support Node.js 18.** Node 18 reached
+  end-of-life on 2025-04-30 and no longer receives security patches from the Node.js project,
+  independent of anything pinned in this package's own dependency tree — which is itself feeling
+  the pressure: `c8`, `eslint`, `@eslint/js`, `config` and now `mocha` all have majors held back
+  in `.github/dependabot.yml` purely because they drop Node 18. Requiring the client now emits a
+  one-time `process.emitWarning` (code `NodeVaultClientNode18Deprecation`) when running under
+  Node 18, so consumers who never read a changelog still see it. The next major release raises
+  `engines.node` to `>= 20.19.0`, drops the Node 18 CI matrix legs, and clears the accumulated
+  ignore-list entries so those dependencies resume normal updates. No other behaviour changes;
+  this is purely a deprecation notice ahead of that release.
+
 - Added optional `distributedClaimAccessToken` and `distributedClaimAccessTokenProvider` keys to
   the `jwt` backend's `config` (#175), which supply Vault's optional
   `distributed_claim_access_token` login parameter. It matters only for Microsoft Entra ID (Azure

@@ -9,7 +9,8 @@ By participating in this project you agree to abide by our [Code of Conduct](COD
 ## Prerequisites
 
 - Node.js >= 18 — the client uses the native `fetch` API. CI runs against 18, 20, 22 and 24
-  (`.nvmrc` pins 20 for local development).
+  (`.nvmrc` pins 20 for local development). This is the last release line to support Node 18 —
+  see the sunset notice in README.md and CHANGELOG.md; the next major release drops it.
 - npm (the repo ships a committed `package-lock.json`; use `npm ci`).
 - Docker — used to run a local dev Vault server for the integration and end-to-end tests
   (see `docker-compose.yml`).
