@@ -57,6 +57,21 @@ describe('VaultNodeConfig', function () {
             expect(vnc.__getSubstitutionMap()).to.have.property('b', 'secret/b#tst');
         });
 
+        // config's own util.initParam historically preferred a `--NODE_CONFIG_DIR=` command-line
+        // argument over the environment variable; resolveConfigDir() replicates that (it no
+        // longer goes through config.util at all — see its own doc comment for why).
+        it('prefers a --NODE_CONFIG_DIR= command-line argument over the environment variable', function () {
+            process.env.NODE_CONFIG_DIR = path.join(__dirname, 'data', 'does-not-exist');
+            const originalArgv = process.argv;
+            process.argv = [...originalArgv, `--NODE_CONFIG_DIR=${CONFIG_BASE}`];
+            try {
+                const vnc = new VaultNodeConfig({});
+                expect(vnc.__getSubstitutionMap()).to.have.property('b', 'secret/b#tst');
+            } finally {
+                process.argv = originalArgv;
+            }
+        });
+
         it('returns a fresh clone on each call', function () {
             process.env.NODE_CONFIG_DIR = CONFIG_BASE;
             const vnc = new VaultNodeConfig({});

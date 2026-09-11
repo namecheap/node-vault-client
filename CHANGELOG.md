@@ -1,3 +1,50 @@
+# Unreleased
+
+- **BREAKING: Node.js 18 support is dropped, as announced in 2.3.0.** `engines.node` is now
+  `>= 20.19.0`. Node 18 reached end-of-life on 2025-04-30 and no longer receives security patches
+  from the Node.js project; the runtime deprecation warning added in 2.3.0
+  (`checkNodeVersion.js` / `NodeVaultClientNode18Deprecation`) is removed along with it, since it
+  has served its purpose. CI drops the Node 18 legs from the `test` and `e2e` matrices and moves
+  the single-Node-version jobs (`audit`, `lint`, `coverage`, `package`, `e2e-kv2`) from Node 20 to
+  Node 22; `.nvmrc` now pins 22.
+
+- **Added Node.js 26 (the current release line, on track to become the next LTS on 2026-10-28)
+  to the `test` and `e2e` CI matrices.**
+
+  Also flagging, not acting on: **Node 20 itself reached its own documented end-of-life on
+  2026-04-30** (github.com/nodejs/Release schedule.json) — the same category of problem this
+  release fixes for Node 18. `engines.node >= 20.19.0` keeps the commitment 2.3.0 already
+  published, but does not by itself get consumers off an unsupported runtime; whether to raise
+  the floor further (e.g. to Node 22, the oldest line still in Maintenance LTS) is a maintainer
+  call the previous release didn't anticipate needing this soon, not something folded into this
+  PR unasked.
+
+- **Added HashiCorp Vault 2.1.x to CI.** `e2e` gains a `{node: 22, vault: '2.1'}` leg alongside
+  the existing `2.0` one (both Vault 2.x lines now on one Node version, matching the existing
+  convention for the 2.x axis); `e2e-kv2` now runs against all three supported lines
+  (`1.21`, `2.0`, `2.1`). `docker-compose.yml`'s reproduce-locally comment gained the matching
+  `VAULT_IMAGE=hashicorp/vault:2.1` example.
+
+- **Dependency updates, unblocked by dropping Node 18** (previously held back in
+  `.github/dependabot.yml` purely because their majors require Node >= 20):
+  `mocha` 11.7.6 → 12.0.0, `eslint` 9.39.5 → 10.10.0, `@eslint/js` 9.39.5 → 10.0.1,
+  `c8` 10.1.3 → 12.0.0. Also `@aws-sdk/credential-providers` 3.1100.0 → 3.1130.0 (a routine
+  in-range bump). All devDependencies/tooling; nothing here ships to consumers.
+
+- **`peerDependencies.config` widened from `>=1 <4` to `>=1 <5`** (admits config 4.x; config 5.x
+  is still excluded — see below). This surfaced a real, undocumented breaking change in config
+  4.x: `config.util.initParam`, which `VaultNodeConfig`'s `NODE_CONFIG_DIR` resolution depended
+  on, was silently removed from the public API (`config.util` is now a `ConfigUtils` instance
+  with no such method — config's own 4.0.0 release notes list three breaking changes and this
+  isn't one of them). Fixed by replicating `initParam`'s exact historical behavior
+  (`--NODE_CONFIG_DIR=value` command-line argument, then the environment variable, then the
+  default) directly in `VaultNodeConfig.resolveConfigDir`, which no longer touches `config.util`
+  at all — verified against config 1.31.0, 3.3.12 and 4.4.2. config 5.x remains ignored in
+  `dependabot.yml`: it is a ground-up ESM rewrite ("node-config is now an ESM module" per its own
+  release notes), which this CommonJS codebase's synchronous `require('config')` cannot adopt
+  without its own dedicated compatibility work — raising that cap needs its own PR, not a
+  bundled guess.
+
 # 2.3.0 Release notes (2026-09-11)
 
 - **This is the last release of node-vault-client to support Node.js 18.** Node 18 reached

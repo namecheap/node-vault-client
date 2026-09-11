@@ -8,6 +8,26 @@ function isObject(value) {
     return value !== null && typeof value === 'object';
 }
 
+/**
+ * Resolves NODE_CONFIG_DIR the same way `config`'s own `util.initParam` historically did —
+ * a `--NODE_CONFIG_DIR=value` command-line argument, then the environment variable, then
+ * `defaultValue` — implemented directly rather than through `config.util.initParam`, which
+ * config 4.x removed from its public API without documenting the removal (`config.util` is
+ * now a `ConfigUtils` instance with no `initParam` method at all; calling it throws
+ * "config.util.initParam is not a function"). This also means resolution no longer depends
+ * on which `config` major is installed.
+ *
+ * @private
+ */
+function resolveConfigDir(defaultValue) {
+    const argPrefix = '--NODE_CONFIG_DIR=';
+    const cmdLineArg = process.argv.slice(2).find((arg) => arg.startsWith(argPrefix));
+    if (cmdLineArg !== undefined) {
+        return cmdLineArg.slice(argPrefix.length);
+    }
+    return process.env.NODE_CONFIG_DIR || defaultValue;
+}
+
 function isPlainObject(value) {
     if (!isObject(value)) {
         return false;
@@ -112,7 +132,7 @@ class VaultNodeConfig {
      * @private
      */
     __getSubstitutionMap() {
-        let configDir = this.__nodeConfig.util.initParam('NODE_CONFIG_DIR', path.join(process.cwd(), 'config'));
+        let configDir = resolveConfigDir(path.join(process.cwd(), 'config'));
         if (configDir.indexOf('.') === 0) {
             configDir = path.join(process.cwd(), configDir);
         }

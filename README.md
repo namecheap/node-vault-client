@@ -16,13 +16,9 @@ npm install --save node-vault-client
 
 ### Requirements
 
-Node.js >= 18 — the client uses the native `fetch` API.
-
-> **Node.js 18 sunset notice:** this is the last release of node-vault-client to support Node 18.
-> Node 18 reached end-of-life on 2025-04-30 and no longer receives security patches from the
-> Node.js project. Running this version under Node 18 emits a one-time process warning
-> (`NodeVaultClientNode18Deprecation`); the next major release raises the minimum to
-> Node.js >= 20.19.0. See [CHANGELOG.md](CHANGELOG.md) for details.
+Node.js >= 20.19.0 — the client uses the native `fetch` API. Node 18 support was dropped in 3.0.0
+(Node 18 reached end-of-life on 2025-04-30 and no longer receives security patches from the
+Node.js project); see [CHANGELOG.md](CHANGELOG.md) for details.
 
 ### TypeScript
 
