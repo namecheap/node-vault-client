@@ -12,6 +12,9 @@ const VaultKubernetesAuth = require('./auth/VaultKubernetesAuth');
 const VaultJwtAuth = require('./auth/VaultJwtAuth');
 const MountResolver = require('./MountResolver');
 const { rewritePath, normalizeResponse } = require('./kvTransform');
+const { warnIfNode18 } = require('./checkNodeVersion');
+
+warnIfNode18();
 
 const noop = () => {};
 const vaultInstances = {};
