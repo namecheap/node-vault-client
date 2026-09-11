@@ -1,4 +1,4 @@
-# Unreleased
+# 2.3.0 Release notes (2026-09-11)
 
 - **This is the last release of node-vault-client to support Node.js 18.** Node 18 reached
   end-of-life on 2025-04-30 and no longer receives security patches from the Node.js project,
