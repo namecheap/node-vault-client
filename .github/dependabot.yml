@@ -19,23 +19,13 @@ updates:
           - minor
           - patch
     ignore:
-      # Node 18 is still in `engines` and in the CI matrix, and these majors drop
-      # it. See the 2.1.1 release notes, which record that each was tried.
-      - dependency-name: c8
-        # 11+ requires Node "20 || >=22"; 12 pulls an ESM-only yargs that dies
-        # with ERR_REQUIRE_ESM on Node 18.
-        update-types: ["version-update:semver-major"]
-      - dependency-name: eslint
-        # 10.x declares ^20.19.0 || ^22.13.0 || >=24.
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "@eslint/js"
-        update-types: ["version-update:semver-major"]
+      # Not a Node-version hold (Node 18 support was dropped — see #185 and the
+      # 3.0.0 release notes): config 5.x is a ground-up ESM rewrite
+      # ("node-config is now an ESM module"), which this CommonJS codebase's
+      # synchronous `require('config')` in VaultNodeConfig's constructor cannot
+      # adopt without its own dedicated compatibility work. Peer range is
+      # deliberately <5 until that's done.
       - dependency-name: config
-        # Peer range is deliberately <4: config 4 requires Node >=20.
-        update-types: ["version-update:semver-major"]
-      - dependency-name: mocha
-        # 12.x requires Node "^20.19.0 || >=22.12.0" and hard-crashes with
-        # ERR_REQUIRE_ESM under Node 18 (tried in PR #181).
         update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions

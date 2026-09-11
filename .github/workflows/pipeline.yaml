@@ -25,10 +25,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
 
-      - name: Use Node.js 20
+      - name: Use Node.js 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Install dependencies
@@ -46,10 +46,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
 
-      - name: Use Node.js 20
+      - name: Use Node.js 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Install dependencies
@@ -66,10 +66,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
 
-      - name: Use Node.js 20
+      - name: Use Node.js 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Install dependencies
@@ -94,7 +94,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [18, 20, 22, 24]
+        node-version: [20, 22, 24, 26]
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
@@ -119,19 +119,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [18, 20, 22, 24]
+        node-version: [20, 22, 24, 26]
         # Latest 1.x. Minor-line tags, not patch pins: `1.21` follows the newest
         # 1.21.x, so patch releases are covered without touching this file. Keep
         # in step with the default in docker-compose.yml so a local
         # `docker compose up` reproduces what CI runs.
         vault-version: ['1.21']
         include:
-          # Latest 2.x, on one Node version rather than crossed with the whole
+          # 2.x lines, on one Node version rather than crossed with the whole
           # matrix: the node-version axis exercises the client's runtime and the
           # vault-version axis the server's API, and the two have never
-          # interacted. Node 20 is the version in .nvmrc.
-          - node-version: 20
+          # interacted. Node 22 is the version in .nvmrc.
+          - node-version: 22
             vault-version: '2.0'
+          - node-version: 22
+            vault-version: '2.1'
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
@@ -173,11 +175,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Both supported Vault lines. The KV v2 surface — data/metadata paths,
+        # All supported Vault lines. The KV v2 surface — data/metadata paths,
         # merge-patch, version and metadata operations — is where a server-side
         # API change would show first, so this suite gets the full Vault axis
         # even though it stays on one Node version.
-        vault-version: ['1.21', '2.0']
+        vault-version: ['1.21', '2.0', '2.1']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
 
@@ -186,10 +188,10 @@ jobs:
           VAULT_IMAGE: hashicorp/vault:${{ matrix.vault-version }}
         run: docker compose up -d --wait
 
-      - name: Use Node.js 20
+      - name: Use Node.js 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Install dependencies
@@ -203,10 +205,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
 
-      - name: Use Node.js 20
+      - name: Use Node.js 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Install dependencies

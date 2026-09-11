@@ -2,13 +2,14 @@
 # server line, and so you can reproduce a CI failure locally:
 #
 #   docker compose up -d --wait                                 # default, latest 1.x
-#   VAULT_IMAGE=hashicorp/vault:2.0 docker compose up -d --wait  # latest 2.x
+#   VAULT_IMAGE=hashicorp/vault:2.0 docker compose up -d --wait  # 2.0.x
+#   VAULT_IMAGE=hashicorp/vault:2.1 docker compose up -d --wait  # latest 2.x
 #
 # The tag is the minor line (`1.21`), not a patch (`1.21.4`), on purpose: the
 # minor tag follows the newest patch in that line, so security and bug-fix
 # releases are picked up with no change here. That is what stops this pin
 # rotting the way the previous `vault:1.13.3` one did. Only a new *minor* line
-# (1.22, 2.1) needs a human, and it needs one in two places -- this default and
+# (1.22, 2.2) needs a human, and it needs one in two places -- this default and
 # the matrix in .github/workflows/pipeline.yaml.
 #
 # Note the image also moved from the deprecated Docker Hub `vault` repository,

@@ -8,9 +8,9 @@ By participating in this project you agree to abide by our [Code of Conduct](COD
 
 ## Prerequisites
 
-- Node.js >= 18 — the client uses the native `fetch` API. CI runs against 18, 20, 22 and 24
-  (`.nvmrc` pins 20 for local development). This is the last release line to support Node 18 —
-  see the sunset notice in README.md and CHANGELOG.md; the next major release drops it.
+- Node.js >= 20.19.0 — the client uses the native `fetch` API. CI runs against 20, 22, 24 and 26
+  (`.nvmrc` pins 22 for local development). Node 18 support was dropped in 3.0.0; see
+  CHANGELOG.md.
 - npm (the repo ships a committed `package-lock.json`; use `npm ci`).
 - Docker — used to run a local dev Vault server for the integration and end-to-end tests
   (see `docker-compose.yml`).
@@ -37,10 +37,10 @@ npm run test:e2e:kv2   # KV v2 server: mount detection, data/metadata paths, ver
 npm run test:e2e:jwt   # JWT auth against a throwaway mount it configures and removes itself
 ```
 
-To reproduce a failure from the Vault 2.x leg of CI, point compose at that image:
+To reproduce a failure from a Vault 2.x leg of CI, point compose at that image:
 
 ```shell
-docker compose down -v && VAULT_IMAGE=hashicorp/vault:2.0 docker compose up -d --wait
+docker compose down -v && VAULT_IMAGE=hashicorp/vault:2.1 docker compose up -d --wait
 ```
 
 When touching an auth backend, `node examples/jwt-auth/vault-jwt-demo.mjs` is a useful
@@ -49,10 +49,10 @@ exits non-zero if any of them behaves unexpectedly.
 
 Run `npm run lint` and the tests before pushing — the same checks run in CI
 (`.github/workflows/pipeline.yaml`): audit, lint, coverage, a `test:unit` matrix on Node
-18/20/22/24, two e2e jobs that cover both supported Vault lines, and `package`, which verifies the
-packed tarball. `e2e` runs the KV v1 and JWT suites across Node 18/20/22/24 against Vault 1.21,
-plus one Node 20 job against Vault 2.0; `e2e-kv2` runs the KV v2 suite against Vault 1.21 and 2.0.
-Every e2e job starts its own Vault containers with `docker compose up -d --wait`.
+20/22/24/26, two e2e jobs that cover every supported Vault line, and `package`, which verifies the
+packed tarball. `e2e` runs the KV v1 and JWT suites across Node 20/22/24/26 against Vault 1.21,
+plus one Node 22 job each against Vault 2.0 and 2.1; `e2e-kv2` runs the KV v2 suite against Vault
+1.21, 2.0 and 2.1. Every e2e job starts its own Vault containers with `docker compose up -d --wait`.
 
 A final `ci-ok` job depends on all of the above and fails unless every one of them succeeded. It
 exists so branch protection can require one stable status check instead of matrix-derived job
@@ -94,10 +94,11 @@ Dependabot proposes updates weekly, configured in
 [`.github/dependabot.yml`](.github/dependabot.yml): runtime dependencies individually as
 `fix(deps)`, dev tooling grouped into one `chore(deps)` PR, and GitHub Actions as `ci(deps)`.
 
-Some majors are deliberately ignored there because they drop Node 18, which is still in `engines`
-and in the CI matrix — `c8` 11+, `eslint` 10.x, `config` 4 and `mocha` 12+ (12.x requires Node
-`^20.19.0 || >=22.12.0` and hard-crashes with `ERR_REQUIRE_ESM` under Node 18). If you need one of
-those, it comes with raising the minimum Node version, not with a lockfile bump.
+`config`'s major versions past 4 are deliberately ignored there: 5.x is a ground-up ESM rewrite
+that this CommonJS codebase's synchronous `require('config')` can't adopt without its own
+dedicated compatibility work (see `src/VaultNodeConfig.js`'s `resolveConfigDir` — config 4.x
+already removed `util.initParam` from its public API without documenting it, which is the shape
+of surprise a bare `config` major bump can spring). No other dependency is currently held back.
 
 Security advisories are separate: `npm audit --audit-level=high` runs as a blocking CI job, and the
 `overrides` block in `package.json` is how a patched transitive dependency gets pinned when the
