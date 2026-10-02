@@ -45,6 +45,12 @@
   without its own dedicated compatibility work — raising that cap needs its own PR, not a
   bundled guess.
 
+- Security: raise the `brace-expansion` override from `^5.0.9` to `^5.0.12` (lock 5.0.9 → 5.0.12).
+  Clears GHSA-6j4f-fj2g-mc7p and GHSA-qhr7-859c-m2p7 (high, stack exhaustion from uncontrolled
+  recursion) and GHSA-q2hr-2g5m-vwhr (quadratic-time `{a},b}` rewrite), all published 2026-09-29
+  and fixed by 5.0.12. Dev/transitive only (eslint → minimatch); no runtime dependency or behavior
+  change.
+
 # 2.3.0 Release notes (2026-09-11)
 
 - **This is the last release of node-vault-client to support Node.js 18.** Node 18 reached
