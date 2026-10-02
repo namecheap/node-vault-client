@@ -1,4 +1,4 @@
-# Unreleased
+# 3.0.0 Release notes (2026-10-02)
 
 - **BREAKING: Node.js 18 support is dropped, as announced in 2.3.0.** `engines.node` is now
   `>= 20.19.0`. Node 18 reached end-of-life on 2025-04-30 and no longer receives security patches
