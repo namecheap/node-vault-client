@@ -57,19 +57,19 @@ class AuthToken {
      *
      * @private
      * @param {Object} data - the `data` object of a token lookup response
-     * @returns {int|null} null when the token never expires (ttl === 0)
+     * @returns {int|null} null when ttl is 0 and there is no usable expire_time
      */
     static __resolveExpiresAt(data) {
-        if (data.ttl === 0) {
-            return null;
-        }
-
+        const expireTime = AuthToken.__parseRfc3339Seconds(data.expire_time);
         const networkLatency = 60;
         const margin = data.ttl > networkLatency ? networkLatency : 0;
 
-        const expireTime = AuthToken.__parseRfc3339Seconds(data.expire_time);
         if (expireTime !== null) {
             return expireTime - margin;
+        }
+
+        if (data.ttl === 0) {
+            return null;
         }
 
         // Fallback for responses without a usable `expire_time`.

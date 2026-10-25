@@ -1,4 +1,5 @@
 import { expect } from 'chai';
+import sinon from 'sinon';
 import AuthToken from '../src/auth/AuthToken.js';
 
 const nowSec = () => Math.floor(Date.now() / 1000);
@@ -106,9 +107,32 @@ describe('AuthToken', function () {
             expect(token.getExpiresAt()).to.equal(1000 + (3600 - 60));
         });
 
-        it('never expires when ttl is 0, even if expire_time is present', function () {
+        it('uses expire_time when ttl is 0 and Vault still reports an expiry', function () {
             const token = build({ ttl: 0, expire_time: '2030-01-01T00:00:00Z' });
-            expect(token.getExpiresAt()).to.equal(null);
+            expect(token.getExpiresAt()).to.equal(epoch('2030-01-01T00:00:00Z'));
+        });
+
+        it('expires a ttl 0 token when its near-expiry expire_time passes', function () {
+            const clock = sinon.useFakeTimers({ now: 1000 });
+            try {
+                const token = build({ ttl: 0, expire_time: new Date(1800).toISOString() });
+                expect(token.getExpiresAt()).to.equal(1);
+                expect(token.isExpired()).to.equal(false);
+
+                clock.tick(1000);
+                expect(token.isExpired()).to.equal(true);
+                expect(token.isRenewable()).to.equal(true);
+            } finally {
+                clock.restore();
+            }
+        });
+
+        it('keeps a ttl 0 token non-expiring when expire_time is unusable', function () {
+            for (const expireTime of ['', '0001-01-01T00:00:00Z']) {
+                const token = build({ ttl: 0, expire_time: expireTime });
+                expect(token.getExpiresAt()).to.equal(null);
+                expect(token.isExpired()).to.equal(false);
+            }
         });
     });
 
