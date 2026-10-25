@@ -30,6 +30,8 @@
   (`secret//foo`) throw; a non-string path throws instead of being stringified. On KV v2 a
   leading slash now addresses the key it names: `/secret/foo` used to reach `secret/secret/foo`.
 
+- Honor Vault's absolute token expiry when a lookup reports zero remaining TTL.
+
 # 3.0.0 Release notes (2026-10-02)
 
 - **BREAKING: Node.js 18 support is dropped, as announced in 2.3.0.** `engines.node` is now
