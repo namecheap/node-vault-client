@@ -13,6 +13,8 @@ class AuthToken {
      * @param {int} numUses
      * @param {boolean} isRenewable
      * @param {int|null} expiresAtMilliseconds - precise expiry time when available
+     * @param {int|null} ttl - remaining lifetime reported by Vault, when available
+     * @param {boolean} hasPreciseExpiry - true when expiry came from Vault's expire_time
      */
     constructor(
         id,
@@ -22,36 +24,43 @@ class AuthToken {
         explicitMaxTtl,
         numUses,
         isRenewable,
-        expiresAtMilliseconds = null
+        expiresAtMilliseconds = null,
+        ttl = null,
+        hasPreciseExpiry = false
     ) {
         this.__id = id;
         this.__accessor = accessor;
         this.__createdAt = createdAt;
-        this.__expiresAt = expiresAt;
         this.__expiresAtMilliseconds = expiresAt === null
-            ? null
+            ? expiresAtMilliseconds
             : (expiresAtMilliseconds ?? expiresAt * 1000);
+        this.__expiresAt = this.__expiresAtMilliseconds === null
+            ? null
+            : Math.floor(this.__expiresAtMilliseconds / 1000);
+        this.__hasPreciseExpiry = hasPreciseExpiry;
         this.__explicitMaxTtl = explicitMaxTtl;
         this.__numUses = numUses;
-        this.__isRenewable = isRenewable;
+        this.__isRenewable = isRenewable
+            && (ttl === null || ttl === undefined || Number(ttl) !== 0)
+            && this.__expiresAtMilliseconds !== null;
     }
 
     static fromResponse(response) {
         const data = response.data;
+        const hasPreciseExpiry = AuthToken.__parseRfc3339Milliseconds(data.expire_time) !== null;
         const expiresAtMilliseconds = AuthToken.__resolveExpiresAtMilliseconds(data);
-        const expiresAt = expiresAtMilliseconds === null
-            ? null
-            : Math.floor(expiresAtMilliseconds / 1000);
 
         return new AuthToken(
             data.id,
             data.accessor,
             data.creation_time,
-            expiresAt,
+            null,
             data.explicit_max_ttl,
             data.num_uses,
-            data.renewable !== undefined ? data.renewable && data.ttl !== 0 : false,
-            expiresAtMilliseconds
+            data.renewable !== undefined ? data.renewable : false,
+            expiresAtMilliseconds,
+            data.ttl,
+            hasPreciseExpiry
         );
     }
 
@@ -72,7 +81,7 @@ class AuthToken {
     static __resolveExpiresAtMilliseconds(data) {
         const expireTime = AuthToken.__parseRfc3339Milliseconds(data.expire_time);
         const networkLatency = 60;
-        const margin = data.ttl > networkLatency ? networkLatency : 0;
+        const margin = data.ttl > networkLatency ? networkLatency : 1;
 
         if (expireTime !== null) {
             return expireTime - margin * 1000;
@@ -129,14 +138,20 @@ class AuthToken {
             return false;
         }
 
-        return Date.now() >= this.__expiresAtMilliseconds;
+        if (this.__hasPreciseExpiry) {
+            return Date.now() >= this.__expiresAtMilliseconds;
+        }
+
+        // Preserve the previous whole-second boundary for tokens that do not carry
+        // Vault's authoritative expire_time.
+        return Math.floor(Date.now() / 1000) > this.__expiresAt;
     }
 
     /**
      * @returns {boolean}
      */
     isRenewable() {
-        return this.__isRenewable && this.getExpiresAt() !== null;
+        return this.__isRenewable;
     }
 
     /**
@@ -144,6 +159,20 @@ class AuthToken {
      */
     getExpiresAt() {
         return this.__expiresAt;
+    }
+
+    /**
+     * @returns {int|null} precise UNIX timestamp in milliseconds, when available
+     */
+    getExpiresAtMilliseconds() {
+        return this.__expiresAtMilliseconds;
+    }
+
+    /**
+     * @returns {boolean}
+     */
+    hasPreciseExpiry() {
+        return this.__hasPreciseExpiry;
     }
 }
 

@@ -76,9 +76,29 @@ describe('AuthToken', function () {
             expect(token.getExpiresAt()).to.equal(epoch('2030-01-01T00:00:00Z') - 60);
         });
 
-        it('does not subtract the margin when the remaining ttl is below the latency', function () {
+        it('keeps a one-second safety margin when the remaining ttl is at most 60 seconds', function () {
             const token = build({ ttl: 30, expire_time: '2030-01-01T00:00:00Z' });
-            expect(token.getExpiresAt()).to.equal(epoch('2030-01-01T00:00:00Z'));
+            expect(token.getExpiresAt()).to.equal(epoch('2030-01-01T00:00:00Z') - 1);
+        });
+
+        it('keeps the short-ttl safety margin at millisecond precision', function () {
+            const clock = sinon.useFakeTimers({ now: 1000 });
+            try {
+                const token = build({ ttl: 30, expire_time: new Date(2500).toISOString() });
+                expect(token.getExpiresAtMilliseconds()).to.equal(1500);
+                expect(token.isExpired()).to.equal(false);
+                clock.tick(499);
+                expect(token.isExpired()).to.equal(false);
+                clock.tick(1);
+                expect(token.isExpired()).to.equal(true);
+            } finally {
+                clock.restore();
+            }
+        });
+
+        it('keeps the 60-second safety margin above the short-ttl range', function () {
+            const token = build({ ttl: 61, expire_time: '2030-01-01T00:00:00Z' });
+            expect(token.getExpiresAt()).to.equal(epoch('2030-01-01T00:00:00Z') - 60);
         });
 
         it('uses expire_time for a token looked up long after issuance (the fix)', function () {
@@ -88,8 +108,11 @@ describe('AuthToken', function () {
         });
 
         it('parses Vault RFC3339 with nanoseconds and a timezone offset', function () {
-            const token = build({ ttl: 3600, expire_time: '2030-05-19T11:35:54.466476215-04:00' });
-            expect(token.getExpiresAt()).to.equal(epoch('2030-05-19T11:35:54.466476215-04:00') - 60);
+            const expireTime = '2030-05-19T11:35:54.466476215-04:00';
+            const token = build({ ttl: 3600, expire_time: expireTime });
+            expect(token.getExpiresAt()).to.equal(epoch(expireTime) - 60);
+            expect(token.getExpiresAtMilliseconds()).to.equal(Date.parse(expireTime) - 60000);
+            expect(token.hasPreciseExpiry()).to.equal(true);
         });
 
         it('falls back to creation_time + ttl when expire_time is absent', function () {
@@ -109,14 +132,16 @@ describe('AuthToken', function () {
 
         it('uses expire_time when ttl is 0 and Vault still reports an expiry', function () {
             const token = build({ ttl: 0, expire_time: '2030-01-01T00:00:00Z' });
-            expect(token.getExpiresAt()).to.equal(epoch('2030-01-01T00:00:00Z'));
+            expect(token.getExpiresAt()).to.equal(epoch('2030-01-01T00:00:00Z') - 1);
+            expect(token.isRenewable()).to.equal(false);
         });
 
         it('expires a ttl 0 token when its near-expiry expire_time passes', function () {
             const clock = sinon.useFakeTimers({ now: 1000 });
             try {
-                const token = build({ ttl: 0, expire_time: new Date(1800).toISOString() });
+                const token = build({ ttl: 0, expire_time: new Date(2800).toISOString() });
                 expect(token.getExpiresAt()).to.equal(1);
+                expect(token.getExpiresAtMilliseconds()).to.equal(1800);
                 expect(token.isExpired()).to.equal(false);
                 expect(token.isRenewable()).to.equal(false);
 
@@ -152,6 +177,27 @@ describe('AuthToken', function () {
         it('is not expired when the expiry is in the future', function () {
             const token = new AuthToken('id', 'acc', 0, nowSec() + 1000, 0, 0, true);
             expect(token.isExpired()).to.equal(false);
+        });
+
+        it('preserves the existing whole-second boundary without an authoritative expire_time', function () {
+            const clock = sinon.useFakeTimers({ now: 1999 });
+            try {
+                const token = new AuthToken('id', 'acc', 0, 1, 0, 0, true);
+                expect(token.isExpired()).to.equal(false);
+                clock.tick(1);
+                expect(token.isExpired()).to.equal(true);
+            } finally {
+                clock.restore();
+            }
+        });
+    });
+
+    describe('constructor expiry normalization', function () {
+        it('derives the seconds value from the millisecond deadline and applies the ttl-0 renewal rule once', function () {
+            const token = new AuthToken('id', 'acc', 0, 9, 0, 0, true, 1999, 0, true);
+            expect(token.getExpiresAtMilliseconds()).to.equal(1999);
+            expect(token.getExpiresAt()).to.equal(1);
+            expect(token.isRenewable()).to.equal(false);
         });
     });
 

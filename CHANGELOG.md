@@ -30,8 +30,11 @@
   (`secret//foo`) throw; a non-string path throws instead of being stringified. On KV v2 a
   leading slash now addresses the key it names: `/secret/foo` used to reach `secret/secret/foo`.
 
-- Stop renewing when Vault reports zero remaining TTL, honor its absolute expiry, and re-authenticate
-  after that time when the backend supports it.
+- Stop renewing when Vault reports zero remaining TTL and honor its absolute `expire_time`, including
+  its millisecond precision. `getExpiresAt()` now reports that deadline for a zero-TTL lookup when
+  Vault supplies one. After expiry, backends that can obtain fresh credentials re-authenticate;
+  `token` auth raises `AuthTokenExpiredError`, while a single-use AppRole secret or an expired
+  literal JWT can make subsequent login attempts fail.
 
 # 3.0.0 Release notes (2026-10-02)
 

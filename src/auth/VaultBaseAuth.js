@@ -259,8 +259,21 @@ class VaultBaseAuth {
             return;
         }
 
-        const remaining = authToken.getExpiresAt() - Math.floor(Date.now() / 1000);
-        const timer = Math.max(remaining * this.__renewalFraction, 1) * 1000;
+        const hasPreciseExpiry = authToken.hasPreciseExpiry();
+        const remaining = hasPreciseExpiry
+            ? authToken.getExpiresAtMilliseconds() - Date.now()
+            : (authToken.getExpiresAt() - Math.floor(Date.now() / 1000)) * 1000;
+        if (remaining <= 0) {
+            return;
+        }
+
+        const timer = Math.max(
+            Math.floor(remaining * this.__renewalFraction),
+            hasPreciseExpiry ? 1 : 1000
+        );
+        if (hasPreciseExpiry && timer >= remaining) {
+            return;
+        }
 
         // A renewal that is still in flight when the token is replaced or cancelled must not
         // act on what it finds when it lands: it would overwrite the newer token, or clear
@@ -271,6 +284,9 @@ class VaultBaseAuth {
 
         this.__refreshTimeout = lt.setTimeout(() => {
             if (superseded()) {
+                return;
+            }
+            if (authToken.isExpired()) {
                 return;
             }
 

@@ -363,17 +363,16 @@ on the next call — no background timer at all. Two reasons to want that:
 Renewal off means the token is allowed to expire, and what happens next depends on whether your
 backend can obtain a *fresh* credential unaided:
 
-| backend | on expiry with `renewal: false` |
-| --- | --- |
-| `kubernetes`, `iam`, `jwt` with `jwtPath`/`jwtProvider` | clean re-login — the JWT or AWS credential is re-acquired, so this is the intended case |
-| `appRole` | re-login **replays the same `secret_id`**. Fine for a reusable one; with Vault's recommended hardening (`secret_id_num_uses=1`, or a short `secret_id_ttl`) the second login is rejected |
-| `jwt` with a literal `jwt` | replays the same JWT, so it works only until the IdP-issued token expires |
-| `token` | **cannot re-authenticate at all.** The client raises `AuthTokenExpiredError` from then on, permanently |
+| backend | on expiry with `renewal: false` | at max TTL with renewal enabled |
+| --- | --- | --- |
+| `kubernetes`, `iam`, `jwt` with `jwtPath`/`jwtProvider` | clean re-login — the JWT or AWS credential is re-acquired, so this is the intended case | clean re-login after the token's authoritative `expire_time` |
+| `appRole` | re-login **replays the same `secret_id`**. Fine for a reusable one; with Vault's recommended hardening (`secret_id_num_uses=1`, or a short `secret_id_ttl`) the second login is rejected | re-login replays the same `secret_id`; a single-use or expired secret is rejected |
+| `jwt` with a literal `jwt` | replays the same JWT, so it works only until the IdP-issued token expires | replays the same JWT; once it expires, login is rejected |
+| `token` | **cannot re-authenticate at all.** The client raises `AuthTokenExpiredError` from then on, permanently | **cannot re-authenticate at all.** The client raises `AuthTokenExpiredError` after the max-TTL expiry |
 
-A renewable token can also reach Vault's maximum TTL while background renewal is enabled. When
-`lookup-self` reports `ttl: 0` with an `expire_time`, the client stops scheduling renewals and honors
-that deadline. After expiry, auth methods that can obtain fresh credentials try a new login; `token`
-auth cannot, so it raises `AuthTokenExpiredError`.
+A renewable token can reach Vault's maximum TTL while background renewal is enabled. Before this fix,
+`ttl: 0` could leave the client without a usable expiry deadline for starting that fresh login. The
+client now stops scheduling renewals and uses Vault's authoritative `expire_time` for the deadline.
 
 Two consequences worth stating plainly:
 
