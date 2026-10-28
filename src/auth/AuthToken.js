@@ -12,6 +12,7 @@ class AuthToken {
      * @param {int} explicitMaxTtl - in seconds
      * @param {int} numUses
      * @param {boolean} isRenewable
+     * @param {int|null} expiresAtMilliseconds - precise expiry time when available
      */
     constructor(
         id,
@@ -20,12 +21,16 @@ class AuthToken {
         expiresAt,
         explicitMaxTtl,
         numUses,
-        isRenewable
+        isRenewable,
+        expiresAtMilliseconds = null
     ) {
         this.__id = id;
         this.__accessor = accessor;
         this.__createdAt = createdAt;
         this.__expiresAt = expiresAt;
+        this.__expiresAtMilliseconds = expiresAt === null
+            ? null
+            : (expiresAtMilliseconds ?? expiresAt * 1000);
         this.__explicitMaxTtl = explicitMaxTtl;
         this.__numUses = numUses;
         this.__isRenewable = isRenewable;
@@ -33,20 +38,25 @@ class AuthToken {
 
     static fromResponse(response) {
         const data = response.data;
+        const expiresAtMilliseconds = AuthToken.__resolveExpiresAtMilliseconds(data);
+        const expiresAt = expiresAtMilliseconds === null
+            ? null
+            : Math.floor(expiresAtMilliseconds / 1000);
 
         return new AuthToken(
             data.id,
             data.accessor,
             data.creation_time,
-            AuthToken.__resolveExpiresAt(data),
+            expiresAt,
             data.explicit_max_ttl,
             data.num_uses,
-            data.renewable !== undefined ? data.renewable : false
+            data.renewable !== undefined ? data.renewable && data.ttl !== 0 : false,
+            expiresAtMilliseconds
         );
     }
 
     /**
-     * Resolve the UNIX timestamp (seconds) at which the client should treat the token
+     * Resolve the UNIX timestamp (milliseconds) at which the client should treat the token
      * as expired, shifted earlier by a network-latency safety margin so renewal happens
      * before the real expiry.
      *
@@ -57,15 +67,15 @@ class AuthToken {
      *
      * @private
      * @param {Object} data - the `data` object of a token lookup response
-     * @returns {int|null} null when ttl is 0 and there is no usable expire_time
+     * @returns {int|null} expiry in milliseconds, or null when ttl is 0 without expire_time
      */
-    static __resolveExpiresAt(data) {
-        const expireTime = AuthToken.__parseRfc3339Seconds(data.expire_time);
+    static __resolveExpiresAtMilliseconds(data) {
+        const expireTime = AuthToken.__parseRfc3339Milliseconds(data.expire_time);
         const networkLatency = 60;
         const margin = data.ttl > networkLatency ? networkLatency : 0;
 
         if (expireTime !== null) {
-            return expireTime - margin;
+            return expireTime - margin * 1000;
         }
 
         if (data.ttl === 0) {
@@ -75,19 +85,19 @@ class AuthToken {
         // Fallback for responses without a usable `expire_time`.
         const creationTime = parseInt(data.last_renewal_time !== undefined ? data.last_renewal_time : data.creation_time, 10);
         const ttl = data.ttl > networkLatency ? data.ttl - networkLatency : data.ttl;
-        return creationTime + parseInt(ttl, 10);
+        return (creationTime + parseInt(ttl, 10)) * 1000;
     }
 
     /**
      * Parse an RFC3339 timestamp (as returned by Vault, up to nanosecond precision with
-     * a timezone offset) into whole UNIX seconds. Returns null for missing, empty,
+     * a timezone offset) into UNIX milliseconds. Returns null for missing, empty,
      * unparseable, or non-positive (e.g. Vault's "0001-01-01T00:00:00Z" zero value) input.
      *
      * @private
      * @param {String} value
      * @returns {int|null}
      */
-    static __parseRfc3339Seconds(value) {
+    static __parseRfc3339Milliseconds(value) {
         if (typeof value !== 'string' || value === '') {
             return null;
         }
@@ -97,8 +107,7 @@ class AuthToken {
             return null;
         }
 
-        const seconds = Math.floor(ms / 1000);
-        return seconds > 0 ? seconds : null;
+        return ms > 0 ? ms : null;
     }
 
     /**
@@ -120,7 +129,7 @@ class AuthToken {
             return false;
         }
 
-        return Math.floor(Date.now() / 1000) > this.__expiresAt;
+        return Date.now() >= this.__expiresAtMilliseconds;
     }
 
     /**

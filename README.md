@@ -370,12 +370,16 @@ backend can obtain a *fresh* credential unaided:
 | `jwt` with a literal `jwt` | replays the same JWT, so it works only until the IdP-issued token expires |
 | `token` | **cannot re-authenticate at all.** The client raises `AuthTokenExpiredError` from then on, permanently |
 
+A renewable token can also reach Vault's maximum TTL while background renewal is enabled. When
+`lookup-self` reports `ttl: 0` with an `expire_time`, the client stops scheduling renewals and honors
+that deadline. After expiry, auth methods that can obtain fresh credentials try a new login; `token`
+auth cannot, so it raises `AuthTokenExpiredError`.
+
 Two consequences worth stating plainly:
 
-* For `token` auth this **is** a behaviour change, not a no-op. A renewable token handed to `token`
-  auth is renewed indefinitely today; with `renewal: false` it expires and every later call rejects
-  for the life of the process. `close()` does not reset it — recovery means
-  `VaultClient.clear(name)` and booting again.
+* **For `token` auth, disabling renewal stops an otherwise renewable token from being renewed.**
+  After it expires, every later call rejects for the life of the process. `close()` does not reset
+  it — recovery means `VaultClient.clear(name)` and booting again.
 * For `appRole` and literal-`jwt`, a login that can no longer succeed is retried on **every**
   subsequent call, since a failed login clears the cached token. That is a failing request per
   `read()`, with no backoff. Prefer `jwtPath`/`jwtProvider`, a reusable `secret_id`, or leaving

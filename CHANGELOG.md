@@ -30,7 +30,8 @@
   (`secret//foo`) throw; a non-string path throws instead of being stringified. On KV v2 a
   leading slash now addresses the key it names: `/secret/foo` used to reach `secret/secret/foo`.
 
-- Honor Vault's absolute token expiry when a lookup reports zero remaining TTL.
+- Stop renewing when Vault reports zero remaining TTL, honor its absolute expiry, and re-authenticate
+  after that time when the backend supports it.
 
 # 3.0.0 Release notes (2026-10-02)
 
