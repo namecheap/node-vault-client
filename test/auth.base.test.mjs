@@ -445,6 +445,76 @@ describe('VaultBaseAuth', function () {
         });
     });
 
+    describe('zero-TTL expiry after token renewal (#201)', function () {
+        let clock;
+
+        function flush(times) {
+            let p = Promise.resolve();
+            for (let i = 0; i < (times || 8); i++) {
+                p = p.then(() => undefined);
+            }
+            return p;
+        }
+
+        beforeEach(function () {
+            clock = sinon.useFakeTimers({ now: 1000 });
+        });
+
+        afterEach(function () {
+            clock.restore();
+            sinon.restore();
+        });
+
+        it('re-authenticates after lookup-self reports zero TTL at the max-TTL expiry', async function () {
+            const api = apiStub();
+            api.makeRequest.resolves({});
+            const initial = new AuthToken('initial', 'acc', 0, 101, 0, 0, true);
+            const capped = AuthToken.fromResponse({
+                data: {
+                    id: 'capped',
+                    accessor: 'acc',
+                    creation_time: 0,
+                    ttl: 0,
+                    expire_time: new Date(52000).toISOString(),
+                    explicit_max_ttl: 0,
+                    num_uses: 0,
+                    renewable: true,
+                },
+            });
+            const fresh = nonRenewableToken('fresh-login');
+            const authStub = sinon.stub();
+            authStub.onFirstCall().resolves(initial);
+            authStub.onSecondCall().resolves(fresh);
+            const auth = new TestAuth(api, 'mount', { authStub });
+            sinon.stub(auth, '_getTokenEntity').resolves(capped);
+
+            try {
+                await auth.getAuthToken();
+                clock.tick(49999);
+                await flush();
+                expect(api.makeRequest).to.not.have.been.called;
+
+                clock.tick(1);
+                await flush();
+                expect(api.makeRequest).to.have.been.calledOnceWith(
+                    'POST', '/auth/token/renew-self', null, { 'X-Vault-Token': 'initial' }
+                );
+                expect(auth.__authToken).to.equal(capped);
+                expect(auth.__refreshTimeout).to.equal(null);
+
+                clock.tick(999);
+                expect(await auth.getAuthToken()).to.equal(capped);
+                expect(authStub).to.have.been.calledOnce;
+
+                clock.tick(1);
+                expect(await auth.getAuthToken()).to.equal(fresh);
+                expect(authStub).to.have.been.calledTwice;
+            } finally {
+                auth.cancelTokenRefresh();
+            }
+        });
+    });
+
     describe('superseded renewal callbacks (#145)', function () {
         let clock;
 

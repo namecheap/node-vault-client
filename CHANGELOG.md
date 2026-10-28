@@ -64,7 +64,8 @@ Upgrading from 2.x: [MIGRATION.md](MIGRATION.md) lists what can need a change an
     as a key name passed through `encodeURIComponent()` that contains a `/`, must now go through
     `request()`.
 
-- Honor Vault's absolute token expiry when a lookup reports zero remaining TTL.
+- Stop renewing when Vault reports zero remaining TTL, honor its absolute expiry, and re-authenticate
+  after that time when the backend supports it.
 
 - **Security (GHSA-x5xf-r8x2-647h): AppRole login no longer logs the `role_id`.** Every login and
   re-login logged `making authentication request: role_id=<role id>` at `info` level, which the

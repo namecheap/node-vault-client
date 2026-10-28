@@ -118,10 +118,12 @@ describe('AuthToken', function () {
                 const token = build({ ttl: 0, expire_time: new Date(1800).toISOString() });
                 expect(token.getExpiresAt()).to.equal(1);
                 expect(token.isExpired()).to.equal(false);
+                expect(token.isRenewable()).to.equal(false);
 
-                clock.tick(1000);
+                clock.tick(799);
+                expect(token.isExpired()).to.equal(false);
+                clock.tick(1);
                 expect(token.isExpired()).to.equal(true);
-                expect(token.isRenewable()).to.equal(true);
             } finally {
                 clock.restore();
             }
