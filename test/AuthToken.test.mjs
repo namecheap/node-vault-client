@@ -76,18 +76,18 @@ describe('AuthToken', function () {
             expect(token.getExpiresAt()).to.equal(epoch('2030-01-01T00:00:00Z') - 60);
         });
 
-        it('keeps a one-second safety margin when the remaining ttl is at most 60 seconds', function () {
+        it('does not subtract a one-second margin from a positive short TTL', function () {
             const token = build({ ttl: 30, expire_time: '2030-01-01T00:00:00Z' });
-            expect(token.getExpiresAt()).to.equal(epoch('2030-01-01T00:00:00Z') - 1);
+            expect(token.getExpiresAt()).to.equal(epoch('2030-01-01T00:00:00Z'));
         });
 
-        it('keeps the short-ttl safety margin at millisecond precision', function () {
+        it('does not expire a one-second token immediately on receipt', function () {
             const clock = sinon.useFakeTimers({ now: 1000 });
             try {
-                const token = build({ ttl: 30, expire_time: new Date(2500).toISOString() });
-                expect(token.getExpiresAtMilliseconds()).to.equal(1500);
+                const token = build({ ttl: 1, expire_time: new Date(2000).toISOString() });
+                expect(token.getExpiresAtMilliseconds()).to.equal(2000);
                 expect(token.isExpired()).to.equal(false);
-                clock.tick(499);
+                clock.tick(999);
                 expect(token.isExpired()).to.equal(false);
                 clock.tick(1);
                 expect(token.isExpired()).to.equal(true);
@@ -130,25 +130,15 @@ describe('AuthToken', function () {
             expect(token.getExpiresAt()).to.equal(1000 + (3600 - 60));
         });
 
-        it('uses expire_time when ttl is 0 and Vault still reports an expiry', function () {
-            const token = build({ ttl: 0, expire_time: '2030-01-01T00:00:00Z' });
-            expect(token.getExpiresAt()).to.equal(epoch('2030-01-01T00:00:00Z') - 1);
-            expect(token.isRenewable()).to.equal(false);
-        });
-
-        it('expires a ttl 0 token when its near-expiry expire_time passes', function () {
+        it('treats ttl 0 as expired on receipt even when the client clock trails Vault', function () {
             const clock = sinon.useFakeTimers({ now: 1000 });
             try {
                 const token = build({ ttl: 0, expire_time: new Date(2800).toISOString() });
+                expect(token.getExpiresAtMilliseconds()).to.equal(1000);
+                expect(token.getUnadjustedExpiresAtMilliseconds()).to.equal(2800);
                 expect(token.getExpiresAt()).to.equal(1);
-                expect(token.getExpiresAtMilliseconds()).to.equal(1800);
-                expect(token.isExpired()).to.equal(false);
-                expect(token.isRenewable()).to.equal(false);
-
-                clock.tick(799);
-                expect(token.isExpired()).to.equal(false);
-                clock.tick(1);
                 expect(token.isExpired()).to.equal(true);
+                expect(token.isRenewable()).to.equal(false);
             } finally {
                 clock.restore();
             }
