@@ -1,6 +1,7 @@
 'use strict';
 
 const { VaultError, InvalidArgumentsError } = require('./errors');
+const safeMessage = require('./safeMessage');
 
 // Default cap for the mount cache. Real deployments talk to a handful of static
 // mounts, so this is generous headroom; the cap exists so that a long-lived
@@ -199,9 +200,12 @@ class MountResolver {
             .catch((err) => {
                 // Clear in-flight so callers can retry
                 this.__inflight.delete(interimKey);
+                // safeMessage: this message is logged by the operation's catch handler, so it
+                // must not embed a raw response body; the original error stays on `cause`.
                 throw new VaultError(
-                    `Failed to detect KV engine version for mount "${interimKey}" (path: ${path}): ${err.message}. ` +
-                    'Set api.engines or disable autoDetect to bypass detection.'
+                    `Failed to detect KV engine version for mount "${interimKey}" (path: ${path}): ${safeMessage(err)}. ` +
+                    'Set api.engines or disable autoDetect to bypass detection.',
+                    { cause: err }
                 );
             });
 

@@ -12,6 +12,7 @@ const VaultKubernetesAuth = require('./auth/VaultKubernetesAuth');
 const VaultJwtAuth = require('./auth/VaultJwtAuth');
 const MountResolver = require('./MountResolver');
 const { rewritePath, normalizeResponse } = require('./kvTransform');
+const safeMessage = require('./safeMessage');
 
 const noop = () => {};
 const vaultInstances = {};
@@ -422,7 +423,7 @@ class VaultClient {
                 return Lease.fromResponse(normalised);
             })
             .catch((reason) => {
-                this.__log.error('read secret failed: %s', reason.message);
+                this.__log.error('read secret failed: %s', safeMessage(reason));
                 throw reason;
             });
     }
@@ -442,7 +443,7 @@ class VaultClient {
                 return Lease.fromResponse(normalised);
             })
             .catch((reason) => {
-                this.__log.error('list secrets failed: %s', reason.message);
+                this.__log.error('list secrets failed: %s', safeMessage(reason));
                 throw reason;
             });
     }
@@ -462,7 +463,7 @@ class VaultClient {
                 return body;
             })
             .catch((reason) => {
-                this.__log.error('write secret failed: %s', reason.message);
+                this.__log.error('write secret failed: %s', safeMessage(reason));
                 throw reason;
             });
     }
@@ -484,7 +485,7 @@ class VaultClient {
                 return body;
             })
             .catch((reason) => {
-                this.__log.error('delete secret failed: %s', reason.message);
+                this.__log.error('delete secret failed: %s', safeMessage(reason));
                 throw reason;
             });
     }
@@ -509,7 +510,7 @@ class VaultClient {
             { 'Content-Type': 'application/merge-patch+json' }, { wrapData: true })
             .then(({ body }) => body)
             .catch((reason) => {
-                this.__log.error('update secret failed: %s', reason.message);
+                this.__log.error('update secret failed: %s', safeMessage(reason));
                 throw reason;
             });
     }
@@ -528,7 +529,7 @@ class VaultClient {
         return this.__resolveAndRequest('request', method, path, data === undefined ? null : data, null, { raw: true })
             .then(({ body }) => body)
             .catch((reason) => {
-                this.__log.error('raw request failed: %s', reason.message);
+                this.__log.error('raw request failed: %s', safeMessage(reason));
                 throw reason;
             });
     }
@@ -549,7 +550,7 @@ class VaultClient {
         this.__log.debug('deleteVersions %s %j', path, versions);
         return this.__v2Only('deleteVersions', 'POST', path, { versions })
             .catch((reason) => {
-                this.__log.error('deleteVersions failed: %s', reason.message);
+                this.__log.error('deleteVersions failed: %s', safeMessage(reason));
                 throw reason;
             });
     }
@@ -566,7 +567,7 @@ class VaultClient {
         this.__log.debug('undeleteVersions %s %j', path, versions);
         return this.__v2Only('undeleteVersions', 'POST', path, { versions })
             .catch((reason) => {
-                this.__log.error('undeleteVersions failed: %s', reason.message);
+                this.__log.error('undeleteVersions failed: %s', safeMessage(reason));
                 throw reason;
             });
     }
@@ -583,7 +584,7 @@ class VaultClient {
         this.__log.debug('destroyVersions %s %j', path, versions);
         return this.__v2Only('destroyVersions', 'POST', path, { versions })
             .catch((reason) => {
-                this.__log.error('destroyVersions failed: %s', reason.message);
+                this.__log.error('destroyVersions failed: %s', safeMessage(reason));
                 throw reason;
             });
     }
@@ -602,7 +603,7 @@ class VaultClient {
                 return normalizeResponse(2, 'readMetadata', body);
             })
             .catch((reason) => {
-                this.__log.error('readMetadata failed: %s', reason.message);
+                this.__log.error('readMetadata failed: %s', safeMessage(reason));
                 throw reason;
             });
     }
@@ -618,7 +619,7 @@ class VaultClient {
         this.__log.debug('deleteMetadata %s', path);
         return this.__v2Only('deleteMetadata', 'DELETE', path, null)
             .catch((reason) => {
-                this.__log.error('deleteMetadata failed: %s', reason.message);
+                this.__log.error('deleteMetadata failed: %s', safeMessage(reason));
                 throw reason;
             });
     }

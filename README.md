@@ -473,7 +473,7 @@ Client constructor function.
 | [options.auth.renewal] | <code>boolean</code> | <code>true</code> | Set `false` to never renew the Vault token in the background; the token is used until it expires and the next call re-authenticates. See [Token renewal](#token-renewal). |
 | [options.auth.renewalFraction] | <code>number</code> | <code>0.5</code> | How much of the token's remaining lifetime to wait before renewing, as a fraction in `(0, 1)`. |
 | [options.auth.renewalIncrement] | <code>number</code> |  | Seconds of extra TTL to request on each renewal, sent as `increment` to `auth/token/renew-self`. Vault caps it at the token's max TTL. |
-| [options.logger] | <code>Object</code> \| <code>false</code> |  | Logger that must implement **all five** of "error", "warn", "info", "debug" and "trace" — an object missing any one of them is silently ignored and the default logger is used instead. The default logger writes to `console`, except `debug`, which is discarded so that sensitive data is never printed. Pass `false` to disable logging entirely. |
+| [options.logger] | <code>Object</code> \| <code>false</code> |  | Logger that must implement **all five** of "error", "warn", "info", "debug" and "trace" — an object missing any one of them is silently ignored and the default logger is used instead. The default logger writes to `console`, except `debug`, which is discarded. Failure logs (`error` level) never include a Vault response body: only the HTTP status and Vault's `errors` strings, which can quote back malformed request fields. Pass `false` to disable logging entirely. |
 
 ##### Custom transport (proxy / self-signed TLS)
 
@@ -902,6 +902,11 @@ const result = await client.request('POST', 'transit/encrypt/my-key', {
 console.log(result.data.ciphertext);
 ```
 
+Transit batch encrypt/decrypt answers HTTP 400 when any item fails, and the rejection's
+`err.error.data.batch_results` still holds the successful items. Pass
+`partial_failure_response_code: 200` (Vault 1.12+) and check each item's `error` if you don't want
+that data on an error path.
+
 ### Lease.getMetadata()
 
 `getMetadata()` is additive — existing code is unaffected.
@@ -966,7 +971,7 @@ try {
 | Class | Extends | When thrown |
 |---|---|---|
 | `VaultError` | `Error` | Base class for every error below. Raised directly when mount detection fails (e.g. permission denied) and no `api.engines` override was provided. |
-| `VaultHttpError` | `VaultError` | Vault answered with a non-2xx status. Carries the status as `statusCode` and the parsed body as `error`. |
+| `VaultHttpError` | `VaultError` | Vault answered with a non-2xx status. Carries the status as `statusCode` and the parsed body as `error`. `message` (`"<status> - <raw body text>"`) and `error` hold the full response body, which can include secret material (e.g. a partially failed transit batch), so log `statusCode` and `error.errors` rather than the error object itself. |
 | `InvalidArgumentsError` | `VaultError` | Bad arguments or configuration: `boot()` called without options, an unknown instance name passed to `get()`, an unsupported `auth.type`, invalid renewal options, or an invalid node-config substitution map. |
 | `InvalidAWSCredentialsError` | `InvalidArgumentsError` | `auth.config.credentials` was supplied but is not a usable `accessKeyId` / `secretAccessKey` pair. |
 | `AuthTokenExpiredError` | `VaultError` | The Vault token expired and the backend cannot obtain a new one. `token` auth can never re-authenticate; other backends reach this only with `renewal: false` and a credential they cannot replay. |

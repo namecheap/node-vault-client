@@ -1,3 +1,20 @@
+# Unreleased
+
+- **Security (GHSA-2vr8-g4vw-7xpm): non-2xx Vault response bodies are no longer written to the
+  logger.** The failure log of every operation (`read`, `list`, `write`, `delete`, `update`,
+  `request`, `deleteVersions`, `undeleteVersions`, `destroyVersions`, `readMetadata`,
+  `deleteMetadata`), the mount-detection error message and the token-renewal failure logs used to
+  include the raw response body, at `error` level and on `console.error` by default. Some non-2xx
+  bodies carry secret material: a transit batch decrypt with one bad item answers HTTP 400 with
+  the other items' plaintexts in `data.batch_results`. These lines now carry only the HTTP status
+  and Vault's `errors` strings (`403 - {"errors":["permission denied"]}`), or
+  `<status> - (response body omitted)` when the body has no `errors` array.
+
+  The thrown `VaultHttpError` is unchanged: `message` is still `"<status> - <raw body text>"` and
+  `error` still holds the parsed body. If your logs are less protected than your Vault secrets, do
+  not log a caught `VaultHttpError` as is; log `err.statusCode` and `err.error?.errors` instead.
+  A mount-detection `VaultError` now exposes the original HTTP error as `err.cause`.
+
 # 3.0.0 Release notes (2026-10-02)
 
 - **BREAKING: Node.js 18 support is dropped, as announced in 2.3.0.** `engines.node` is now

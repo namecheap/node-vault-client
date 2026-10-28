@@ -10,6 +10,7 @@ const AuthToken = require('./AuthToken');
 /** Renew at the halfway point of the token's remaining lifetime. */
 const DEFAULT_RENEWAL_FRACTION = 0.5;
 const errors = require('../errors');
+const safeMessage = require('../safeMessage');
 
 /**
  * Formats a millisecond duration as a short human-readable string
@@ -285,8 +286,14 @@ class VaultBaseAuth {
                 }
                 this.__setupTokenRefreshTimer(authToken);
 
-                this._log.error(`Cannot refresh auth token with "${authToken.getAccessor()}" accessor. Error: ${err.message}`);
-                this._log.error(err);
+                const message = `Cannot refresh auth token with "${authToken.getAccessor()}" accessor.`;
+                // Dumping a VaultHttpError would print its raw response body, so it gets the safe
+                // message only. Any other error is logged whole: its stack already has the message.
+                if (err instanceof errors.VaultHttpError) {
+                    this._log.error(`${message} Error: ${safeMessage(err)}`);
+                } else {
+                    this._log.error(message, err);
+                }
             });
         }, timer);
 
@@ -313,7 +320,7 @@ class VaultBaseAuth {
                 return this._getTokenEntity(authToken.getId());
             })
             .catch((reason) => {
-                this._log.error('token renew failed: %s', reason.message);
+                this._log.error('token renew failed: %s', safeMessage(reason));
                 throw reason;
             });
     }
