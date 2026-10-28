@@ -259,7 +259,6 @@ class VaultBaseAuth {
             return;
         }
 
-        const hasPreciseExpiry = authToken.hasPreciseExpiry();
         const remaining = authToken.getExpiresAtMilliseconds() - Date.now();
         if (remaining <= 0) {
             return;
@@ -267,7 +266,7 @@ class VaultBaseAuth {
 
         const timer = Math.max(
             Math.floor(remaining * this.__renewalFraction),
-            hasPreciseExpiry ? 1 : 1000
+            250
         );
         if (timer >= remaining) {
             return;
@@ -284,16 +283,20 @@ class VaultBaseAuth {
             if (superseded()) {
                 return;
             }
-            if (authToken.isExpired()) {
-                return;
-            }
+            this.__refreshTimeout = null;
 
             this.__renewToken(authToken).then(renewedToken => {
                 if (superseded()) {
                     return;
                 }
                 this.__authToken = renewedToken;
-                this.__setupTokenRefreshTimer(renewedToken);
+                // A max-TTL-capped token keeps the same absolute Vault expiry after renewal.
+                // Stop the background renewal loop and let getAuthToken() re-authenticate at
+                // the expiry deadline instead of repeatedly halving the remaining lifetime.
+                if (renewedToken.getUnadjustedExpiresAtMilliseconds()
+                    > authToken.getUnadjustedExpiresAtMilliseconds()) {
+                    this.__setupTokenRefreshTimer(renewedToken);
+                }
             }).catch(err => {
                 if (superseded()) {
                     return;

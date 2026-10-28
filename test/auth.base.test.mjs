@@ -436,7 +436,7 @@ describe('VaultBaseAuth', function () {
                     accessor: 'acc',
                     creation_time: 1,
                     ttl: 3600,
-                    expire_time: new Date(61050).toISOString(),
+                    expire_time: new Date(62050).toISOString(),
                     explicit_max_ttl: 0,
                     num_uses: 0,
                     renewable: true,
@@ -446,7 +446,7 @@ describe('VaultBaseAuth', function () {
 
             try {
                 await auth.getAuthToken();
-                clock.tick(24);
+                clock.tick(524);
                 await flush();
                 expect(api.makeRequest).to.not.have.been.called;
 
@@ -493,7 +493,7 @@ describe('VaultBaseAuth', function () {
 
             try {
                 await auth.getAuthToken();
-                clock.tick(24);
+                clock.tick(524);
                 await flush();
                 expect(api.makeRequest).to.not.have.been.called;
 
@@ -503,6 +503,150 @@ describe('VaultBaseAuth', function () {
                     'POST', '/auth/token/renew-self', null, { 'X-Vault-Token': 'short-ttl' }
                 );
                 expect(auth.__authToken.getId()).to.equal('renewed');
+            } finally {
+                auth.cancelTokenRefresh();
+            }
+        });
+
+        it('still attempts renewal when the timer callback runs after the safety deadline', async function () {
+            clock.setSystemTime(1000);
+            const api = apiStub();
+            api.makeRequest.onFirstCall().resolves({});
+            api.makeRequest.onSecondCall().resolves({
+                data: {
+                    id: 'renewed-late',
+                    accessor: 'acc',
+                    creation_time: 0,
+                    ttl: 3600,
+                    expire_time: new Date(200000).toISOString(),
+                    explicit_max_ttl: 0,
+                    num_uses: 0,
+                    renewable: true,
+                },
+            });
+            const initial = AuthToken.fromResponse({
+                data: {
+                    id: 'late-callback',
+                    accessor: 'acc',
+                    creation_time: 0,
+                    ttl: 61,
+                    expire_time: new Date(62000).toISOString(),
+                    explicit_max_ttl: 0,
+                    num_uses: 0,
+                    renewable: true,
+                },
+            });
+            const auth = new TestAuth(api, 'mount', { authStub: sinon.stub().resolves(initial) });
+
+            try {
+                await auth.getAuthToken();
+                clock.setSystemTime(61000);
+                clock.tick(500);
+                await flush();
+
+                expect(api.makeRequest.firstCall).to.have.been.calledWith(
+                    'POST', '/auth/token/renew-self', null, { 'X-Vault-Token': 'late-callback' }
+                );
+                expect(auth.__authToken.getId()).to.equal('renewed-late');
+            } finally {
+                auth.cancelTokenRefresh();
+            }
+        });
+
+        it('stops scheduling renewals when Vault keeps the same absolute expiry', async function () {
+            clock.setSystemTime(1000);
+            const api = apiStub();
+            api.makeRequest.onFirstCall().resolves({});
+            api.makeRequest.onSecondCall().resolves({
+                data: {
+                    id: 'max-ttl-capped',
+                    accessor: 'acc',
+                    creation_time: 0,
+                    ttl: 60,
+                    expire_time: new Date(62000).toISOString(),
+                    explicit_max_ttl: 0,
+                    num_uses: 0,
+                    renewable: true,
+                },
+            });
+            const initial = AuthToken.fromResponse({
+                data: {
+                    id: 'before-cap',
+                    accessor: 'acc',
+                    creation_time: 0,
+                    ttl: 61,
+                    expire_time: new Date(62000).toISOString(),
+                    explicit_max_ttl: 0,
+                    num_uses: 0,
+                    renewable: true,
+                },
+            });
+            const fresh = nonRenewableToken('after-cap');
+            const authStub = sinon.stub();
+            authStub.onFirstCall().resolves(initial);
+            authStub.onSecondCall().resolves(fresh);
+            const auth = new TestAuth(api, 'mount', { authStub });
+
+            try {
+                await auth.getAuthToken();
+                clock.tick(500);
+                await flush();
+
+                expect(auth.__authToken.getId()).to.equal('max-ttl-capped');
+                expect(auth.__refreshTimeout).to.equal(null);
+                clock.tick(60500);
+                expect(await auth.getAuthToken()).to.equal(fresh);
+                expect(authStub).to.have.been.calledTwice;
+                expect(api.makeRequest).to.have.been.calledTwice;
+            } finally {
+                auth.cancelTokenRefresh();
+            }
+        });
+
+        it('keeps a 250ms minimum delay for precise-expiry timers', async function () {
+            clock.setSystemTime(1000);
+            const api = apiStub();
+            api.makeRequest.onFirstCall().resolves({});
+            api.makeRequest.onSecondCall().resolves({
+                data: {
+                    id: 'renewed-min-delay',
+                    accessor: 'acc',
+                    creation_time: 0,
+                    ttl: 3600,
+                    expire_time: new Date(200000).toISOString(),
+                    explicit_max_ttl: 0,
+                    num_uses: 0,
+                    renewable: true,
+                },
+            });
+            const initial = AuthToken.fromResponse({
+                data: {
+                    id: 'near-expiry',
+                    accessor: 'acc',
+                    creation_time: 0,
+                    ttl: 61,
+                    expire_time: new Date(62000).toISOString(),
+                    explicit_max_ttl: 0,
+                    num_uses: 0,
+                    renewable: true,
+                },
+            });
+            const auth = new TestAuth(api, 'mount', {
+                authStub: sinon.stub().resolves(initial),
+                config: { renewalFraction: 0.1 },
+            });
+
+            try {
+                await auth.getAuthToken();
+                clock.tick(249);
+                await flush();
+                expect(api.makeRequest).to.not.have.been.called;
+
+                clock.tick(1);
+                await flush();
+                expect(api.makeRequest.firstCall).to.have.been.calledWith(
+                    'POST', '/auth/token/renew-self', null, { 'X-Vault-Token': 'near-expiry' }
+                );
             } finally {
                 auth.cancelTokenRefresh();
             }
@@ -542,7 +686,7 @@ describe('VaultBaseAuth', function () {
                 expect(initial.getExpiresAtMilliseconds()).to.equal(2000);
                 await auth.getAuthToken();
 
-                clock.tick(999);
+                clock.tick(524);
                 await flush();
                 expect(api.makeRequest).to.not.have.been.called;
 
@@ -648,11 +792,7 @@ describe('VaultBaseAuth', function () {
                 expect(capped.getId()).to.equal('capped');
                 expect(auth.__refreshTimeout).to.equal(null);
 
-                clock.tick(999);
-                expect(await auth.getAuthToken()).to.equal(capped);
-                expect(authStub).to.have.been.calledOnce;
-
-                clock.tick(1);
+                expect(capped.isExpired()).to.equal(true);
                 expect(await auth.getAuthToken()).to.equal(fresh);
                 expect(authStub).to.have.been.calledTwice;
             } finally {

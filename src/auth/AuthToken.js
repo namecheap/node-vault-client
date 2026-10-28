@@ -15,6 +15,7 @@ class AuthToken {
      * @param {int|null} expiresAtMilliseconds - precise expiry time when available
      * @param {int|null} ttl - remaining lifetime reported by Vault, when available
      * @param {boolean} hasPreciseExpiry - true when expiry came from Vault's expire_time
+     * @param {int|null} unadjustedExpiresAtMilliseconds - Vault's expiry before the client safety margin
      */
     constructor(
         id,
@@ -26,7 +27,8 @@ class AuthToken {
         isRenewable,
         expiresAtMilliseconds = null,
         ttl = null,
-        hasPreciseExpiry = false
+        hasPreciseExpiry = false,
+        unadjustedExpiresAtMilliseconds = null
     ) {
         this.__id = id;
         this.__accessor = accessor;
@@ -37,6 +39,8 @@ class AuthToken {
         this.__expiresAt = this.__expiresAtMilliseconds === null
             ? null
             : Math.floor(this.__expiresAtMilliseconds / 1000);
+        this.__unadjustedExpiresAtMilliseconds = unadjustedExpiresAtMilliseconds
+            ?? this.__expiresAtMilliseconds;
         this.__hasPreciseExpiry = hasPreciseExpiry;
         this.__explicitMaxTtl = explicitMaxTtl;
         this.__numUses = numUses;
@@ -47,8 +51,9 @@ class AuthToken {
 
     static fromResponse(response) {
         const data = response.data;
-        const hasPreciseExpiry = AuthToken.__parseRfc3339Milliseconds(data.expire_time) !== null;
-        const expiresAtMilliseconds = AuthToken.__resolveExpiresAtMilliseconds(data);
+        const unadjustedExpiresAtMilliseconds = AuthToken.__parseRfc3339Milliseconds(data.expire_time);
+        const hasPreciseExpiry = unadjustedExpiresAtMilliseconds !== null;
+        const expiresAtMilliseconds = AuthToken.__resolveExpiresAtMilliseconds(data, unadjustedExpiresAtMilliseconds);
 
         return new AuthToken(
             data.id,
@@ -60,14 +65,16 @@ class AuthToken {
             data.renewable !== undefined ? data.renewable : false,
             expiresAtMilliseconds,
             data.ttl,
-            hasPreciseExpiry
+            hasPreciseExpiry,
+            unadjustedExpiresAtMilliseconds
         );
     }
 
     /**
      * Resolve the UNIX timestamp (milliseconds) at which the client should treat the token
-     * as expired, shifted earlier by a network-latency safety margin so renewal happens
-     * before the real expiry.
+     * as expired. A zero TTL is expired when received because the reported TTL is truncated
+     * and Vault's wall clock may differ from the client's. For longer TTLs, keep the existing
+     * one-minute margin only when more than one minute remains.
      *
      * Prefers Vault's authoritative `expire_time` (RFC3339), which is the documented
      * absolute expiry. Falls back to `(last_renewal_time || creation_time) + ttl` for
@@ -76,18 +83,21 @@ class AuthToken {
      *
      * @private
      * @param {Object} data - the `data` object of a token lookup response
-     * @returns {int|null} expiry in milliseconds, or null when ttl is 0 without expire_time
+     * @returns {int|null} client expiry in milliseconds, or null when ttl is 0 without expire_time
      */
-    static __resolveExpiresAtMilliseconds(data) {
-        const expireTime = AuthToken.__parseRfc3339Milliseconds(data.expire_time);
+    static __resolveExpiresAtMilliseconds(data, expireTime) {
         const networkLatency = 60;
-        const margin = data.ttl > networkLatency ? networkLatency : 1;
 
         if (expireTime !== null) {
+            if (Number(data.ttl) === 0) {
+                return Date.now();
+            }
+
+            const margin = Number(data.ttl) > networkLatency ? networkLatency : 0;
             return expireTime - margin * 1000;
         }
 
-        if (data.ttl === 0) {
+        if (Number(data.ttl) === 0) {
             return null;
         }
 
@@ -166,6 +176,13 @@ class AuthToken {
      */
     getExpiresAtMilliseconds() {
         return this.__expiresAtMilliseconds;
+    }
+
+    /**
+     * @returns {int|null} expiry before the safety adjustment, when available
+     */
+    getUnadjustedExpiresAtMilliseconds() {
+        return this.__unadjustedExpiresAtMilliseconds;
     }
 
     /**
