@@ -260,9 +260,7 @@ class VaultBaseAuth {
         }
 
         const hasPreciseExpiry = authToken.hasPreciseExpiry();
-        const remaining = hasPreciseExpiry
-            ? authToken.getExpiresAtMilliseconds() - Date.now()
-            : (authToken.getExpiresAt() - Math.floor(Date.now() / 1000)) * 1000;
+        const remaining = authToken.getExpiresAtMilliseconds() - Date.now();
         if (remaining <= 0) {
             return;
         }
@@ -271,7 +269,7 @@ class VaultBaseAuth {
             Math.floor(remaining * this.__renewalFraction),
             hasPreciseExpiry ? 1 : 1000
         );
-        if (hasPreciseExpiry && timer >= remaining) {
+        if (timer >= remaining) {
             return;
         }
 

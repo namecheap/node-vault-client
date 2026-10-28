@@ -508,6 +508,55 @@ describe('VaultBaseAuth', function () {
             }
         });
 
+        it('uses the fallback expiry deadline to schedule a short-TTL renewal before expiry', async function () {
+            clock.setSystemTime(950);
+            const api = apiStub();
+            api.makeRequest.onFirstCall().resolves({});
+            api.makeRequest.onSecondCall().resolves({
+                data: {
+                    id: 'renewed',
+                    accessor: 'acc',
+                    creation_time: 1,
+                    ttl: 3600,
+                    expire_time: new Date(10000000).toISOString(),
+                    explicit_max_ttl: 0,
+                    num_uses: 0,
+                    renewable: true,
+                },
+            });
+            const initial = AuthToken.fromResponse({
+                data: {
+                    id: 'fallback-short-ttl',
+                    accessor: 'acc',
+                    creation_time: 0,
+                    ttl: 2,
+                    explicit_max_ttl: 0,
+                    num_uses: 0,
+                    renewable: true,
+                },
+            });
+            const auth = new TestAuth(api, 'mount', { authStub: sinon.stub().resolves(initial) });
+
+            try {
+                expect(initial.hasPreciseExpiry()).to.equal(false);
+                expect(initial.getExpiresAtMilliseconds()).to.equal(2000);
+                await auth.getAuthToken();
+
+                clock.tick(999);
+                await flush();
+                expect(api.makeRequest).to.not.have.been.called;
+
+                clock.tick(1);
+                await flush();
+                expect(api.makeRequest.firstCall).to.have.been.calledWith(
+                    'POST', '/auth/token/renew-self', null, { 'X-Vault-Token': 'fallback-short-ttl' }
+                );
+                expect(auth.__authToken.getId()).to.equal('renewed');
+            } finally {
+                auth.cancelTokenRefresh();
+            }
+        });
+
         it('rejects an invalid renewalFraction at construction', function () {
             for (const bad of [0, -0.5, 1.5, NaN, Infinity, '0.5', null]) {
                 expect(
