@@ -34,9 +34,11 @@
   positive TTLs, including its millisecond precision. Treat `ttl: 0` as expired when the response is
   received, so client and Vault clock skew cannot extend a zero-TTL token. Keep the one-minute
   safety margin only when more than 60 seconds remain, use a 250 ms minimum renewal delay, and stop
-  background renewal when Vault keeps the same absolute expiry. After max-TTL expiry, backends that
-  can obtain fresh credentials re-authenticate; `token` auth raises `AuthTokenExpiredError`, while a
-  single-use AppRole secret or an expired literal JWT can make subsequent login attempts fail.
+  background renewal when a renewed absolute expiry moves by no more than one second, matching
+  Vault's TTL precision. A `renewalIncrement` that meaningfully shortens the expiry remains
+  scheduled. After max-TTL expiry, backends that can obtain fresh credentials re-authenticate;
+  `token` auth raises `AuthTokenExpiredError`, while a single-use AppRole secret or an expired
+  literal JWT can make subsequent login attempts fail.
 
 - **Added HashiCorp Vault 2.2.x to CI.** `e2e` gains a `{node: 22, vault: '2.2'}` leg next to the
   `2.0` and `2.1` ones, and `e2e-kv2` now runs against all four supported lines (`1.21`, `2.0`,

@@ -373,8 +373,9 @@ backend can obtain a *fresh* credential unaided:
 A renewable token can reach Vault's maximum TTL while background renewal is enabled. Before this fix,
 `ttl: 0` could leave the client without a usable expiry deadline for starting that fresh login. The
 client now treats a `ttl: 0` response as expired immediately, uses Vault's authoritative
-`expire_time` for positive TTLs, and stops background renewal when Vault keeps the same absolute
-expiry instead of repeatedly retrying a capped token.
+`expire_time` for positive TTLs, and stops background renewal when the renewed absolute expiry moves
+by no more than one second, matching Vault's TTL precision. A `renewalIncrement` that meaningfully
+shortens the expiry continues scheduling from the new deadline.
 
 Two consequences worth stating plainly:
 
