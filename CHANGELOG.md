@@ -1,4 +1,4 @@
-# 3.0.0 Release notes (unreleased)
+# 3.0.0 Release notes (2026-10-29)
 
 Upgrading from 2.x: [MIGRATION.md](MIGRATION.md) lists what can need a change and what to check.
 
