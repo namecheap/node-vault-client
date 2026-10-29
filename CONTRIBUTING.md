@@ -40,7 +40,7 @@ npm run test:e2e:jwt   # JWT auth against a throwaway mount it configures and re
 To reproduce a failure from a Vault 2.x leg of CI, point compose at that image:
 
 ```shell
-docker compose down -v && VAULT_IMAGE=hashicorp/vault:2.1 docker compose up -d --wait
+docker compose down -v && VAULT_IMAGE=hashicorp/vault:2.2 docker compose up -d --wait
 ```
 
 When touching an auth backend, `node examples/jwt-auth/vault-jwt-demo.mjs` is a useful
@@ -51,8 +51,8 @@ Run `npm run lint` and the tests before pushing — the same checks run in CI
 (`.github/workflows/pipeline.yaml`): audit, lint, coverage, a `test:unit` matrix on Node
 20/22/24/26, two e2e jobs that cover every supported Vault line, and `package`, which verifies the
 packed tarball. `e2e` runs the KV v1 and JWT suites across Node 20/22/24/26 against Vault 1.21,
-plus one Node 22 job each against Vault 2.0 and 2.1; `e2e-kv2` runs the KV v2 suite against Vault
-1.21, 2.0 and 2.1. Every e2e job starts its own Vault containers with `docker compose up -d --wait`.
+plus one Node 22 job each against Vault 2.0, 2.1 and 2.2; `e2e-kv2` runs the KV v2 suite against
+Vault 1.21, 2.0, 2.1 and 2.2. Every e2e job starts its own Vault containers with `docker compose up -d --wait`.
 
 A final `ci-ok` job depends on all of the above and fails unless every one of them succeeded. It
 exists so branch protection can require one stable status check instead of matrix-derived job

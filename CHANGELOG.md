@@ -38,6 +38,11 @@
   can obtain fresh credentials re-authenticate; `token` auth raises `AuthTokenExpiredError`, while a
   single-use AppRole secret or an expired literal JWT can make subsequent login attempts fail.
 
+- **Added HashiCorp Vault 2.2.x to CI.** `e2e` gains a `{node: 22, vault: '2.2'}` leg next to the
+  `2.0` and `2.1` ones, and `e2e-kv2` now runs against all four supported lines (`1.21`, `2.0`,
+  `2.1`, `2.2`). The reproduce-locally examples in `docker-compose.yml` and `CONTRIBUTING.md` now
+  point at `2.2` as the latest 2.x line.
+
 # 3.0.0 Release notes (2026-10-02)
 
 - **BREAKING: Node.js 18 support is dropped, as announced in 2.3.0.** `engines.node` is now
