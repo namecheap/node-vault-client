@@ -47,6 +47,71 @@ function optionsDigest(options) {
     return crypto.createHash('sha256').update(fingerprintOptions(options)).digest('hex');
 }
 
+// fetch() parses the joined URL per the WHATWG URL Standard: '?' starts the query, '#' the
+// fragment, '\' is a path separator for http(s), tab/LF/CR are deleted anywhere and trailing
+// C0 controls and spaces are stripped. Any of these lets a KV path address a different key.
+// eslint-disable-next-line no-control-regex
+const UNSAFE_KV_PATH_CHARS = /[?#\\\u0000-\u001f\u007f]/;
+
+/**
+ * Rejects a KV method path that the URL parser or Vault would resolve to a path other than
+ * `<mount>/<kv segment>/<logical path>` (GHSA-rr65-m54w-rfr9).
+ *
+ * Segments are checked after decoding every %XX escape on its own: fetch() removes '.' and
+ * '..' segments including their %2e forms, Vault decodes %2f to '/' before its KV v2 engine
+ * resolves '..' and collapses empty segments, and Vault redirects a raw '//' to the collapsed
+ * path, which fetch() follows (a 301 on Vault 1.x turns a write into a read, a 307 on 2.x
+ * writes the parent key). Decoding escapes one by one, instead of decodeURIComponent() on a
+ * whole segment, keeps an invalid UTF-8 escape such as %ff from hiding the rest of the segment.
+ *
+ * One trailing slash is allowed (list() addresses a folder with it, and the other methods
+ * pass it through byte for byte), except on the KV v2 helpers: those always address a single
+ * key, and Vault applies a metadata call on 'tenants/me/' to the key 'tenants/me', so
+ * deleteMetadata() would delete it. Unpaired surrogates are rejected because fetch() encodes
+ * every one of them as U+FFFD.
+ *
+ * The messages never include the path: the KV methods log them at error level, and the path
+ * may be built from user data that was never logged before.
+ *
+ * The mount (first segment) must not be percent-encoded: the engines override and mount
+ * detection match the path as written, but Vault decodes it, so 'secre%74/config' would skip
+ * the KV v2 rewrite and reach the mount's own config endpoint.
+ *
+ * @param {*} path - caller-supplied secret path
+ * @param {boolean} allowTrailingSlash - false for the KV v2 helpers
+ * @returns {string} the path without leading slashes, which VaultApiClient drops from the URL
+ *      anyway; resolving the mount on it keeps the KV v2 rewrite from taking '/secret/foo'
+ *      for a key in 'secret/'
+ * @throws {InvalidArgumentsError}
+ * @private
+ */
+function assertSafeKvPath(path, allowTrailingSlash) {
+    if (typeof path !== 'string' || path === '') {
+        throw new errors.InvalidArgumentsError('Invalid secret path: expected a non-empty string');
+    }
+    if (UNSAFE_KV_PATH_CHARS.test(path) || path.endsWith(' ') || !path.isWellFormed()) {
+        throw new errors.InvalidArgumentsError(
+            'Invalid secret path: \'?\', \'#\', \'\\\', control characters, unpaired surrogates and a ' +
+            'trailing space are not allowed'
+        );
+    }
+    const trimmed = path.replace(/^\/+/, '');
+    if (trimmed.split('/')[0].includes('%')) {
+        throw new errors.InvalidArgumentsError('Invalid secret path: the mount must not be percent-encoded');
+    }
+    let decoded = trimmed.replace(/%([0-9a-f]{2})/gi, (escape, hex) => String.fromCharCode(parseInt(hex, 16)));
+    if (allowTrailingSlash) {
+        decoded = decoded.replace(/\/$/, '');
+    }
+    if (decoded.split(/[/\\]/).some((segment) => segment === '' || segment === '.' || segment === '..')) {
+        throw new errors.InvalidArgumentsError(
+            'Invalid secret path: empty, \'.\' and \'..\' segments are not allowed ' +
+            '(nor a trailing slash in the KV v2 helpers)'
+        );
+    }
+    return trimmed;
+}
+
 class VaultClient {
 
     /**
@@ -342,10 +407,21 @@ class VaultClient {
      *      engine version (merge-patch update() semantics); by default only v2
      *      write/update wrap non-null data and everything else passes through
      * @returns {Promise<{body: *, version: (number|undefined), mount: (string|undefined), apiPath: string}>}
+     *      rejects with InvalidArgumentsError, before any request, for an unsafe KV path
      * @private
      */
     __resolveAndRequest(op, method, path, data, extraHeaders, options) {
         const { raw = false, v2Only = false, wrapData = false } = options || {};
+
+        // KV paths are validated before the token fetch, mount resolution and the autoDetect
+        // detection request; request() (raw) keeps its documented literal-path semantics.
+        if (!raw) {
+            try {
+                path = assertSafeKvPath(path, !v2Only);
+            } catch (err) {
+                return Promise.reject(err);
+            }
+        }
 
         return this.__auth.getAuthToken()
             .then((token) => {
@@ -402,7 +478,13 @@ class VaultClient {
         const prefix = mount.replace(/\/+$/, '');
         if (path === prefix) return '';
         if (path.startsWith(prefix + '/')) return path.slice(prefix.length + 1);
-        return path;
+        // Detection decodes the path, so with a multi-segment mount 'team/k%76/foo' resolves to
+        // 'team/kv'; rewriting it as a key inside that mount would address 'team/kv/team/kv/foo'
+        // (GHSA-rr65-m54w-rfr9). assertSafeKvPath() already rejects an encoded first segment.
+        throw new errors.InvalidArgumentsError(
+            `Invalid secret path: it does not start with the mount "${prefix}" it resolved to; ` +
+            'do not percent-encode the mount'
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -517,7 +599,8 @@ class VaultClient {
 
     /**
      * Raw request — literal path, no path rewriting or response unwrapping.
-     * Returns the parsed body directly.
+     * Returns the parsed body directly. The path is not validated: never build it from
+     * untrusted input.
      *
      * @param {string} method - HTTP method
      * @param {string} path   - literal API path

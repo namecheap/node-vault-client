@@ -630,7 +630,8 @@ Raw request — escape hatch for any Vault backend
 
 Sends the literal API path with no KV path rewriting and no response unwrapping, and
 resolves to the parsed response body. Use it for non-KV backends (e.g. Transit) or when you
-have already constructed the complete Vault API path.
+have already constructed the complete Vault API path. The path is **not validated** (see
+[Path validation](#path-validation)), so never build it from untrusted input.
 
 **Kind**: instance method of [<code>VaultClient</code>](#VaultClient)  
 
@@ -942,6 +943,41 @@ rewriting:
 await client.request('GET', 'secret/data/foo');
 ```
 
+### Path validation
+
+The KV methods (`read`, `list`, `write`, `delete`, `update` and the KV v2 helpers) reject a
+path with `InvalidArgumentsError`, before any request is sent, when the URL parser or Vault
+would resolve it to a different path than the one passed:
+
+- an empty path;
+- `?`, `#`, `\`, a control character (U+0000–U+001F, U+007F), an unpaired surrogate or a
+  trailing space;
+- an empty segment such as `a//b` or `a//`, which Vault collapses into the parent path, so
+  `tenants/${id}/key` with an empty `id` would address `tenants/key`;
+- a `.` or `..` segment;
+- a percent-encoded mount (`secre%74/foo`, `secret%2ffoo`): the `engines` override and mount
+  detection match the path as written, but Vault decodes it, so `secre%74/config` would skip the
+  KV v2 rewrite and reach the mount's own `config` endpoint;
+- a trailing slash on the KV v2 helpers (`deleteVersions`, `undeleteVersions`,
+  `destroyVersions`, `readMetadata`, `deleteMetadata`): Vault applies a metadata call on
+  `tenants/me/` to the key `tenants/me`.
+
+Segments are checked after percent-decoding, so `%2e%2e`, `..%2f` and `%2f%2f` are rejected
+too. Leading slashes are dropped before the mount is resolved, so `/secret/foo` and
+`secret/foo` address the same key (an `engines` key may be written either way). The other
+methods keep a single trailing slash, as in `list('secret/apps/')`. With `autoDetect`, a KV v2
+path that does not start with the mount Vault resolves it to (a percent-encoded second segment
+of a mount such as `team/kv`) is rejected after detection.
+
+A key name that needs `?` or `#` can still be addressed percent-encoded (`%3F`, `%23`); Vault
+decodes it. To read a specific KV v2 version, which used to work as
+`read('secret/foo?version=2')`, use `request('GET', 'secret/data/foo?version=2')`. These checks
+apply in every mode (passthrough, `engines`, `autoDetect`). `request()` sends its path
+literally and does not apply them.
+
+A validation error's message says which rule failed but does not include the path, because the
+KV methods log the message at `error` level.
+
 ### Mount detection caching
 
 - Each canonical mount is detected once and then cached for the life of the `VaultClient` instance. The cache is a bounded LRU with a fixed cap of 500 mounts (not configurable through client options); a long-lived client that touches more than 500 distinct mounts evicts the least-recently-used entries, and an evicted mount is detected again on its next use.
@@ -972,7 +1008,7 @@ try {
 |---|---|---|
 | `VaultError` | `Error` | Base class for every error below. Raised directly when mount detection fails (e.g. permission denied) and no `api.engines` override was provided. |
 | `VaultHttpError` | `VaultError` | Vault answered with a non-2xx status. Carries the status as `statusCode` and the parsed body as `error`. `message` (`"<status> - <raw body text>"`) and `error` hold the full response body, which can include secret material (e.g. a partially failed transit batch), so log `statusCode` and `error.errors` rather than the error object itself. |
-| `InvalidArgumentsError` | `VaultError` | Bad arguments or configuration: `boot()` called without options, an unknown instance name passed to `get()`, an unsupported `auth.type`, invalid renewal options, or an invalid node-config substitution map. |
+| `InvalidArgumentsError` | `VaultError` | Bad arguments or configuration: `boot()` called without options, an unknown instance name passed to `get()`, an unsupported `auth.type`, invalid renewal options, an invalid node-config substitution map, or a KV method path that fails [path validation](#path-validation). |
 | `InvalidAWSCredentialsError` | `InvalidArgumentsError` | `auth.config.credentials` was supplied but is not a usable `accessKeyId` / `secretAccessKey` pair. |
 | `AuthTokenExpiredError` | `VaultError` | The Vault token expired and the backend cannot obtain a new one. `token` auth can never re-authenticate; other backends reach this only with `renewal: false` and a credential they cannot replay. |
 | `UnsupportedOperationError` | `VaultError` | A v2-only method (`deleteVersions`, `undeleteVersions`, `destroyVersions`, `readMetadata`, `deleteMetadata`) was called against a mount that did not resolve as KV v2. |
