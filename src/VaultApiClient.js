@@ -1,6 +1,7 @@
 'use strict';
 
 const errors = require('./errors');
+const { trimTrailingSlashes } = require('./slashes');
 
 /**
  * Joins URL segments with single slashes while preserving the leading
@@ -14,7 +15,7 @@ function joinUrl(...parts) {
                 segment = segment.replace(/^\/+/, '');
             }
             if (i < parts.length - 1) {
-                segment = segment.replace(/\/+$/, '');
+                segment = trimTrailingSlashes(segment);
             }
             return segment;
         })

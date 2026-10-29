@@ -2,6 +2,7 @@
 
 const { VaultError, InvalidArgumentsError } = require('./errors');
 const safeMessage = require('./safeMessage');
+const { trimTrailingSlashes, trimSlashes } = require('./slashes');
 
 // Default cap for the mount cache. Real deployments talk to a handful of static
 // mounts, so this is generous headroom; the cap exists so that a long-lived
@@ -57,7 +58,7 @@ class MountResolver {
         this.__detectFn = detectFn;
         // Vault reports a mount in a child namespace with its full namespace path
         // ("ns1/ns2/secret/"), while the caller's path is relative to this namespace.
-        const namespace = opts && typeof opts.namespace === 'string' ? opts.namespace.replace(/^\/+|\/+$/g, '') : '';
+        const namespace = opts && typeof opts.namespace === 'string' ? trimSlashes(opts.namespace) : '';
         this.__namespacePrefix = namespace ? `${namespace}/` : '';
         this.__log = logger;
         this.__disabled = opts && opts.disabled === true;
@@ -79,7 +80,7 @@ class MountResolver {
         // VaultClient drops them from the path before it gets here.
         this.__engines = Object.entries(enginesOverride || {})
             .sort((a, b) => b[0].length - a[0].length)
-            .map(([prefix, version]) => [prefix.replace(/^\/+|\/+$/g, ''), Number(version)]);
+            .map(([prefix, version]) => [trimSlashes(prefix), Number(version)]);
 
         // LRU cache: canonical mount path (no trailing slash) -> { mount, version, type }.
         // Map iteration order is insertion order; hits are re-inserted to refresh
@@ -230,7 +231,7 @@ class MountResolver {
                 // response: a planted secret could carry the same fields. What keeps the
                 // detection request on the mounts endpoint is the path validation in
                 // VaultClient; this only stops a malformed answer from becoming routing.
-                if (typeof info.path !== 'string' || typeof info.type !== 'string' || !info.path.replace(/\/+$/, '')) {
+                if (typeof info.path !== 'string' || typeof info.type !== 'string' || !trimTrailingSlashes(info.path)) {
                     throw new Error('Unexpected detection response shape (missing string path/type)');
                 }
                 const canonicalMount = this.__canonicalMount(info.path, path);
@@ -276,7 +277,7 @@ class MountResolver {
      */
     __canonicalMount(reportedPath, path) {
         const withTable = (mount) => (path.startsWith('auth/') ? `auth/${mount}` : mount);
-        const reported = reportedPath.replace(/\/+$/, '');
+        const reported = trimTrailingSlashes(reportedPath);
         const mount = withTable(reported);
         if (!containsPath(mount, path) && this.__namespacePrefix && reported.startsWith(this.__namespacePrefix)) {
             const relative = withTable(reported.slice(this.__namespacePrefix.length));
