@@ -13,6 +13,7 @@ const VaultJwtAuth = require('./auth/VaultJwtAuth');
 const MountResolver = require('./MountResolver');
 const { rewritePath, normalizeResponse } = require('./kvTransform');
 const safeMessage = require('./safeMessage');
+const { trimTrailingSlashes } = require('./slashes');
 
 const noop = () => {};
 const vaultInstances = {};
@@ -479,7 +480,7 @@ class VaultClient {
      * @private
      */
     __logicalPath(path, mount) {
-        const prefix = mount.replace(/\/+$/, '');
+        const prefix = trimTrailingSlashes(mount);
         if (path === prefix) return '';
         if (path.startsWith(prefix + '/')) return path.slice(prefix.length + 1);
         // Detection decodes the path, so with a multi-segment mount 'team/k%76/foo' resolves to

@@ -8,6 +8,8 @@
  * normalizeResponse(version, op, body)         -> normalized body
  */
 
+const { trimTrailingSlashes } = require('./slashes');
+
 // Map of op -> v2 path segment inserted between mount and logical path.
 const V2_SEGMENT = {
     read:            'data',
@@ -33,7 +35,7 @@ const V2_SEGMENT = {
  */
 function rewritePath(version, op, mount, logicalPath) {
     // Normalise trailing slash on mount
-    const m = mount.replace(/\/+$/, '');
+    const m = trimTrailingSlashes(mount);
 
     if (version !== 2) {
         // v1 / non-kv: simple concatenation

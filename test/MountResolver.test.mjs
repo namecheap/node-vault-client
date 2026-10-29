@@ -483,6 +483,17 @@ describe('MountResolver', function () {
             expect((await resolver.resolve('team/kv/x')).mount).to.equal('team/kv');
         });
 
+        it('trims a namespace or engines key full of slashes in linear time (js/polynomial-redos)', function () {
+            // The replaced /^\/+|\/+$/g took seconds on these: it is quadratic in a slash run
+            // that does not end the string.
+            const slashRun = 'ns' + '/'.repeat(100000) + 'x';
+            const start = process.hrtime.bigint();
+            const resolver = new MountResolver(sinon.stub(), { [slashRun]: 2 }, logger, { namespace: slashRun });
+            expect(Number(process.hrtime.bigint() - start) / 1e6).to.be.below(250);
+            expect(resolver.__namespacePrefix).to.equal(`${slashRun}/`);
+            expect(resolver.__engines[0][0]).to.equal(slashRun);
+        });
+
         it('re-adds the reserved auth/ prefix: Vault reports auth mounts without it', async function () {
             const detectFn = sinon.stub().resolves({
                 data: { path: 'apps/', type: 'approle', options: null },
