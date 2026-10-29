@@ -64,6 +64,14 @@ Upgrading from 2.x: [MIGRATION.md](MIGRATION.md) lists what can need a change an
     as a key name passed through `encodeURIComponent()` that contains a `/`, must now go through
     `request()`.
 
+- **Security (GHSA-x5xf-r8x2-647h): AppRole login no longer logs the `role_id`.** Every login and
+  re-login logged `making authentication request: role_id=<role id>` at `info` level, which the
+  default logger writes to `console.info`. For a role with `bind_secret_id=false` the `role_id` is
+  the whole login credential. The line now names the auth mount
+  (`making authentication request: approle mount=<mount>`); the login request is unchanged, and
+  neither `role_id` nor `secret_id` reaches any log level. On 2.3.0 and earlier, pass
+  `logger: false` or a logger that discards `info`.
+
 - **Fixed: slash trimming no longer uses regular expressions with quadratic backtracking**
   (CodeQL `js/polynomial-redos`). `api.namespace`, `api.engines` keys, mount paths from detection
   responses and URL segments were trimmed with `/\/+$/`, which took over three seconds on a

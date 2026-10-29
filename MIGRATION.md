@@ -81,14 +81,15 @@ If the token cannot read `sys/internal/ui/mounts`, set `api.engines` as in 2.x.
 ## 5. Log output
 
 No code change is needed, but log-based alerts, dashboards and parsers may notice
-(GHSA-2vr8-g4vw-7xpm):
+(GHSA-2vr8-g4vw-7xpm, GHSA-x5xf-r8x2-647h):
 
 - Failure logs of every KV method, `request()`, the KV v2 helpers, mount detection and token
   renewal no longer contain the Vault response body: `read secret failed: 403 -
   {"errors":["permission denied"]}`, or `<status> - (response body omitted)` when the body has no
   `errors` array.
 - AppRole login logs `making authentication request: approle mount=<mount>` instead of
-  `role_id=<role id>`.
+  `role_id=<role id>` (GHSA-x5xf-r8x2-647h: for a role with `bind_secret_id=false` the `role_id`
+  is the whole login credential).
 - A failed background token refresh writes one `error` line instead of two. For a non-HTTP error
   the error object is the second argument: `logger.error(message, err)`.
 
