@@ -27,9 +27,10 @@ class VaultAppRoleAuth extends VaultBaseAuth {
     }
 
     _authenticate() {
+        // Never log the role_id: for a role with bind_secret_id=false it is the whole login credential.
         this._log.info(
-            'making authentication request: role_id=%s',
-            this.__roleId
+            'making authentication request: approle mount=%s',
+            this._mount
         );
 
         return this.__apiClient.makeRequest('POST', `/auth/${this._mount}/login`, {
