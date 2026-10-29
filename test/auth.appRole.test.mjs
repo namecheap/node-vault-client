@@ -155,4 +155,45 @@ describe('AppRole auth backend', function () {
       expect(loggedText(log)).to.contain(ACCESSOR);
     });
   });
+
+  describe('does not leak the role_id or secret_id to the logger (GHSA-x5xf-r8x2-647h)', function () {
+    // For a role with bind_secret_id=false the role_id alone is the whole login credential.
+    const ROLE_ID = '637c065f-c644-5e12-d3d1-e9fa4363af61';
+    const SECRET_ID = 'b9ff2ebf-2b8b-4f8a-9d1e-secretidnotlogged';
+
+    async function authenticate(config, mount) {
+      const api = getApiStub();
+      const log = spyLogger();
+      const auth = new VaultAppRoleAuth(api, log, config, mount);
+
+      api.makeRequest
+        .withArgs('POST')
+        .resolves({ auth: { client_token: 'fake_token', accessor: 'acc' } });
+      sinon.stub(auth, '_getTokenEntity');
+
+      await auth._authenticate();
+      return { api, log };
+    }
+
+    it('never passes the role_id to any log level (role_id-only login)', async () => {
+      const { api, log } = await authenticate({ role_id: ROLE_ID }, 'approle');
+
+      expect(loggedText(log), 'role_id must never reach the logger').to.not.contain(ROLE_ID);
+      // The credential still goes in the login request body, unchanged.
+      expect(api.makeRequest).to.have.been.calledWithExactly(
+        'POST',
+        '/auth/approle/login',
+        { role_id: ROLE_ID, secret_id: undefined },
+      );
+    });
+
+    it('never passes the role_id or secret_id to any log level, and logs the mount instead', async () => {
+      const { log } = await authenticate({ role_id: ROLE_ID, secret_id: SECRET_ID }, 'approle-prod');
+
+      expect(loggedText(log), 'role_id must never reach the logger').to.not.contain(ROLE_ID);
+      expect(loggedText(log), 'secret_id must never reach the logger').to.not.contain(SECRET_ID);
+      // The info line stays useful for correlating logins without exposing the credential.
+      expect(log.info).to.have.been.calledWith(sinon.match.string, 'approle-prod');
+    });
+  });
 });
