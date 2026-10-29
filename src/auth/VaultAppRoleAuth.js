@@ -20,9 +20,11 @@ class VaultAppRoleAuth extends VaultBaseAuth {
     }
 
     _authenticate() {
+        // Never log the role_id: for a role with bind_secret_id=false it is the whole login
+        // credential (GHSA-x5xf-r8x2-647h).
         this._log.info(
-            'making authentication request: role_id=%s',
-            this.__roleId
+            'making authentication request: approle mount=%s',
+            this._mount
         );
 
         const headers = {};
@@ -35,8 +37,8 @@ class VaultAppRoleAuth extends VaultBaseAuth {
             secret_id: this.__secretId,
         }, headers).then(res => {
             this._log.debug(
-                'receive token: %s',
-                res.auth.client_token
+                'received token (accessor=%s)',
+                res.auth.accessor
             );
             return this._getTokenEntity(res.auth.client_token);
         });

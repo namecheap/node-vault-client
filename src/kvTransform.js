@@ -1,5 +1,7 @@
 'use strict';
 
+const { trimTrailingSlashes } = require('./slashes');
+
 /**
  * Pure KV path-rewriting and response-normalizing helpers.
  * No I/O; fully testable in isolation.
@@ -33,7 +35,7 @@ const V2_SEGMENT = {
  */
 function rewritePath(version, op, mount, logicalPath) {
     // Normalise trailing slash on mount
-    const m = mount.replace(/\/+$/, '');
+    const m = trimTrailingSlashes(mount);
 
     if (version !== 2) {
         // v1 / non-kv: simple concatenation
