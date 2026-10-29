@@ -378,9 +378,11 @@ expiry instead of repeatedly retrying a capped token.
 
 Two consequences worth stating plainly:
 
-* **For `token` auth, disabling renewal stops an otherwise renewable token from being renewed.**
-  After it expires, every later call rejects for the life of the process. `close()` does not reset
-  it — recovery means `VaultClient.clear(name)` and booting again.
+* **For `token` auth, there is no fresh credential for re-authentication.** With `renewal: false`,
+  an otherwise renewable token is allowed to expire without a background renewal; with renewal
+  enabled, this change stops renewing it when Vault reports the maximum TTL. In either case, after
+  expiry every later call rejects for the life of the process. `close()` does not reset it —
+  recovery means `VaultClient.clear(name)` and booting again.
 * For `appRole` and literal-`jwt`, a login that can no longer succeed is retried on **every**
   subsequent call, since a failed login clears the cached token. That is a failing request per
   `read()`, with no backoff. Prefer `jwtPath`/`jwtProvider`, a reusable `secret_id`, or leaving
@@ -1015,7 +1017,7 @@ try {
 | `VaultHttpError` | `VaultError` | Vault answered with a non-2xx status. Carries the status as `statusCode` and the parsed body as `error`. `message` (`"<status> - <raw body text>"`) and `error` hold the full response body, which can include secret material (e.g. a partially failed transit batch), so log `statusCode` and `error.errors` rather than the error object itself. |
 | `InvalidArgumentsError` | `VaultError` | Bad arguments or configuration: `boot()` called without options, an unknown instance name passed to `get()`, an unsupported `auth.type`, invalid renewal options, an invalid node-config substitution map, or a KV method path that fails [path validation](#path-validation). |
 | `InvalidAWSCredentialsError` | `InvalidArgumentsError` | `auth.config.credentials` was supplied but is not a usable `accessKeyId` / `secretAccessKey` pair. |
-| `AuthTokenExpiredError` | `VaultError` | The Vault token expired and the backend cannot obtain a new one. `token` auth can never re-authenticate; other backends reach this only with `renewal: false` and a credential they cannot replay. |
+| `AuthTokenExpiredError` | `VaultError` | The Vault token expired and the backend cannot obtain a new one. `token` auth can never re-authenticate and reaches this error at max TTL even with renewal enabled; other backends can also reach it when re-authentication is disabled or their credential can no longer be replayed. |
 | `UnsupportedOperationError` | `VaultError` | A v2-only method (`deleteVersions`, `undeleteVersions`, `destroyVersions`, `readMetadata`, `deleteMetadata`) was called against a mount that did not resolve as KV v2. |
 
 ## Contributing
