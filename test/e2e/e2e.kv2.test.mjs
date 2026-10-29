@@ -13,6 +13,7 @@ import _ from 'lodash';
 import { expect } from 'chai';
 import VaultClient from '../../src/VaultClient.js';
 import errors from '../../src/errors.js';
+import { describeKvPathValidation } from './kv-path-validation.mjs';
 
 // Unique per-run prefix: dev-mode Vault state survives between local runs of the
 // suite against the same container, so version counters must not accumulate.
@@ -190,5 +191,11 @@ describe('E2E KV v2', function () {
                 expect(e.statusCode).to.equal(404);
             }
         });
+    });
+
+    describeKvPathValidation({
+        url: 'http://127.0.0.1:8202/',
+        rootToken: '34c9c953-4ff5-368a-ac5c-a1e1a8e13a52', // see docker-compose.yml (vault-server-kv2)
+        kvVersion: 2,
     });
 });

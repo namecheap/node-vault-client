@@ -5,6 +5,7 @@ import _ from 'lodash';
 import { expect } from 'chai';
 import VaultClient from '../../src/VaultClient.js';
 import errors from '../../src/errors.js';
+import { describeKvPathValidation } from './kv-path-validation.mjs';
 
 const _require = createRequire(import.meta.url);
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -216,6 +217,12 @@ describe('E2E', function () {
                 expect(res.getData()).is.deep.equal(testData);
             });
         });
+    });
+
+    describeKvPathValidation({
+        url: 'http://127.0.0.1:8200/',
+        rootToken: '8274d2a1-c80c-ff56-c6ed-1b99f7bcea78', // see docker-compose.yml
+        kvVersion: 1,
     });
 
 });

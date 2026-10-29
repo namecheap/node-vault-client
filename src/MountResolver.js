@@ -44,10 +44,11 @@ class MountResolver {
 
         // The engines map is immutable after construction: normalize and sort the
         // entries once (longest raw prefix first, matching the previous per-call
-        // sort) instead of re-sorting on every resolve().
+        // sort) instead of re-sorting on every resolve(). Leading slashes go too:
+        // VaultClient drops them from the path before it gets here.
         this.__engines = Object.entries(enginesOverride || {})
             .sort((a, b) => b[0].length - a[0].length)
-            .map(([prefix, version]) => [prefix.replace(/\/+$/, ''), Number(version)]);
+            .map(([prefix, version]) => [prefix.replace(/^\/+|\/+$/g, ''), Number(version)]);
 
         // LRU cache: canonical mount path (no trailing slash) -> { mount, version, type }.
         // Map iteration order is insertion order; hits are re-inserted to refresh

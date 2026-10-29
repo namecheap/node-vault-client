@@ -15,6 +15,21 @@
   not log a caught `VaultHttpError` as is; log `err.statusCode` and `err.error?.errors` instead.
   A mount-detection `VaultError` now exposes the original HTTP error as `err.cause`.
 
+- **Security (GHSA-rr65-m54w-rfr9): the KV methods reject paths that `fetch()` or Vault would
+  resolve to a different key.** `read`, `list`, `write`, `delete`, `update` and the KV v2 helpers
+  put the caller's path into the URL unchecked, so a path built from user input
+  (`secret/tenants/${id}/key` with `id` set to `..`, `%2e%2e`, `..%2f`, `..\` or an empty string)
+  could send the client's token to another tenant, another mount or `sys/*`. They now reject such
+  a path with `InvalidArgumentsError` before any request: `?`, `#`, `\`, control characters,
+  unpaired surrogates or a trailing space; an empty, `.` or `..` segment, also percent-encoded; a
+  percent-encoded mount; and a trailing slash on the KV v2 helpers. The message names the rule,
+  not the path. See "Path validation" in the README. `request()` still sends its path literally.
+
+  Behaviour changes: `read('secret/foo?version=N')` now throws, so use
+  `request('GET', 'secret/data/foo?version=N')`; paths with `\` separators or an empty segment
+  (`secret//foo`) throw; a non-string path throws instead of being stringified. On KV v2 a
+  leading slash now addresses the key it names: `/secret/foo` used to reach `secret/secret/foo`.
+
 # 3.0.0 Release notes (2026-10-02)
 
 - **BREAKING: Node.js 18 support is dropped, as announced in 2.3.0.** `engines.node` is now
