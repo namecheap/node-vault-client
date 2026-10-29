@@ -119,8 +119,8 @@ describe('E2E', function () {
     });
 
     describe('Auth Token renewal', function () {
-        it('should renew token if needed', async function () {
-            this.timeout(6000);
+        it('renews once, then stops when a real Vault token reaches max TTL', async function () {
+            this.timeout(30000);
 
             const testData = {tst: 'testData', tstInt: 12345};
 
@@ -131,13 +131,39 @@ describe('E2E', function () {
             tmpToken = tmpToken.auth.client_token;
 
             const vaultClient = new VaultClient(_.merge({}, this.bootOpts, {auth: {config: {token: tmpToken}}}));
+            const originalFetch = globalThis.fetch;
+            const renewals = [];
+            globalThis.fetch = (input, options) => {
+                const url = typeof input === 'string' ? input : (input instanceof URL ? input.href : input.url);
+                if (new URL(url).pathname.endsWith('/auth/token/renew-self')) {
+                    renewals.push(url);
+                }
+                return originalFetch.call(globalThis, input, options);
+            };
 
-            await vaultClient.write('/secret/tst-val', testData);
+            try {
+                await vaultClient.write('/secret/tst-val', testData);
 
-            await new Promise(resolve => {setTimeout(() => resolve(), 2500);});
+                // The first renewal is due at roughly half of the ten-second max TTL. Waiting
+                // beyond that point exercises Vault's real, sub-second expiry movement at cap.
+                await new Promise(resolve => setTimeout(resolve, 6500));
+                const res = await vaultClient.read('secret/tst-val');
+                expect(res.getData()).is.deep.equal(testData);
+                expect(renewals, 'the capped token should have renewed once').to.have.lengthOf(1);
 
-            const res = await vaultClient.read('secret/tst-val');
-            expect(res.getData()).is.deep.equal(testData);
+                await new Promise(resolve => setTimeout(resolve, 5500));
+                let expiryError;
+                try {
+                    await vaultClient.read('secret/tst-val');
+                } catch (err) {
+                    expiryError = err;
+                }
+                expect(expiryError).to.be.instanceOf(errors.AuthTokenExpiredError);
+                expect(renewals, 'the client must stop renewing at max TTL').to.have.lengthOf(1);
+            } finally {
+                globalThis.fetch = originalFetch;
+                vaultClient.close();
+            }
         });
     });
 

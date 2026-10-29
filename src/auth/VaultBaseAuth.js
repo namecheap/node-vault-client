@@ -9,6 +9,8 @@ const AuthToken = require('./AuthToken');
 
 /** Renew at the halfway point of the token's remaining lifetime. */
 const DEFAULT_RENEWAL_FRACTION = 0.5;
+/** Vault reports TTLs at whole-second precision, so ignore expiry movement within one second. */
+const MAX_EXPIRY_JITTER_MS = 1000;
 const errors = require('../errors');
 const safeMessage = require('../safeMessage');
 
@@ -27,6 +29,42 @@ function humanizeMs(ms) {
     }
     const hours = Math.floor(totalMinutes / 60);
     return `${hours}h ${totalMinutes % 60}m`;
+}
+
+/**
+ * Read precise expiry when available, preserving the public AuthToken interface fallback.
+ * @param {AuthToken} authToken
+ * @returns {number|null}
+ * @private
+ */
+function tokenExpiryMilliseconds(authToken) {
+    if (typeof authToken.getExpiresAtMilliseconds === 'function') {
+        const expiry = authToken.getExpiresAtMilliseconds();
+        if (Number.isFinite(expiry)) {
+            return expiry;
+        }
+    }
+
+    const expiry = authToken.getExpiresAt();
+    return typeof expiry === 'number' && Number.isFinite(expiry) ? expiry * 1000 : null;
+}
+
+/**
+ * Read Vault's unadjusted absolute expiry when available; duck-typed tokens fall back to their
+ * public expiry in seconds.
+ * @param {AuthToken} authToken
+ * @returns {number|null}
+ * @private
+ */
+function tokenUnadjustedExpiryMilliseconds(authToken) {
+    if (typeof authToken.getUnadjustedExpiresAtMilliseconds === 'function') {
+        const expiry = authToken.getUnadjustedExpiresAtMilliseconds();
+        if (Number.isFinite(expiry)) {
+            return expiry;
+        }
+    }
+
+    return tokenExpiryMilliseconds(authToken);
 }
 
 class VaultBaseAuth {
@@ -259,8 +297,23 @@ class VaultBaseAuth {
             return;
         }
 
-        const remaining = authToken.getExpiresAt() - Math.floor(Date.now() / 1000);
-        const timer = Math.max(remaining * this.__renewalFraction, 1) * 1000;
+        const expiry = tokenExpiryMilliseconds(authToken);
+        if (expiry === null) {
+            return;
+        }
+
+        const remaining = expiry - Date.now();
+        if (remaining <= 0) {
+            return;
+        }
+
+        const timer = Math.max(
+            Math.floor(remaining * this.__renewalFraction),
+            250
+        );
+        if (timer >= remaining) {
+            return;
+        }
 
         // A renewal that is still in flight when the token is replaced or cancelled must not
         // act on what it finds when it lands: it would overwrite the newer token, or clear
@@ -273,13 +326,23 @@ class VaultBaseAuth {
             if (superseded()) {
                 return;
             }
+            this.__refreshTimeout = null;
 
             this.__renewToken(authToken).then(renewedToken => {
                 if (superseded()) {
                     return;
                 }
                 this.__authToken = renewedToken;
-                this.__setupTokenRefreshTimer(renewedToken);
+                // Vault truncates TTLs to whole seconds, so expire_time can wobble by less than
+                // a second even when max TTL prevented an extension. Stop only when it did not
+                // move meaningfully; a renewalIncrement can shorten the expiry, in which case
+                // keep scheduling from the renewed deadline.
+                const previousExpiry = tokenUnadjustedExpiryMilliseconds(authToken);
+                const renewedExpiry = tokenUnadjustedExpiryMilliseconds(renewedToken);
+                if (previousExpiry !== null && renewedExpiry !== null
+                    && Math.abs(renewedExpiry - previousExpiry) > MAX_EXPIRY_JITTER_MS) {
+                    this.__setupTokenRefreshTimer(renewedToken);
+                }
             }).catch(err => {
                 if (superseded()) {
                     return;
