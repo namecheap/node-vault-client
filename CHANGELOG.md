@@ -68,9 +68,11 @@ Upgrading from 2.x: [MIGRATION.md](MIGRATION.md) lists what can need a change an
   positive TTLs, including its millisecond precision. Treat `ttl: 0` as expired when the response is
   received, so client and Vault clock skew cannot extend a zero-TTL token. Keep the one-minute
   safety margin only when more than 60 seconds remain, use a 250 ms minimum renewal delay, and stop
-  background renewal when Vault keeps the same absolute expiry. After max-TTL expiry, backends that
-  can obtain fresh credentials re-authenticate; `token` auth raises `AuthTokenExpiredError`, while a
-  single-use AppRole secret or an expired literal JWT can make subsequent login attempts fail.
+  background renewal when a renewed absolute expiry moves by no more than one second, matching
+  Vault's TTL precision. A `renewalIncrement` that meaningfully shortens the expiry remains
+  scheduled. After max-TTL expiry, backends that can obtain fresh credentials re-authenticate;
+  `token` auth raises `AuthTokenExpiredError`, while a single-use AppRole secret or an expired
+  literal JWT can make subsequent login attempts fail.
 
 - **Security (GHSA-x5xf-r8x2-647h): AppRole login no longer logs the `role_id`.** Every login and
   re-login logged `making authentication request: role_id=<role id>` at `info` level, which the
