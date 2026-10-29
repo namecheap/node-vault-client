@@ -50,7 +50,7 @@
     "long-timeout": "^0.1.1"
   },
   "peerDependencies": {
-    "config": "^4.4.2"
+    "config": ">=1 <5"
   },
   "overrides": {
     "serialize-javascript": "^7.1.4",
