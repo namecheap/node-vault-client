@@ -1,4 +1,14 @@
-# Unreleased
+# 3.0.0 Release notes (unreleased)
+
+Upgrading from 2.x: [MIGRATION.md](MIGRATION.md) lists what can need a change and what to check.
+
+- **BREAKING: Node.js 18 support is dropped, as announced in 2.3.0.** `engines.node` is now
+  `>= 20.19.0`. Node 18 reached end-of-life on 2025-04-30 and no longer receives security patches
+  from the Node.js project; the runtime deprecation warning added in 2.3.0
+  (`checkNodeVersion.js` / `NodeVaultClientNode18Deprecation`) is removed along with it, since it
+  has served its purpose. CI drops the Node 18 legs from the `test` and `e2e` matrices and moves
+  the single-Node-version jobs (`audit`, `lint`, `coverage`, `package`, `e2e-kv2`) from Node 20 to
+  Node 22; `.nvmrc` now pins 22.
 
 - **Security (GHSA-2vr8-g4vw-7xpm): non-2xx Vault response bodies are no longer written to the
   logger.** The failure log of every operation (`read`, `list`, `write`, `delete`, `update`,
@@ -54,34 +64,11 @@
     as a key name passed through `encodeURIComponent()` that contains a `/`, must now go through
     `request()`.
 
-- **Added HashiCorp Vault 2.2.x to CI.** `e2e` gains a `{node: 22, vault: '2.2'}` leg next to the
-  `2.0` and `2.1` ones, and `e2e-kv2` now runs against all four supported lines (`1.21`, `2.0`,
-  `2.1`, `2.2`). The reproduce-locally examples in `docker-compose.yml` and `CONTRIBUTING.md` now
-  point at `2.2` as the latest 2.x line.
-
-- **Fixed: `peerDependencies.config` is `>=1 <5`, as the 3.0.0 notes below say.** The 3.0.0
-  release commit had set it to `^4.4.2`, so npm refused to install the package next to config
-  1.x-3.x (`ERESOLVE`). `fillNodeConfig()` is verified with config 1.31.0, 3.3.12 and 4.4.2.
-
 - **Fixed: slash trimming no longer uses regular expressions with quadratic backtracking**
   (CodeQL `js/polynomial-redos`). `api.namespace`, `api.engines` keys, mount paths from detection
   responses and URL segments were trimmed with `/\/+$/`, which took over three seconds on a
   value with a run of 100,000 slashes that does not end the string. They now go through a linear
   scan (`src/slashes.js`); the result is the same.
-
-- **Added [MIGRATION.md](MIGRATION.md)**, a 2.x to 3.0 upgrade guide: path validation and how to
-  replace the calls it rejects, the KV v2 leading-slash change, stricter mount detection, log
-  output, and a checklist.
-
-# 3.0.0 Release notes (2026-10-02)
-
-- **BREAKING: Node.js 18 support is dropped, as announced in 2.3.0.** `engines.node` is now
-  `>= 20.19.0`. Node 18 reached end-of-life on 2025-04-30 and no longer receives security patches
-  from the Node.js project; the runtime deprecation warning added in 2.3.0
-  (`checkNodeVersion.js` / `NodeVaultClientNode18Deprecation`) is removed along with it, since it
-  has served its purpose. CI drops the Node 18 legs from the `test` and `e2e` matrices and moves
-  the single-Node-version jobs (`audit`, `lint`, `coverage`, `package`, `e2e-kv2`) from Node 20 to
-  Node 22; `.nvmrc` now pins 22.
 
 - **Added Node.js 26 (the current release line, on track to become the next LTS on 2026-10-28)
   to the `test` and `e2e` CI matrices.**
@@ -99,6 +86,11 @@
   convention for the 2.x axis); `e2e-kv2` now runs against all three supported lines
   (`1.21`, `2.0`, `2.1`). `docker-compose.yml`'s reproduce-locally comment gained the matching
   `VAULT_IMAGE=hashicorp/vault:2.1` example.
+
+- **Added HashiCorp Vault 2.2.x to CI.** `e2e` gains a `{node: 22, vault: '2.2'}` leg next to the
+  `2.0` and `2.1` ones, and `e2e-kv2` now runs against all four supported lines (`1.21`, `2.0`,
+  `2.1`, `2.2`). The reproduce-locally examples in `docker-compose.yml` and `CONTRIBUTING.md` now
+  point at `2.2` as the latest 2.x line.
 
 - **Dependency updates, unblocked by dropping Node 18** (previously held back in
   `.github/dependabot.yml` purely because their majors require Node >= 20):
