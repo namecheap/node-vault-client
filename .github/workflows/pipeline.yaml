@@ -134,6 +134,8 @@ jobs:
             vault-version: '2.0'
           - node-version: 22
             vault-version: '2.1'
+          - node-version: 22
+            vault-version: '2.2'
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
@@ -179,7 +181,7 @@ jobs:
         # merge-patch, version and metadata operations — is where a server-side
         # API change would show first, so this suite gets the full Vault axis
         # even though it stays on one Node version.
-        vault-version: ['1.21', '2.0', '2.1']
+        vault-version: ['1.21', '2.0', '2.1', '2.2']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
 
