@@ -20,6 +20,8 @@ Node.js >= 20.19.0 — the client uses the native `fetch` API. Node 18 support w
 (Node 18 reached end-of-life on 2025-04-30 and no longer receives security patches from the
 Node.js project); see [CHANGELOG.md](CHANGELOG.md) for details.
 
+Upgrading from 2.x? [MIGRATION.md](MIGRATION.md) lists what can need a change and what to check.
+
 ### TypeScript
 
 Type declarations ship with the package, so no separate install is needed:

@@ -59,6 +59,20 @@
   `2.1`, `2.2`). The reproduce-locally examples in `docker-compose.yml` and `CONTRIBUTING.md` now
   point at `2.2` as the latest 2.x line.
 
+- **Fixed: `peerDependencies.config` is `>=1 <5`, as the 3.0.0 notes below say.** The 3.0.0
+  release commit had set it to `^4.4.2`, so npm refused to install the package next to config
+  1.x-3.x (`ERESOLVE`). `fillNodeConfig()` is verified with config 1.31.0, 3.3.12 and 4.4.2.
+
+- **Fixed: slash trimming no longer uses regular expressions with quadratic backtracking**
+  (CodeQL `js/polynomial-redos`). `api.namespace`, `api.engines` keys, mount paths from detection
+  responses and URL segments were trimmed with `/\/+$/`, which took over three seconds on a
+  value with a run of 100,000 slashes that does not end the string. They now go through a linear
+  scan (`src/slashes.js`); the result is the same.
+
+- **Added [MIGRATION.md](MIGRATION.md)**, a 2.x to 3.0 upgrade guide: path validation and how to
+  replace the calls it rejects, the KV v2 leading-slash change, stricter mount detection, log
+  output, and a checklist.
+
 # 3.0.0 Release notes (2026-10-02)
 
 - **BREAKING: Node.js 18 support is dropped, as announced in 2.3.0.** `engines.node` is now
