@@ -107,6 +107,51 @@ describe('E2E KV v2', function () {
                 expect(e).to.be.instanceOf(errors.UnsupportedOperationError);
             }
         });
+
+        it('rejects an encoded segment of a multi-segment mount in every mode (GHSA-wf8v-q2h3-hgjm)', async function () {
+            // With autoDetect off the path missed the engines entry, went out unrewritten and
+            // Vault decoded it onto the mount's own config endpoint.
+            const mount = `team-${RUN}/kv`;
+            await this.client.request('POST', `/sys/mounts/${mount}`, { type: 'kv', options: { version: '2' } });
+            try {
+                const clientWithEngines = new VaultClient(_.merge({}, this.bootOpts, {
+                    api: { kv: { autoDetect: false }, engines: { [mount]: 2 } },
+                }));
+                const encoded = `team-${RUN}/k%76/config`;
+                for (const client of [clientWithEngines, this.client]) {
+                    const err = await client.write(encoded, { max_versions: 1 }).then(() => null, (e) => e);
+                    expect(err).to.be.instanceOf(errors.InvalidArgumentsError);
+                }
+                const config = await this.client.request('GET', `/${mount}/config`);
+                expect(config.data.max_versions).to.equal(0);
+            } finally {
+                await this.client.request('DELETE', `/sys/mounts/${mount}`);
+            }
+        });
+
+        it('keeps an auth mount from shadowing a KV mount of the same name (GHSA-wf8v-q2h3-hgjm)', async function () {
+            // Vault reports an auth mount's path without 'auth/', so the detection for
+            // auth/<name>/... used to be cached as the KV mount <name>, typed approle (v1).
+            const name = `shadow-${RUN}`;
+            await this.client.request('POST', `/sys/mounts/${name}`, { type: 'kv', options: { version: '2' } });
+            await this.client.request('POST', `/sys/auth/${name}`, { type: 'approle' });
+            try {
+                // Detect the auth mount first. With no roles yet Vault answers the LIST with a
+                // 404, which also shows that detection succeeded: a failed one is a VaultError.
+                const listErr = await this.client.list(`auth/${name}/role`).then(() => null, (e) => e);
+                expect(listErr).to.be.instanceOf(errors.VaultHttpError);
+                expect(listErr.statusCode).to.equal(404);
+
+                const testData = { mount: 'kv-v2' };
+                await this.client.write(`${name}/foo`, testData);
+                expect((await this.client.read(`${name}/foo`)).getData()).to.deep.equal(testData);
+                const raw = await this.client.request('GET', `/${name}/data/foo`);
+                expect(raw.data.data).to.deep.equal(testData);
+            } finally {
+                await this.client.request('DELETE', `/sys/auth/${name}`);
+                await this.client.request('DELETE', `/sys/mounts/${name}`);
+            }
+        });
     });
 
     describe('update (merge-patch)', function () {

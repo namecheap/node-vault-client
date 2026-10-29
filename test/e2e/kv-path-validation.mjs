@@ -52,6 +52,8 @@ const UNSAFE_TAILS = [
     ['an empty segment before a trailing slash', '/'],
     ['an encoded empty segment', '%2F/key'],
     ['"%2f%2f"', 'x%2f%2fkey'],
+    ['a double-encoded ".."', 'me/%252e%252e/victim/key'],
+    ['a double-encoded "/"', 'me/..%252fvictim%252fkey'],
     ['an unpaired surrogate', 'me/\ud800/key'],
 ];
 

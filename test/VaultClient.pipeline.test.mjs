@@ -170,6 +170,138 @@ describe('VaultClient request pipeline (characterization, #110)', function () {
         });
     });
 
+    describe('caller path validation (GHSA-rr65 / GHSA-wf8v)', function () {
+        const unsafe = {
+            'dot segment': 'secret/tenants/../x',
+            'trailing dot segment': 'secret/tenants/..',
+            'single dot segment': 'secret/./x',
+            'percent-encoded dot segments': 'secret/%2e%2E/x',
+            'encoded slash hiding a dot segment': 'secret%2f..%2fx',
+            'encoded slash then dot segments': 'secret/a%2F..%2F..%2Fkv1/x',
+            'trailing encoded slash dot segment': 'secret/..%2F',
+            'encoded slash prefix dot segment': 'secret/%2F../kv1/x',
+            'fully encoded dot segments + slash': 'secret/%2e%2e%2Fkv1/x',
+            'mixed-case encoded dots and slash': 'secret/%2E%2e%2fkv1/x',
+            'encoded backslash dot segment': 'secret/..%5Ckv1/x',
+            'dot segment next to malformed escape': 'secret/..%2F%zz',
+            'backslash separator': 'secret/..\\x',
+            'query': 'secret/x?list=true',
+            'fragment': 'secret/../../secret/data/x#',
+            'tab': 'secret/a\tb',
+            'newline': 'secret/a\nb',
+            'NUL': 'secret/a\u0000b',
+            'DEL': 'secret/a\u007fb',
+            'trailing space': 'secret/x ',
+            'empty string': '',
+            'GHSA-wf8v bypass 1 (Vault 2.2.1 two-hop decode)': "secret/tenants//%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252fsecret%252ftenants%252fdata%252fpz",
+            'GHSA-wf8v bypass 2 (Vault 2.2.1 two-hop decode)': "secret/tenants//..%252f..%252f..%252f..%252f..%252f..%252fsecret%252ftenants%252fdata%252fpz",
+            'GHSA-wf8v bypass 3 (Vault 2.2.1 two-hop decode)': "secret/tenants//%252e%252e/%252e%252e/%252e%252e/%252e%252e/%252e%252e/%252e%252e/secret/tenants/data/pz",
+            'GHSA-wf8v bypass 4 (Vault 2.2.1 two-hop decode)': "secret/tenants/%2f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252f%252e%252e%252fsecret%252ftenants%252fdata%252fpz",
+            'GHSA-wf8v bypass 5 (Vault 2.2.1 two-hop decode)': "secret/tenants//%2e%2e%252f%2e%2e%252f%2e%2e%252f%2e%2e%252f%2e%2e%252f%2e%2e%252fsecret%252ftenants%252fdata%252fpz",
+            'GHSA-wf8v bypass 6 (Vault 2.2.1 two-hop decode)': "secret/tenants//%25%32%65%25%32%65%25%32%66%25%32%65%25%32%65%25%32%66%25%32%65%25%32%65%25%32%66%25%32%65%25%32%65%25%32%66%25%32%65%25%32%65%25%32%66%25%32%65%25%32%65%25%32%66secret%25%32%66tenants%25%32%66data%25%32%66pz",
+            'lone %2E': 'secret/a%2Eb',
+            'lone %2F': 'secret/a%2Fb',
+            'lone %5C': 'secret/a%5Cb',
+            'lone %25': 'secret/a%25b',
+            'double-encoded dot dot slash': 'secret/%252e%252e%252Fx',
+        };
+
+        Object.keys(unsafe).forEach((name) => {
+            it(`rejects a ${name} before any detection or KV request`, function () {
+                const client = makeClient();
+                client.__api = { makeRequest: sinon.stub().resolves({}) };
+                return client.read(unsafe[name]).then(
+                    () => { throw new Error('expected rejection'); },
+                    (err) => {
+                        expect(err).to.be.instanceOf(errors.InvalidArgumentsError);
+                        expect(client.__api.makeRequest).to.not.have.been.called;
+                    }
+                );
+            });
+        });
+
+        it('rejects non-string paths, including ones JSON.stringify cannot serialise', function () {
+            const client = makeClient();
+            client.__api = { makeRequest: sinon.stub().resolves({}) };
+            const circular = {};
+            circular.self = circular;
+            const inputs = [undefined, null, 42, 10n, circular, ['secret', 'x']];
+            return Promise.all(inputs.map((path) => client.read(path).then(
+                () => { throw new Error('expected rejection'); },
+                (err) => err
+            ))).then((errs) => {
+                errs.forEach((err, i) => {
+                    expect(err).to.be.instanceOf(errors.InvalidArgumentsError);
+                    expect(err.message, String(i)).to.equal('Invalid secret path: expected a non-empty string');
+                });
+                expect(client.__api.makeRequest).to.not.have.been.called;
+            });
+        });
+
+        it('covers write, list, delete and the v2-only helpers too', function () {
+            const client = makeClient();
+            client.__api = { makeRequest: sinon.stub().resolves({}) };
+            const bad = 'secret/../x#';
+            return Promise.all([
+                client.write(bad, { a: 1 }), client.list(bad), client.delete(bad), client.readMetadata(bad),
+            ].map((p) => p.then(() => 'resolved', (err) => err.constructor.name))).then((out) => {
+                expect(out).to.deep.equal(Array(4).fill('InvalidArgumentsError'));
+                expect(client.__api.makeRequest).to.not.have.been.called;
+            });
+        });
+
+        it('keeps the poisoned-detection scenario closed: no detection request, nothing cached', function () {
+            // Passes every GHSA-rr65 check; only the encoded-escape rule stops it before the
+            // detection request (a standby redirect hop would decode %252e to %2e).
+            const client = makeClient({ api: { kv: { autoDetect: true } } });
+            client.__api = { makeRequest: sinon.stub().resolves({ data: { data: {} } }) };
+            return client.read('secret/tenants/%252e%252e/secret/data/x').then(
+                () => { throw new Error('expected rejection'); },
+                (err) => {
+                    expect(err.message).to.equal('Invalid secret path: encoded dots, separators or percent signs are not allowed');
+                    expect(client.__api.makeRequest).to.not.have.been.called;
+                    expect(client.__resolver.__cache.size).to.equal(0);
+                }
+            );
+        });
+
+        it('does not cache a detection answer that is not mount info', function () {
+            // The real resolver: a secret body where mount info is expected is a VaultError and
+            // leaves nothing to route by.
+            const client = makeClient({ api: { kv: { autoDetect: true } } });
+            client.__api = { makeRequest: sinon.stub().resolves({ data: { data: { path: 'secret/', type: 'kv' } } }) };
+            return client.read('secret/x').then(
+                () => { throw new Error('expected rejection'); },
+                (err) => {
+                    expect(err).to.be.instanceOf(errors.VaultError);
+                    expect(client.__api.makeRequest).to.have.been.calledOnceWith('GET', 'sys/internal/ui/mounts/secret/x');
+                    expect(client.__resolver.__cache.size).to.equal(0);
+                }
+            );
+        });
+
+        it('still accepts ordinary paths (upper case, underscores, dots, brackets, spaces, trailing slash)', function () {
+            const client = makeClient({ api: { engines: { secret: 1 } } });
+            client.__api = { makeRequest: sinon.stub().resolves({}) };
+            // a literal % followed by other hex (%41, a%41b) cannot form a dot or separator
+            const paths = ['secret/a%41b', 'secret/MyApp/DB_PASSWORD', 'secret/a.b/c..d', 'secret/[x]/a b', 'secret/v1.2/', 'secret/%41'];
+            return Promise.all(paths.map((p) => client.__resolveAndRequest('read', 'GET', p, null)))
+                .then(() => {
+                    expect(client.__api.makeRequest.args.map((a) => a[1])).to.deep.equal(paths);
+                });
+        });
+
+        it('leaves request() literal and unvalidated', function () {
+            const client = makeClient();
+            client.__api = { makeRequest: sinon.stub().resolves({}) };
+            return client.request('GET', 'sys/mounts?x=1').then(() => {
+                expect(client.__api.makeRequest).to.have.been.calledWith(
+                    'GET', 'sys/mounts?x=1', null, { 'X-Vault-Token': 'tid' }
+                );
+            });
+        });
+    });
+
     describe('#request() raw passthrough', function () {
         it('never consults the mount resolver', function () {
             const client = makeClient({ api: { engines: { secret: 2 } } });
@@ -487,13 +619,27 @@ describe('VaultClient request pipeline (characterization, #110)', function () {
             });
         });
 
+        it('rejects an encoded multi-segment mount through real detection without a KV request', function () {
+            const client = makeClient({ api: { kv: { autoDetect: true } } });
+            client.__api = { makeRequest: sinon.stub().resolves({ data: { path: 'team/kv/', type: 'kv', options: { version: '2' } } }) };
+            return client.read('team/k%76/a').then(
+                () => { throw new Error('expected rejection'); },
+                (err) => {
+                    expect(err).to.be.instanceOf(errors.InvalidArgumentsError);
+                    expect(err.message).to.not.include('k%76');
+                    expect(client.__api.makeRequest).to.have.been.calledOnce;
+                    expect(client.__resolver.__cache.size).to.equal(0);
+                }
+            );
+        });
+
         it('rejects a path that does not start with the mount it resolved to', function () {
             // autoDetect decodes the path, so 'team/k%76/a' resolves to the 'team/kv' mount; the
             // KV v2 rewrite used to send 'team/kv/data/team/k%76/a', i.e. the key 'team/kv/a'.
             const client = makeClient({ api: { kv: { autoDetect: true } } });
             client.__api = { makeRequest: sinon.stub().resolves({}) };
             sinon.stub(client.__resolver, 'resolve').resolves({ mount: 'team/kv/', version: 2, type: 'kv' });
-            return Promise.all(['team/k%76/a', 'team/kv%2fa'].map((path) => client.read(path).then(
+            return Promise.all(['team/k%76/a', 'team/%6bv/a'].map((path) => client.read(path).then(
                 () => { throw new Error(`expected rejection for ${path}`); },
                 (err) => {
                     expect(err).to.be.instanceOf(errors.InvalidArgumentsError);

@@ -30,6 +30,30 @@
   (`secret//foo`) throw; a non-string path throws instead of being stringified. On KV v2 a
   leading slash now addresses the key it names: `/secret/foo` used to reach `secret/secret/foo`.
 
+- **Security (GHSA-wf8v-q2h3-hgjm): KV mount detection no longer caches unvalidated responses,
+  and KV paths with encoded dots, separators or percent signs are rejected.** With
+  `api.kv.autoDetect`, the first detection for a mount cached any response that had a `data`
+  object, falling back to the first path segment and to KV v1 when `path` or `type` was missing.
+  A caller path with dot segments or encoded separators could point that detection request at
+  another Vault endpoint, and the cached result then misrouted every later KV call on the mount
+  for every caller of the client.
+  - Detection now requires a string `data.path` and `data.type`, and caches nothing otherwise. A
+    well-formed answer is cached only when its mount contains the requested path; when it does
+    not, that caller gets `InvalidArgumentsError` and callers sharing the detection are
+    unaffected. Auth mounts are keyed as `auth/<mount>`, which also fixes an auth mount
+    overwriting the cache entry of a KV mount with the same name, and a mount in a child
+    namespace is keyed relative to `api.namespace`.
+  - A percent-encoded segment of a multi-segment mount (`team/k%76/config` for `team/kv`) is
+    rejected in `engines` mode as well. It used to miss the override and go out unrewritten, and
+    Vault decoded it onto the mount's own endpoints.
+  - On top of the GHSA-rr65-m54w-rfr9 checks, the KV methods reject `%2e`, `%2f`, `%5c` and
+    `%25` in any case. Vault decodes encoded separators and redirects to the cleaned path, and
+    Vault 2.x does so again on every redirect hop, so a single decode is not enough and encoded
+    forms are rejected rather than decoded. `request()` is unchanged.
+  - **Behaviour change:** a KV method path that legitimately contains one of these escapes, such
+    as a key name passed through `encodeURIComponent()` that contains a `/`, must now go through
+    `request()`.
+
 - **Added HashiCorp Vault 2.2.x to CI.** `e2e` gains a `{node: 22, vault: '2.2'}` leg next to the
   `2.0` and `2.1` ones, and `e2e-kv2` now runs against all four supported lines (`1.21`, `2.0`,
   `2.1`, `2.2`). The reproduce-locally examples in `docker-compose.yml` and `CONTRIBUTING.md` now

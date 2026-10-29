@@ -9,6 +9,32 @@ const safeMessage = require('./safeMessage');
 // cache — and the per-resolve lookup cost — without bound (issue #108).
 const DEFAULT_MAX_CACHE_SIZE = 500;
 
+/** True when `mount` is `path` itself or a whole-segment prefix of it. */
+function containsPath(mount, path) {
+    return mount !== '' && (path === mount || path.startsWith(mount + '/'));
+}
+
+/**
+ * Per GHSA-rr65/GHSA-wf8v a mount must be named literally: Vault decodes the path, so
+ * 'team/k%76/x' would reach the 'team/kv' mount while matching it neither in the engines map
+ * nor as a prefix, and the KV v2 rewrite would be skipped or built on the wrong mount.
+ */
+function encodedMountError(mount) {
+    return new InvalidArgumentsError(
+        `Invalid secret path: it does not start with the mount "${mount}" it resolved to; ` +
+        'do not percent-encode the mount'
+    );
+}
+
+// '%2f' and '%25' never get here (VaultClient rejects them), so one decode is what Vault sees.
+function decodePath(path) {
+    try {
+        return decodeURIComponent(path);
+    } catch {
+        return path;
+    }
+}
+
 /**
  * Resolves the KV engine version for a given secret path.
  *
@@ -24,10 +50,15 @@ const DEFAULT_MAX_CACHE_SIZE = 500;
  * @param {Object}   [opts]              - additional options
  * @param {boolean}  [opts.disabled]     - if true, always return passthrough (version 1)
  * @param {number}   [opts.maxCacheSize] - LRU cap for the mount cache (default 500)
+ * @param {string}   [opts.namespace]    - the client's Vault namespace (X-Vault-Namespace)
  */
 class MountResolver {
     constructor(detectFn, enginesOverride, logger, opts) {
         this.__detectFn = detectFn;
+        // Vault reports a mount in a child namespace with its full namespace path
+        // ("ns1/ns2/secret/"), while the caller's path is relative to this namespace.
+        const namespace = opts && typeof opts.namespace === 'string' ? opts.namespace.replace(/^\/+|\/+$/g, '') : '';
+        this.__namespacePrefix = namespace ? `${namespace}/` : '';
         this.__log = logger;
         this.__disabled = opts && opts.disabled === true;
         // Validate before use: a non-positive cap would make the eviction loop in
@@ -68,6 +99,10 @@ class MountResolver {
         // 1. Check engines override (longest-prefix match). This applies even when
         //    auto-detection is disabled, so listed mounts resolve with no I/O.
         const override = this.__enginesOverrideLookup(path);
+        const decodedOverride = this.__enginesOverrideLookup(decodePath(path));
+        if (decodedOverride !== null && (override === null || override.mount !== decodedOverride.mount)) {
+            return Promise.reject(encodedMountError(decodedOverride.mount));
+        }
         if (override !== null) {
             this.__log.debug('MountResolver: engines override for %s -> v%d', path, override.version);
             return Promise.resolve(override);
@@ -88,8 +123,15 @@ class MountResolver {
         //    if it does not (two distinct multi-segment mounts share a first segment,
         //    e.g. team/kvA/* and team/kvB/*), we start a fresh detection using the
         //    full path as key so each mount gets its own call.
+        //    Each caller checks the result against its own path, so one caller's bad path
+        //    cannot fail others sharing the detection.
         const interimKey = path.split('/')[0];
-        return this.__detectWithCache(interimKey, path);
+        return this.__detectWithCache(interimKey, path).then((entry) => {
+            if (!containsPath(entry.mount, path)) {
+                throw encodedMountError(entry.mount);
+            }
+            return entry;
+        });
     }
 
     // -------------------------------------------------------------------------
@@ -103,7 +145,7 @@ class MountResolver {
      */
     __enginesOverrideLookup(path) {
         for (const [prefix, version] of this.__engines) {
-            if (path === prefix || path.startsWith(prefix + '/')) {
+            if (containsPath(prefix, path)) {
                 return { mount: prefix, version, type: 'kv' };
             }
         }
@@ -166,7 +208,7 @@ class MountResolver {
             // Join the existing in-flight promise but verify the result matches our path.
             // If the detection was for a different sub-mount, start a fresh detection.
             return this.__inflight.get(interimKey).then((entry) => {
-                if (path === entry.mount || path.startsWith(entry.mount + '/')) {
+                if (containsPath(entry.mount, path)) {
                     return entry;
                 }
                 // The shared detection resolved to a different mount — start our own.
@@ -183,8 +225,16 @@ class MountResolver {
                     throw new Error('Unexpected empty detection response');
                 }
 
-                const canonicalMount = (info.path || interimKey).replace(/\/+$/, '');
-                const type = info.type || 'unknown';
+                // Require a mounts-endpoint shape (string path and type) and never fall back
+                // to a caller-derived key or a default type. This does not authenticate the
+                // response: a planted secret could carry the same fields. What keeps the
+                // detection request on the mounts endpoint is the path validation in
+                // VaultClient; this only stops a malformed answer from becoming routing.
+                if (typeof info.path !== 'string' || typeof info.type !== 'string' || !info.path.replace(/\/+$/, '')) {
+                    throw new Error('Unexpected detection response shape (missing string path/type)');
+                }
+                const canonicalMount = this.__canonicalMount(info.path, path);
+                const type = info.type;
                 const optVersion = info.options && info.options.version;
                 // Only kv v2 gets special treatment; everything else is passthrough
                 const version = (type === 'kv' && optVersion === '2') ? 2 : 1;
@@ -192,8 +242,11 @@ class MountResolver {
                 const entry = { mount: canonicalMount, version, type };
                 this.__log.debug('MountResolver: detected %s as type=%s version=%d', canonicalMount, type, version);
 
-                // Store in persistent cache (bounded LRU)
-                this.__cacheStore(canonicalMount, entry);
+                // Cache only an answer that contains the path it was asked for; resolve()
+                // rejects a caller whose path the mount does not contain.
+                if (containsPath(canonicalMount, path)) {
+                    this.__cacheStore(canonicalMount, entry);
+                }
                 // Clear in-flight
                 this.__inflight.delete(interimKey);
                 return entry;
@@ -212,6 +265,26 @@ class MountResolver {
 
         this.__inflight.set(interimKey, promise);
         return promise;
+    }
+
+    /**
+     * The cache key for a detected mount. For auth mounts Vault reports the path without the
+     * reserved "auth/" prefix (auth/apps/role/r -> "apps/"), so it is re-added and the entry
+     * cannot collide with a secrets mount of the same name. A mount in a child namespace is
+     * reported with the client's namespace in front; that prefix is dropped when only the
+     * shorter form contains the path.
+     */
+    __canonicalMount(reportedPath, path) {
+        const withTable = (mount) => (path.startsWith('auth/') ? `auth/${mount}` : mount);
+        const reported = reportedPath.replace(/\/+$/, '');
+        const mount = withTable(reported);
+        if (!containsPath(mount, path) && this.__namespacePrefix && reported.startsWith(this.__namespacePrefix)) {
+            const relative = withTable(reported.slice(this.__namespacePrefix.length));
+            if (containsPath(relative, path)) {
+                return relative;
+            }
+        }
+        return mount;
     }
 
     /**

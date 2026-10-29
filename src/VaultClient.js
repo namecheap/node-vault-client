@@ -55,14 +55,15 @@ const UNSAFE_KV_PATH_CHARS = /[?#\\\u0000-\u001f\u007f]/;
 
 /**
  * Rejects a KV method path that the URL parser or Vault would resolve to a path other than
- * `<mount>/<kv segment>/<logical path>` (GHSA-rr65-m54w-rfr9).
+ * `<mount>/<kv segment>/<logical path>` (GHSA-rr65-m54w-rfr9, GHSA-wf8v-q2h3-hgjm).
  *
- * Segments are checked after decoding every %XX escape on its own: fetch() removes '.' and
- * '..' segments including their %2e forms, Vault decodes %2f to '/' before its KV v2 engine
- * resolves '..' and collapses empty segments, and Vault redirects a raw '//' to the collapsed
- * path, which fetch() follows (a 301 on Vault 1.x turns a write into a read, a 307 on 2.x
- * writes the parent key). Decoding escapes one by one, instead of decodeURIComponent() on a
- * whole segment, keeps an invalid UTF-8 escape such as %ff from hiding the rest of the segment.
+ * fetch() removes '.' and '..' segments, and Vault redirects a raw '//' to the collapsed path,
+ * which fetch() follows (a 301 on Vault 1.x turns a write into a read, a 307 on 2.x writes the
+ * parent key). Encoded forms are rejected rather than decoded: Vault decodes %2e and %2f before
+ * its KV v2 engine resolves '..' and collapses empty segments, and Vault 2.x decodes and
+ * path-cleans again on every redirect hop, so a %25-encoded escape becomes %2e or %2f on the
+ * first hop and a real dot segment or separator on the second. No other escape can form a dot
+ * segment or a separator, so the segments are then checked as written.
  *
  * One trailing slash is allowed (list() addresses a folder with it, and the other methods
  * pass it through byte for byte), except on the KV v2 helpers: those always address a single
@@ -95,15 +96,17 @@ function assertSafeKvPath(path, allowTrailingSlash) {
             'trailing space are not allowed'
         );
     }
+    if (/%(2e|2f|5c|25)/i.test(path)) {
+        throw new errors.InvalidArgumentsError(
+            'Invalid secret path: encoded dots, separators or percent signs are not allowed'
+        );
+    }
     const trimmed = path.replace(/^\/+/, '');
     if (trimmed.split('/')[0].includes('%')) {
         throw new errors.InvalidArgumentsError('Invalid secret path: the mount must not be percent-encoded');
     }
-    let decoded = trimmed.replace(/%([0-9a-f]{2})/gi, (escape, hex) => String.fromCharCode(parseInt(hex, 16)));
-    if (allowTrailingSlash) {
-        decoded = decoded.replace(/\/$/, '');
-    }
-    if (decoded.split(/[/\\]/).some((segment) => segment === '' || segment === '.' || segment === '..')) {
+    const segments = (allowTrailingSlash ? trimmed.replace(/\/$/, '') : trimmed).split('/');
+    if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
         throw new errors.InvalidArgumentsError(
             'Invalid secret path: empty, \'.\' and \'..\' segments are not allowed ' +
             '(nor a trailing slash in the KV v2 helpers)'
@@ -193,6 +196,7 @@ class VaultClient {
 
         this.__resolver = new MountResolver(detectFn, engines, this.__log, {
             disabled: resolverDisabled,
+            namespace,
         });
     }
 
@@ -480,7 +484,8 @@ class VaultClient {
         if (path.startsWith(prefix + '/')) return path.slice(prefix.length + 1);
         // Detection decodes the path, so with a multi-segment mount 'team/k%76/foo' resolves to
         // 'team/kv'; rewriting it as a key inside that mount would address 'team/kv/team/kv/foo'
-        // (GHSA-rr65-m54w-rfr9). assertSafeKvPath() already rejects an encoded first segment.
+        // (GHSA-rr65-m54w-rfr9). MountResolver.resolve() already rejects that; this guards the
+        // rewrite itself.
         throw new errors.InvalidArgumentsError(
             `Invalid secret path: it does not start with the mount "${prefix}" it resolved to; ` +
             'do not percent-encode the mount'

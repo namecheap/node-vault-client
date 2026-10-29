@@ -952,28 +952,33 @@ would resolve it to a different path than the one passed:
 - an empty path;
 - `?`, `#`, `\`, a control character (U+0000–U+001F, U+007F), an unpaired surrogate or a
   trailing space;
+- a percent-encoded `.`, `/`, `\` or `%` (`%2e`, `%2f`, `%5c`, `%25`, in any case). Vault decodes
+  these and cleans the path again on every redirect hop, so they are rejected rather than decoded;
 - an empty segment such as `a//b` or `a//`, which Vault collapses into the parent path, so
   `tenants/${id}/key` with an empty `id` would address `tenants/key`;
 - a `.` or `..` segment;
-- a percent-encoded mount (`secre%74/foo`, `secret%2ffoo`): the `engines` override and mount
-  detection match the path as written, but Vault decodes it, so `secre%74/config` would skip the
-  KV v2 rewrite and reach the mount's own `config` endpoint;
+- a percent-encoded mount (`secre%74/foo`): the `engines` override and mount detection match the
+  path as written, but Vault decodes it, so `secre%74/config` would skip the KV v2 rewrite and
+  reach the mount's own `config` endpoint;
 - a trailing slash on the KV v2 helpers (`deleteVersions`, `undeleteVersions`,
   `destroyVersions`, `readMetadata`, `deleteMetadata`): Vault applies a metadata call on
   `tenants/me/` to the key `tenants/me`.
 
-Segments are checked after percent-decoding, so `%2e%2e`, `..%2f` and `%2f%2f` are rejected
-too. Leading slashes are dropped before the mount is resolved, so `/secret/foo` and
-`secret/foo` address the same key (an `engines` key may be written either way). The other
-methods keep a single trailing slash, as in `list('secret/apps/')`. With `autoDetect`, a KV v2
-path that does not start with the mount Vault resolves it to (a percent-encoded second segment
-of a mount such as `team/kv`) is rejected after detection.
+Leading slashes are dropped before the mount is resolved, so `/secret/foo` and `secret/foo`
+address the same key (an `engines` key may be written either way). The other methods keep a
+single trailing slash, as in `list('secret/apps/')`. A percent-encoded segment of a
+multi-segment mount (`team/k%76/foo` for the mount `team/kv`) is rejected too: by the `engines`
+lookup, or after detection with `autoDetect`.
 
 A key name that needs `?` or `#` can still be addressed percent-encoded (`%3F`, `%23`); Vault
-decodes it. To read a specific KV v2 version, which used to work as
-`read('secret/foo?version=2')`, use `request('GET', 'secret/data/foo?version=2')`. These checks
-apply in every mode (passthrough, `engines`, `autoDetect`). `request()` sends its path
-literally and does not apply them.
+decodes it. A key that needs any other rejected character goes through `request()`, as does a
+specific KV v2 version, which used to work as `read('secret/foo?version=2')`:
+`request('GET', 'secret/data/foo?version=2')`. These checks apply in every mode (passthrough,
+`engines`, `autoDetect`). `request()` sends its path literally and does not apply them.
+
+Still validate lower-trust input before building a path from it: these checks only stop a path
+from reaching a different Vault path than the one it names, not a caller from naming another
+tenant's secret.
 
 A validation error's message says which rule failed but does not include the path, because the
 KV methods log the message at `error` level.
@@ -982,6 +987,7 @@ KV methods log the message at `error` level.
 
 - Each canonical mount is detected once and then cached for the life of the `VaultClient` instance. The cache is a bounded LRU with a fixed cap of 500 mounts (not configurable through client options); a long-lived client that touches more than 500 distinct mounts evicts the least-recently-used entries, and an evicted mount is detected again on its next use.
 - Concurrent first-touch requests for the same mount share a single in-flight detection promise.
+- A detection response without a string `path` and `type` fails the call with `VaultError` and nothing is cached. A well-formed answer is cached only when its mount contains the requested path; when it does not, that caller gets `InvalidArgumentsError` and callers sharing the detection are unaffected. Auth mounts are cached as `auth/<mount>`, so they never collide with a secrets mount of the same name, and a mount in a child namespace is keyed relative to `api.namespace`.
 - The detection endpoint used is `GET sys/internal/ui/mounts/<path>` (readable by any authenticated token).
 - When the token lacks permission on that endpoint, set `api.engines` to skip detection.
 
