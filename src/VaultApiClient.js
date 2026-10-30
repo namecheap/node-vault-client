@@ -4,6 +4,27 @@ const rp = require('request-promise');
 const urljoin = require('url-join');
 const _ = require('lodash');
 
+/**
+ * request-promise errors keep the request `options` (the `X-Vault-Token` header and the request
+ * body: written secrets, AppRole credentials, the Kubernetes JWT) and the `response`, whose
+ * request carries the same headers. Printing such an error (console.error(err), an error tracker,
+ * JSON.stringify) printed the token. Keep both properties readable, but non-enumerable, so they
+ * no longer show up when the error is inspected or serialised.
+ *
+ * @param {*} err
+ * @returns {*} the same error
+ */
+function hideRequestDetails(err) {
+    if (err && typeof err === 'object') {
+        ['options', 'response'].forEach((key) => {
+            if (Object.prototype.hasOwnProperty.call(err, key)) {
+                Object.defineProperty(err, key, { enumerable: false });
+            }
+        });
+    }
+    return err;
+}
+
 class VaultApiClient {
 
     /**
@@ -42,12 +63,15 @@ class VaultApiClient {
 
         return rp(requestOptions)
             .then((response) => {
-                this._logger.debug('%s %s response body:\n%s',
+                // Do not log the response body: Vault responses carry secret material (auth
+                // tokens, secret reads). See issue #204.
+                this._logger.debug('%s %s -> response received',
                     requestOptions.method,
-                    requestOptions.uri,
-                    JSON.stringify(response, null, ' ')
+                    requestOptions.uri
                 );
                 return response;
+            }, (err) => {
+                throw hideRequestDetails(err);
             });
     }
 }

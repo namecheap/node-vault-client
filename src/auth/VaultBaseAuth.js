@@ -4,6 +4,7 @@ const lt = require('long-timeout');
 const prettyMs = require('pretty-ms');
 const AuthToken = require('./AuthToken');
 const errors = require('../errors');
+const safeMessage = require('../safeMessage');
 
 class VaultBaseAuth {
 
@@ -44,8 +45,8 @@ class VaultBaseAuth {
 
                 if (this.__authToken.isRenewable()) {
                     this._log.debug(
-                        'setting refresh timer for token %s',
-                        authToken.getId()
+                        'setting refresh timer for token (accessor=%s)',
+                        authToken.getAccessor()
                     );
                     this.__setupTokenRefreshTimer(this.__authToken);
                 }
@@ -106,8 +107,10 @@ class VaultBaseAuth {
             }).catch(err => {
                 this.__setupTokenRefreshTimer(authToken);
 
-                this._log.error(`Cannot refresh auth token with "${authToken.getAccessor()}" accessor. Error: ${err.message}`);
-                this._log.error(err);
+                // Only the safe message: the error object itself used to be logged too, and a
+                // request-promise error carries the request options (the X-Vault-Token header)
+                // and a non-2xx response body (GHSA-2vr8-g4vw-7xpm).
+                this._log.error(`Cannot refresh auth token with "${authToken.getAccessor()}" accessor. Error: ${safeMessage(err)}`);
             });
         }, timer);
 
@@ -131,7 +134,7 @@ class VaultBaseAuth {
                 return this._getTokenEntity(authToken.getId());
             })
             .catch((reason) => {
-                this._log.error('token renew failed: %s', reason.message);
+                this._log.error('token renew failed: %s', safeMessage(reason));
                 throw reason;
             });
     }

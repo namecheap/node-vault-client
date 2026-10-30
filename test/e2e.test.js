@@ -8,6 +8,7 @@ const _ = require('lodash');
 const chai = require('chai');
 const expect = chai.expect;
 const VaultClient = require('../src/VaultClient');
+const errors = require('../src/errors');
 
 describe('E2E', function () {
 
@@ -230,4 +231,43 @@ describe('E2E', function () {
         });
     });
 
+
+    describe('KV path validation (GHSA-rr65-m54w-rfr9)', function () {
+        function* rejection(promise) {
+            try {
+                yield promise;
+            } catch (err) {
+                return err;
+            }
+            return null;
+        }
+
+        it('rejects dot segments instead of following Vault\'s redirect into another tenant', function* () {
+            const vaultClient = new VaultClient(this.bootOpts);
+            yield vaultClient.write('secret/tenants/victim/key', {owner: 'victim'});
+            yield vaultClient.write('secret/tenants/me/key', {owner: 'me'});
+
+            // 1.0.3 sent these as written; Vault answered with a 301 to the cleaned path and
+            // `request` followed it with the token, returning the victim's secret.
+            for (const path of ['secret/tenants/me/../victim/key', 'secret/tenants/me/..\\victim/key']) {
+                const err = yield* rejection(vaultClient.read(path));
+                expect(err, path).to.be.instanceOf(errors.InvalidArgumentsError);
+            }
+            const err = yield* rejection(vaultClient.list('secret/tenants/me/../'));
+            expect(err).to.be.instanceOf(errors.InvalidArgumentsError);
+
+            const own = yield vaultClient.read('secret/tenants/me/key');
+            expect(own.getData()).to.deep.equal({owner: 'me'});
+        });
+
+        it('rejects an empty segment, which url-join used to collapse into the parent path', function* () {
+            const vaultClient = new VaultClient(this.bootOpts);
+
+            const err = yield* rejection(vaultClient.write('secret/tenants//shared', {owner: 'attacker'}));
+            expect(err).to.be.instanceOf(errors.InvalidArgumentsError);
+
+            const parent = yield* rejection(vaultClient.read('secret/tenants/shared'));
+            expect(parent && parent.statusCode).to.equal(404);
+        });
+    });
 });

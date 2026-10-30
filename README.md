@@ -136,6 +136,45 @@ await client.read('secret-v2/app/config');  // detected as v2
   `api.engines`, and `autoDetect` recognises them as non-KV automatically.
 - If detection fails (e.g. permission denied) and no `api.engines` override matches, the read
   rejects with a `VaultError` — set `api.engines` to bypass detection in that case.
+- A detection answer without a string `path` and `type` fails the call and is not cached, and an
+  answer whose mount does not contain the requested path is rejected for that caller only. Auth
+  mounts are cached as `auth/<mount>`, so they never collide with a secrets mount of the same name.
+
+## Path validation
+
+Since 1.0.4, `read`, `list` and `write` reject a path with `InvalidArgumentsError`, before any
+request is sent (including the login and mount detection), when Vault or the HTTP stack would
+resolve it to a different path than the one passed (GHSA-rr65-m54w-rfr9, GHSA-wf8v-q2h3-hgjm):
+
+- an empty path, or one that is not a string;
+- `?`, `#`, `\`, a control character (U+0000–U+001F, U+007F), an unpaired surrogate or a
+  trailing space;
+- a percent-encoded `.`, `/`, `\` or `%` (`%2e`, `%2f`, `%5c`, `%25`, in any case);
+- an empty segment such as `a//b`, which the client used to collapse into `a/b` before sending, so
+  `tenants/${id}/key` with an empty `id` addressed `tenants/key`;
+- a `.` or `..` segment, which Vault redirects to the cleaned path and the client followed with its
+  token;
+- a percent-encoded mount (`secre%74/foo`, or `team/k%76/foo` for the mount `team/kv`).
+
+Leading slashes are dropped before the mount is resolved, so `/secret/foo` and `secret/foo`
+address the same key. One trailing slash is kept, as in `list('secret/apps/')`. A key name that
+needs `?` or `#` can still be addressed percent-encoded (`%3F`, `%23`).
+
+These checks stop a path from reaching a different Vault path than the one it names; they do not
+stop a caller from naming another tenant's key, so keep validating lower-trust input that goes
+into a path. A validation error's message says which rule failed but not the path.
+
+## Logging
+
+The default logger writes `error`, `warn`, `info` and `trace` to `console` and discards `debug`. A
+custom logger must implement all five methods; one missing any of them is silently replaced by the
+default logger. Since 1.0.4 no log line, at any level, carries a Vault token, the AppRole
+`role_id`/`secret_id`, the Kubernetes JWT or a Vault response body: request logs name the method
+and URL, auth logs name the token accessor, and failure logs keep only the HTTP status and Vault's
+`errors` strings. Errors the client throws still carry the request in `err.options` (including the
+`X-Vault-Token` header) and the response in `err.response`, but these are no longer printed when
+the error is logged or serialised; the `StatusCodeError` message is still `"<status> - <body>"`, so
+log `err.statusCode` and `err.error.errors` rather than the message if the body may hold secrets.
 
 ## Supported Auth Backends
 
@@ -179,7 +218,7 @@ Client constructor function.
 | options.auth | <code>Object</code> |  |  |
 | options.auth.type | <code>String</code> |  |  |
 | options.auth.config | <code>Object</code> |  | auth configuration variables |
-| options.logger | <code>Object</code> | `false` |  | Logger that supports "error", "info", "warn", "trace", "debug" methods. Uses `console` by default. Pass `false` to disable logging. |
+| [options.logger] | <code>Object</code> \| <code>false</code> |  | Logger that implements all five of "error", "warn", "info", "debug" and "trace"; one missing any of them is silently replaced by the default logger. The default logger writes to `console`, except `debug`, which is discarded. Pass `false` to disable logging. See [Logging](#logging). |
 
 #### vaultClient.fillNodeConfig()
 Populates Vault's values to NPM "config" module

@@ -11,7 +11,69 @@ const VaultNodeConfig = require('./VaultNodeConfig');
 const VaultKubernetesAuth = require('./auth/VaultKubernetesAuth');
 const MountResolver = require('./MountResolver');
 const { rewritePath, normalizeResponse } = require('./kvTransform');
+const safeMessage = require('./safeMessage');
+const { trimTrailingSlashes } = require('./slashes');
 const vaultInstances = {};
+
+// The URL parser and Vault reinterpret these: '?' starts the query, '#' the fragment, '\' is a
+// path separator for http(s), and tab/LF/CR and trailing C0 controls or spaces are dropped. Any
+// of them lets a KV path address a different key.
+// eslint-disable-next-line no-control-regex
+const UNSAFE_KV_PATH_CHARS = /[?#\\\u0000-\u001f\u007f]/;
+// An unpaired surrogate (String.prototype.isWellFormed() needs Node 20; this line supports 14+).
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+/**
+ * Rejects a KV method path that the URL parser or Vault would resolve to a path other than
+ * `<mount>/<kv segment>/<logical path>` (GHSA-rr65-m54w-rfr9, GHSA-wf8v-q2h3-hgjm).
+ *
+ * Vault removes '.' and '..' segments and redirects, which `request` follows with the token, and
+ * url-join collapses an empty segment ('tenants//key' becomes 'tenants/key') before the request
+ * is sent. Encoded forms are rejected rather than decoded: Vault decodes %2e and %2f before it
+ * resolves '..', and Vault 2.x decodes again on every redirect hop, so a %25-encoded escape
+ * becomes %2e or %2f on the first hop and a real dot segment or separator on the second. No other
+ * escape can form a dot segment or a separator, so the segments are then checked as written.
+ *
+ * The messages never include the path: the KV methods log them at error level, and the path
+ * may be built from user data that was never logged before.
+ *
+ * The mount (first segment) must not be percent-encoded: the engines override and mount
+ * detection match the path as written, but Vault decodes it.
+ *
+ * @param {*} path - caller-supplied secret path
+ * @returns {string} the path without leading slashes; resolving the mount on it keeps the KV v2
+ *      rewrite from taking '/secret/foo' for a key in 'secret/'
+ * @throws {InvalidArgumentsError}
+ * @private
+ */
+function assertSafeKvPath(path) {
+    if (typeof path !== 'string' || path === '') {
+        throw new errors.InvalidArgumentsError('Invalid secret path: expected a non-empty string');
+    }
+    if (UNSAFE_KV_PATH_CHARS.test(path) || path.endsWith(' ') || LONE_SURROGATE.test(path)) {
+        throw new errors.InvalidArgumentsError(
+            'Invalid secret path: \'?\', \'#\', \'\\\', control characters, unpaired surrogates and a ' +
+            'trailing space are not allowed'
+        );
+    }
+    if (/%(2e|2f|5c|25)/i.test(path)) {
+        throw new errors.InvalidArgumentsError(
+            'Invalid secret path: encoded dots, separators or percent signs are not allowed'
+        );
+    }
+    const trimmed = path.replace(/^\/+/, '');
+    if (trimmed.split('/')[0].includes('%')) {
+        throw new errors.InvalidArgumentsError('Invalid secret path: the mount must not be percent-encoded');
+    }
+    // One trailing slash is allowed: list() addresses a folder with it.
+    const segments = trimmed.replace(/\/$/, '').split('/');
+    if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
+        throw new errors.InvalidArgumentsError(
+            'Invalid secret path: empty, \'.\' and \'..\' segments are not allowed'
+        );
+    }
+    return trimmed;
+}
 
 class VaultClient {
 
@@ -33,7 +95,9 @@ class VaultClient {
      * @param {Object} options.auth
      * @param {String} options.auth.type
      * @param {Object} options.auth.config - auth configuration variables
-     * @param {Object|false} options.logger - Logger that supports "error", "info", "warn", "trace", "debug" methods. Uses `console` by default. Pass `false` to disable logging.
+     * @param {Object|false} options.logger - Logger that implements all five of "error", "warn", "info", "debug"
+     *      and "trace"; one missing any of them is silently replaced by the default logger. The default logger
+     *      writes to `console`, except "debug", which is discarded. Pass `false` to disable logging.
      */
     constructor(options) {
         this.__log = this.__setupLogger(options.logger);
@@ -71,6 +135,7 @@ class VaultClient {
 
         this.__resolver = new MountResolver(detectFn, engines, this.__log, {
             disabled: resolverDisabled,
+            namespace: this.__namespace,
         });
     }
 
@@ -234,6 +299,14 @@ class VaultClient {
      * @private
      */
     __resolveAndRequest(op, method, path, data) {
+        // KV paths are validated before the token fetch, mount resolution and the autoDetect
+        // detection request (GHSA-rr65-m54w-rfr9).
+        try {
+            path = assertSafeKvPath(path);
+        } catch (err) {
+            return Promise.reject(err);
+        }
+
         return this.__auth.getAuthToken()
             .then((token) => {
                 const headers = this.getHeaders(token);
@@ -271,10 +344,17 @@ class VaultClient {
      * @private
      */
     __logicalPath(path, mount) {
-        const prefix = mount.replace(/\/+$/, '');
+        const prefix = trimTrailingSlashes(mount);
         if (path === prefix) return '';
         if (path.startsWith(prefix + '/')) return path.slice(prefix.length + 1);
-        return path;
+        // Detection decodes the path, so with a multi-segment mount 'team/k%76/foo' resolves to
+        // 'team/kv'; rewriting it as a key inside that mount would address 'team/kv/team/kv/foo'
+        // (GHSA-rr65-m54w-rfr9). MountResolver.resolve() already rejects that; this guards the
+        // rewrite itself.
+        throw new errors.InvalidArgumentsError(
+            `Invalid secret path: it does not start with the mount "${prefix}" it resolved to; ` +
+            'do not percent-encode the mount'
+        );
     }
 
     /**
@@ -291,7 +371,7 @@ class VaultClient {
                 return Lease.fromResponse(normalised);
             })
             .catch((reason) => {
-                this.__log.error('read secret failed: %s', reason.message);
+                this.__log.error('read secret failed: %s', safeMessage(reason));
                 throw reason;
             });
     }
@@ -311,7 +391,7 @@ class VaultClient {
                 return Lease.fromResponse(normalised);
             })
             .catch((reason) => {
-                this.__log.error('list secrets failed: %s', reason.message);
+                this.__log.error('list secrets failed: %s', safeMessage(reason));
                 throw reason;
             });
     }
@@ -331,7 +411,7 @@ class VaultClient {
                 return body;
             })
             .catch((reason) => {
-                this.__log.error('write secret failed: %s', reason.message);
+                this.__log.error('write secret failed: %s', safeMessage(reason));
                 throw reason;
             });
     }

@@ -302,4 +302,107 @@ describe('MountResolver', function () {
             expect(detectFn).to.not.have.been.called;
         });
     });
+
+    // -------------------------------------------------------------------------
+    // detection response validation (GHSA-wf8v-q2h3-hgjm)
+    // -------------------------------------------------------------------------
+    describe('detection response validation', function () {
+        async function rejection(promise) {
+            try {
+                await promise;
+            } catch (err) {
+                return err;
+            }
+            throw new Error('expected a rejection');
+        }
+
+        [
+            ['no path', { type: 'kv', options: { version: '2' } }],
+            ['no type', { path: 'secret/', options: { version: '2' } }],
+            ['non-string path', { path: 42, type: 'kv' }],
+            ['empty path', { path: '/', type: 'kv' }],
+            ['only options', { options: { version: '2' } }],
+        ].forEach(([label, data]) => {
+            it(`fails and caches nothing for a response with ${label}`, async function () {
+                const detectFn = sinon.stub().resolves({ data });
+                const resolver = new MountResolver(detectFn, {}, logger);
+
+                const err = await rejection(resolver.resolve('secret/foo'));
+                expect(err).to.be.instanceOf(errors.VaultError);
+                expect(err).to.not.be.instanceOf(errors.InvalidArgumentsError);
+                await rejection(resolver.resolve('secret/foo'));
+                expect(detectFn).to.have.been.calledTwice;
+                expect(resolver.__cache.size).to.equal(0);
+            });
+        });
+
+        it('rejects and does not cache a mount that does not contain the path', async function () {
+            const detectFn = sinon.stub().callsFake(() => mkDetect('other', 2));
+            const resolver = new MountResolver(detectFn, {}, logger);
+
+            const err = await rejection(resolver.resolve('secret/foo'));
+            expect(err).to.be.instanceOf(errors.InvalidArgumentsError);
+            expect(resolver.__cache.size).to.equal(0);
+        });
+
+        it('fails only the caller whose path the shared detection does not contain', async function () {
+            let release;
+            const detectFn = sinon.stub().returns(new Promise((resolve) => { release = resolve; }));
+            const resolver = new MountResolver(detectFn, {}, logger);
+
+            // Both share the in-flight key 'team'; Vault decodes the leader's path to team/kv.
+            const bad = resolver.resolve('team/k%76/x');
+            const good = resolver.resolve('team/kv/y');
+            release({ data: { path: 'team/kv/', type: 'kv', options: { version: '2' } } });
+
+            expect(await rejection(bad)).to.be.instanceOf(errors.InvalidArgumentsError);
+            expect(await good).to.deep.equal({ mount: 'team/kv', version: 2, type: 'kv' });
+            expect(detectFn).to.have.been.calledOnce;
+        });
+
+        it('keys auth mounts as auth/<mount>, so they do not replace a KV mount of the same name', async function () {
+            const detectFn = sinon.stub().callsFake((p) => (p.startsWith('auth/')
+                ? Promise.resolve({ data: { path: 'apps/', type: 'approle', options: null } })
+                : mkDetect('apps', 2)));
+            for (const order of [['auth', 'kv'], ['kv', 'auth']]) {
+                const resolver = new MountResolver(detectFn, {}, logger);
+                const results = {};
+                for (const step of order) {
+                    results[step] = await resolver.resolve(step === 'auth' ? 'auth/apps/role/r1/role-id' : 'apps/foo');
+                }
+                expect(results.auth).to.deep.equal({ mount: 'auth/apps', version: 1, type: 'approle' });
+                expect(results.kv).to.deep.equal({ mount: 'apps', version: 2, type: 'kv' });
+            }
+        });
+
+        it('keys a mount in a child namespace relative to the client namespace', async function () {
+            const detectFn = sinon.stub().resolves({ data: { path: 'ns1/ns2/secret/', type: 'kv', options: { version: '2' } } });
+            const resolver = new MountResolver(detectFn, {}, logger, { namespace: '/ns1/' });
+
+            expect(await resolver.resolve('ns2/secret/foo')).to.deep.equal({ mount: 'ns2/secret', version: 2, type: 'kv' });
+        });
+
+        it('rejects a percent-encoded segment of a multi-segment engines mount', async function () {
+            const resolver = new MountResolver(sinon.stub(), { 'team/kv': 2 }, logger, { disabled: true });
+
+            for (const path of ['team/k%76/config', 'team/%6Bv/metadata/x']) {
+                expect(await rejection(resolver.resolve(path)), path).to.be.instanceOf(errors.InvalidArgumentsError);
+            }
+            expect((await resolver.resolve('team/kv/a%3Fb')).mount).to.equal('team/kv');
+        });
+
+        it('accepts engines keys written with leading or trailing slashes', async function () {
+            const resolver = new MountResolver(sinon.stub(), { '/secret/': 2 }, logger, { disabled: true });
+            expect(await resolver.resolve('secret/foo')).to.deep.equal({ mount: 'secret', version: 2, type: 'kv' });
+        });
+
+        it('trims a namespace or engines key full of slashes in linear time (js/polynomial-redos)', function () {
+            const slashRun = 'ns' + '/'.repeat(100000) + 'x';
+            const start = process.hrtime();
+            const resolver = new MountResolver(sinon.stub(), { [slashRun]: 2 }, logger, { namespace: slashRun });
+            const elapsed = process.hrtime(start);
+            expect(elapsed[0] * 1e3 + elapsed[1] / 1e6).to.be.below(250);
+            expect(resolver.__namespacePrefix).to.equal(`${slashRun}/`);
+        });
+    });
 });
