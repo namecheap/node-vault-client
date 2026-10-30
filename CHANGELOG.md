@@ -1,4 +1,4 @@
-# 1.0.4 Release notes (unreleased)
+# 1.0.4 Release notes (2026-10-30)
 
 Security release on the Node.js 14+ **1.0.x** line (`legacy` dist-tag). It backports the fixes for
 the four advisories that list 1.0.3 as affected, and issue #204. The 3.x line has the same fixes.
