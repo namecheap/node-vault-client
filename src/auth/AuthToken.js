@@ -42,6 +42,7 @@ class AuthToken {
         this.__unadjustedExpiresAtMilliseconds = unadjustedExpiresAtMilliseconds
             ?? this.__expiresAtMilliseconds;
         this.__hasPreciseExpiry = hasPreciseExpiry;
+        this.__ttlSeconds = Number.isFinite(ttl) ? ttl : null;
         this.__explicitMaxTtl = explicitMaxTtl;
         this.__numUses = numUses;
         this.__isRenewable = isRenewable
@@ -184,6 +185,14 @@ class AuthToken {
      */
     getUnadjustedExpiresAtMilliseconds() {
         return this.__unadjustedExpiresAtMilliseconds;
+    }
+
+    /**
+     * Return Vault's whole-second TTL when this token came from a lookup response.
+     * @returns {number|null}
+     */
+    getTtlSeconds() {
+        return this.__ttlSeconds;
     }
 
     /**

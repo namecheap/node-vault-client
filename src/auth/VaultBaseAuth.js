@@ -9,7 +9,7 @@ const AuthToken = require('./AuthToken');
 
 /** Renew at the halfway point of the token's remaining lifetime. */
 const DEFAULT_RENEWAL_FRACTION = 0.5;
-/** Vault reports TTLs at whole-second precision, so ignore expiry movement within one second. */
+/** Maximum rounding difference allowed when comparing expiry movement with a renewal interval. */
 const MAX_EXPIRY_JITTER_MS = 1000;
 const errors = require('../errors');
 const safeMessage = require('../safeMessage');
@@ -65,6 +65,45 @@ function tokenUnadjustedExpiryMilliseconds(authToken) {
     }
 
     return tokenExpiryMilliseconds(authToken);
+}
+
+/**
+ * Read Vault's whole-second TTL when the token implementation exposes it.
+ * @param {AuthToken} authToken
+ * @returns {number|null}
+ * @private
+ */
+function tokenTtlSeconds(authToken) {
+    if (typeof authToken.getTtlSeconds !== 'function') {
+        return null;
+    }
+    const ttl = authToken.getTtlSeconds();
+    return typeof ttl === 'number' && Number.isFinite(ttl) ? ttl : null;
+}
+
+/**
+ * Explain why background renewal ended without exposing the token ID.
+ * @param {VaultBaseAuth} auth
+ * @param {AuthToken} authToken
+ * @param {string} reason
+ * @returns {void}
+ * @private
+ */
+function warnRenewalStopped(auth, authToken, reason) {
+    const expiry = tokenExpiryMilliseconds(authToken);
+    const nextAction = expiry === null
+        ? 'expiry is unknown; the cached token remains in use until it is replaced'
+        : auth._reauthenticationAllowed()
+            ? 'the next call after expiry will re-authenticate'
+            : 'the next call after expiry will fail with AuthTokenExpiredError';
+
+    auth._log.warn(
+        'token renewal stopped (accessor=%s): %s; client-side expiry is %s; %s',
+        authToken.getAccessor(),
+        reason,
+        expiry === null ? 'unknown' : new Date(expiry).toISOString(),
+        nextAction
+    );
 }
 
 class VaultBaseAuth {
@@ -293,17 +332,27 @@ class VaultBaseAuth {
             this.__refreshTimeout = null;
         }
 
-        if (!this.__renewalEnabled || !authToken.isRenewable() || authToken.isExpired()) {
+        if (!this.__renewalEnabled) {
+            return;
+        }
+        if (!authToken.isRenewable() || authToken.isExpired()) {
+            warnRenewalStopped(
+                this,
+                authToken,
+                authToken.isExpired() ? 'token already expired' : 'token is not renewable'
+            );
             return;
         }
 
         const expiry = tokenExpiryMilliseconds(authToken);
         if (expiry === null) {
+            warnRenewalStopped(this, authToken, 'token has no usable expiry');
             return;
         }
 
         const remaining = expiry - Date.now();
         if (remaining <= 0) {
+            warnRenewalStopped(this, authToken, 'token already expired');
             return;
         }
 
@@ -312,6 +361,7 @@ class VaultBaseAuth {
             250
         );
         if (timer >= remaining) {
+            warnRenewalStopped(this, authToken, 'too little lifetime left to renew');
             return;
         }
 
@@ -321,6 +371,7 @@ class VaultBaseAuth {
         // permanently un-renewed. Anything that supersedes this timer bumps the epoch.
         const epoch = ++this.__renewalEpoch;
         const superseded = () => this.__renewalEpoch !== epoch;
+        const scheduledAt = Date.now();
 
         this.__refreshTimeout = lt.setTimeout(() => {
             if (superseded()) {
@@ -333,15 +384,40 @@ class VaultBaseAuth {
                     return;
                 }
                 this.__authToken = renewedToken;
-                // Vault truncates TTLs to whole seconds, so expire_time can wobble by less than
-                // a second even when max TTL prevented an extension. Stop only when it did not
-                // move meaningfully; a renewalIncrement can shorten the expiry, in which case
-                // keep scheduling from the renewed deadline.
+                if (!renewedToken.isRenewable() || renewedToken.isExpired()) {
+                    this.__setupTokenRefreshTimer(renewedToken);
+                    return;
+                }
+
                 const previousExpiry = tokenUnadjustedExpiryMilliseconds(authToken);
                 const renewedExpiry = tokenUnadjustedExpiryMilliseconds(renewedToken);
-                if (previousExpiry !== null && renewedExpiry !== null
-                    && Math.abs(renewedExpiry - previousExpiry) > MAX_EXPIRY_JITTER_MS) {
+                const expiryMovement = previousExpiry === null || renewedExpiry === null
+                    ? null
+                    : renewedExpiry - previousExpiry;
+                const previousTtl = tokenTtlSeconds(authToken);
+                const renewedTtl = tokenTtlSeconds(renewedToken);
+                const ttlDidNotDecrease = previousTtl === null || renewedTtl === null
+                    || renewedTtl >= previousTtl;
+                const renewalElapsedMs = Date.now() - scheduledAt;
+                // A max-TTL cap leaves the absolute expiry roughly fixed, while a periodic
+                // renewal moves it forward by about the time spent waiting. Compare the
+                // reported TTL too, so whole-second rounding does not make a short extension
+                // look like a capped token.
+                const expiryAdvancedWithRenewal = expiryMovement !== null
+                    && expiryMovement >= 0
+                    && ttlDidNotDecrease
+                    && Math.abs(expiryMovement - renewalElapsedMs) <= MAX_EXPIRY_JITTER_MS;
+                const expiryMovedMaterially = expiryMovement !== null
+                    && Math.abs(expiryMovement) > MAX_EXPIRY_JITTER_MS;
+
+                if (expiryMovedMaterially || expiryAdvancedWithRenewal) {
                     this.__setupTokenRefreshTimer(renewedToken);
+                } else {
+                    warnRenewalStopped(
+                        this,
+                        renewedToken,
+                        'Vault did not extend the token (maximum TTL likely reached)'
+                    );
                 }
             }).catch(err => {
                 if (superseded()) {

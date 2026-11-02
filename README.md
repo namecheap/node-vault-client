@@ -376,9 +376,10 @@ backend can obtain a *fresh* credential unaided:
 
 Vault stops extending a renewable token when it reaches its maximum TTL. The client uses Vault's
 absolute `expire_time` when available, treats `ttl: 0` as expired immediately, and stops background
-renewal when successive absolute expiry deadlines differ by no more than one second, matching
-Vault's whole-second TTL precision. A `renewalIncrement` that meaningfully shortens the expiry still
-schedules from the new deadline. For positive TTLs above 60 seconds, the client keeps a one-minute
+renewal when successive absolute expiry deadlines do not materially advance. Because Vault reports
+whole-second TTLs, the scheduler also compares the reported TTL with the elapsed renewal interval;
+short periodic tokens keep renewing even when each expiry advance is one second or less. A
+`renewalIncrement` that meaningfully shortens the expiry still schedules from the new deadline. For positive TTLs above 60 seconds, the client keeps a one-minute
 safety margin for requests in flight; TTLs of 60 seconds or less have no margin. The next call after
 the client-side expiry deadline re-authenticates, as shown in the table above.
 
