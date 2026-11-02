@@ -1,3 +1,17 @@
+# Unreleased
+
+- **Fixed (#201): a renewable token that reaches its maximum TTL is no longer reused after Vault
+  expires it.** `lookup-self` can return `ttl: 0` alongside `expire_time`; the client previously
+  treated that token as non-expiring, stopped renewing it, and continued sending the expired token.
+  The client now treats `ttl: 0` as expired on receipt, uses Vault's absolute `expire_time` for
+  positive TTLs, and stops background renewal when the expiry no longer advances materially.
+  The scheduler compares Vault's whole-second TTL with the time since renewal, so short-period
+  tokens continue renewing even when each expiry advance is one second or less. When renewal stops,
+  it logs the accessor and reason without logging the token ID. On the next call after the
+  client-side expiry deadline, backends that can obtain fresh credentials re-authenticate; `token`
+  auth raises `AuthTokenExpiredError`, and a spent AppRole `secret_id` or expired literal JWT can
+  make later login attempts fail.
+
 # 3.0.0 Release notes (2026-10-29)
 
 Upgrading from 2.x: [MIGRATION.md](MIGRATION.md) lists what can need a change and what to check.

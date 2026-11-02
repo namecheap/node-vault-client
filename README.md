@@ -365,19 +365,31 @@ on the next call — no background timer at all. Two reasons to want that:
 Renewal off means the token is allowed to expire, and what happens next depends on whether your
 backend can obtain a *fresh* credential unaided:
 
-| backend | on expiry with `renewal: false` |
-| --- | --- |
-| `kubernetes`, `iam`, `jwt` with `jwtPath`/`jwtProvider` | clean re-login — the JWT or AWS credential is re-acquired, so this is the intended case |
-| `appRole` | re-login **replays the same `secret_id`**. Fine for a reusable one; with Vault's recommended hardening (`secret_id_num_uses=1`, or a short `secret_id_ttl`) the second login is rejected |
-| `jwt` with a literal `jwt` | replays the same JWT, so it works only until the IdP-issued token expires |
-| `token` | **cannot re-authenticate at all.** The client raises `AuthTokenExpiredError` from then on, permanently |
+| backend | on expiry with `renewal: false` | at max TTL with renewal enabled |
+| --- | --- | --- |
+| `kubernetes`, `iam`, `jwt` with `jwtPath`/`jwtProvider` | clean re-login — the JWT or AWS credential is re-acquired, so this is the intended case | clean re-login on the next call after the client-side expiry deadline |
+| `appRole` | re-login **replays the same `secret_id`**. Fine for a reusable one; with Vault's recommended hardening (`secret_id_num_uses=1`, or a short `secret_id_ttl`) the second login is rejected | re-login replays the same `secret_id`; a single-use or expired secret is rejected |
+| `jwt` with a literal `jwt` | replays the same JWT, so it works only until the IdP-issued token expires | replays the same JWT; once it expires, login is rejected |
+| `token` | **cannot re-authenticate at all.** The client raises `AuthTokenExpiredError` from then on, permanently | **cannot re-authenticate at all.** The client raises `AuthTokenExpiredError` after the max-TTL expiry |
+
+#### Tokens that reach their maximum TTL
+
+Vault stops extending a renewable token when it reaches its maximum TTL. The client uses Vault's
+absolute `expire_time` when available, treats `ttl: 0` as expired immediately, and stops background
+renewal when successive absolute expiry deadlines do not materially advance. Because Vault reports
+whole-second TTLs, the scheduler also compares the reported TTL with the elapsed renewal interval;
+short periodic tokens keep renewing even when each expiry advance is one second or less. A
+`renewalIncrement` that meaningfully shortens the expiry still schedules from the new deadline. For positive TTLs above 60 seconds, the client keeps a one-minute
+safety margin for requests in flight; TTLs of 60 seconds or less have no margin. The next call after
+the client-side expiry deadline re-authenticates, as shown in the table above.
 
 Two consequences worth stating plainly:
 
-* For `token` auth this **is** a behaviour change, not a no-op. A renewable token handed to `token`
-  auth is renewed indefinitely today; with `renewal: false` it expires and every later call rejects
-  for the life of the process. `close()` does not reset it — recovery means
-  `VaultClient.clear(name)` and booting again.
+* **For `token` auth, there is no fresh credential for re-authentication.** With `renewal: false`,
+  an otherwise renewable token is allowed to expire without a background renewal. With renewal
+  enabled, the client stops the background loop once Vault no longer extends the expiry materially.
+  After expiry every later call rejects for the life of the process. `close()` does not reset it —
+  recovery means `VaultClient.clear(name)` and booting again.
 * For `appRole` and literal-`jwt`, a login that can no longer succeed is retried on **every**
   subsequent call, since a failed login clears the cached token. That is a failing request per
   `read()`, with no backoff. Prefer `jwtPath`/`jwtProvider`, a reusable `secret_id`, or leaving
@@ -410,8 +422,8 @@ auth: {
 Lower `renewalFraction` values renew earlier and more often, which buys headroom if Vault is briefly
 unreachable. A failed renewal is retried on the same rule against the *same* token, so the waits
 shrink geometrically as the remaining lifetime does — for a 1-hour token that is roughly 12 attempts
-at `0.5` (1800s, 900s, 450s, …) versus 27 at `0.25`, both bottoming out at a 1-second floor just
-before expiry. Higher values renew later and talk to Vault less.
+at `0.5` (1800s, 900s, 450s, …) versus 27 at `0.25`, both bottoming out at a 250 ms minimum delay
+when it still fits before expiry. Higher values renew later and talk to Vault less.
 
 `renewalIncrement` is a request, not a guarantee: Vault grants at most the token's max TTL and may
 return less. Both keys are validated at construction — a `renewalFraction` outside `(0, 1)` or a
@@ -1018,7 +1030,7 @@ try {
 | `VaultHttpError` | `VaultError` | Vault answered with a non-2xx status. Carries the status as `statusCode` and the parsed body as `error`. `message` (`"<status> - <raw body text>"`) and `error` hold the full response body, which can include secret material (e.g. a partially failed transit batch), so log `statusCode` and `error.errors` rather than the error object itself. |
 | `InvalidArgumentsError` | `VaultError` | Bad arguments or configuration: `boot()` called without options, an unknown instance name passed to `get()`, an unsupported `auth.type`, invalid renewal options, an invalid node-config substitution map, or a KV method path that fails [path validation](#path-validation). |
 | `InvalidAWSCredentialsError` | `InvalidArgumentsError` | `auth.config.credentials` was supplied but is not a usable `accessKeyId` / `secretAccessKey` pair. |
-| `AuthTokenExpiredError` | `VaultError` | The Vault token expired and the backend cannot obtain a new one. `token` auth can never re-authenticate; other backends reach this only with `renewal: false` and a credential they cannot replay. |
+| `AuthTokenExpiredError` | `VaultError` | The Vault token expired and the backend cannot obtain a new one. `token` auth can never re-authenticate and reaches this error at max TTL even with renewal enabled; other backends can also reach it when re-authentication is disabled or their credential can no longer be replayed. |
 | `UnsupportedOperationError` | `VaultError` | A v2-only method (`deleteVersions`, `undeleteVersions`, `destroyVersions`, `readMetadata`, `deleteMetadata`) was called against a mount that did not resolve as KV v2. |
 
 ## Contributing

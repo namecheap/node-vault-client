@@ -127,5 +127,6 @@ declare namespace VaultClient {
         isExpired(): boolean;
         isRenewable(): boolean;
         getExpiresAt(): number | null;
+        getTtlSeconds?(): number | null;
     }
 }
