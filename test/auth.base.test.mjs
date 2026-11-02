@@ -981,7 +981,7 @@ describe('VaultBaseAuth', function () {
         it('warns once when renewal stops at the maximum TTL or zero TTL', async function () {
             const cases = [
                 { ttl: 30, expireMs: 62500, reason: 'did not extend' },
-                { ttl: 0, expireMs: 32500, reason: 'token is not renewable' },
+                { ttl: 0, expireMs: 32500, reason: 'token already expired' },
             ];
 
             for (const c of cases) {
