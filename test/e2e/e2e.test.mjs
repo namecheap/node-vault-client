@@ -125,7 +125,7 @@ describe('E2E', function () {
             const testData = {tst: 'testData', tstInt: 12345};
 
             let tmpToken = await rp({method: 'POST', uri: `${this.bootOpts.api.url}v1/auth/token/create-orphan`, body: {
-                period: 2,
+                period: 10,
                 explicit_max_ttl: 10,
             }, json: true, headers: {'X-Vault-Token': this.bootOpts.auth.config.token}});
             tmpToken = tmpToken.auth.client_token;

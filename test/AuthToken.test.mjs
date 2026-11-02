@@ -144,6 +144,16 @@ describe('AuthToken', function () {
             }
         });
 
+        it('does not coerce null or string TTL values into zero', function () {
+            const expireTime = '2030-01-01T00:00:00Z';
+            for (const ttl of [null, '0']) {
+                const token = build({ ttl, expire_time: expireTime });
+                expect(token.getExpiresAt()).to.equal(epoch(expireTime));
+                expect(token.isExpired()).to.equal(false);
+                expect(token.isRenewable()).to.equal(true);
+            }
+        });
+
         it('keeps a ttl 0 token non-expiring when expire_time is unusable', function () {
             for (const expireTime of ['', '0001-01-01T00:00:00Z']) {
                 const token = build({ ttl: 0, expire_time: expireTime });

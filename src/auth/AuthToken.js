@@ -45,7 +45,7 @@ class AuthToken {
         this.__explicitMaxTtl = explicitMaxTtl;
         this.__numUses = numUses;
         this.__isRenewable = isRenewable
-            && (ttl === null || ttl === undefined || Number(ttl) !== 0)
+            && ttl !== 0
             && this.__expiresAtMilliseconds !== null;
     }
 
@@ -83,21 +83,22 @@ class AuthToken {
      *
      * @private
      * @param {Object} data - the `data` object of a token lookup response
+     * @param {number|null} expireTime - parsed Vault expiry in milliseconds
      * @returns {int|null} client expiry in milliseconds, or null when ttl is 0 without expire_time
      */
     static __resolveExpiresAtMilliseconds(data, expireTime) {
         const networkLatency = 60;
 
         if (expireTime !== null) {
-            if (Number(data.ttl) === 0) {
+            if (data.ttl === 0) {
                 return Date.now();
             }
 
-            const margin = Number(data.ttl) > networkLatency ? networkLatency : 0;
+            const margin = data.ttl > networkLatency ? networkLatency : 0;
             return expireTime - margin * 1000;
         }
 
-        if (Number(data.ttl) === 0) {
+        if (data.ttl === 0) {
             return null;
         }
 

@@ -1,3 +1,14 @@
+# Unreleased
+
+- **Fixed (#201): a renewable token that reaches its maximum TTL is no longer reused after Vault
+  expires it.** `lookup-self` can return `ttl: 0` alongside `expire_time`; the client previously
+  treated that token as non-expiring, stopped renewing it, and continued sending the expired token.
+  The client now treats `ttl: 0` as expired on receipt, uses Vault's absolute `expire_time` for
+  positive TTLs, and stops background renewal when successive deadlines differ by no more than one
+  second. On the next call after the client-side expiry deadline, backends that can obtain fresh
+  credentials re-authenticate; `token` auth raises `AuthTokenExpiredError`, and a spent AppRole
+  `secret_id` or expired literal JWT can make later login attempts fail.
+
 # 3.0.0 Release notes (2026-10-29)
 
 Upgrading from 2.x: [MIGRATION.md](MIGRATION.md) lists what can need a change and what to check.
@@ -63,16 +74,6 @@ Upgrading from 2.x: [MIGRATION.md](MIGRATION.md) lists what can need a change an
   - **Behaviour change:** a KV method path that legitimately contains one of these escapes, such
     as a key name passed through `encodeURIComponent()` that contains a `/`, must now go through
     `request()`.
-
-- Stop renewing when Vault reports zero remaining TTL and use its absolute `expire_time` for
-  positive TTLs, including its millisecond precision. Treat `ttl: 0` as expired when the response is
-  received, so client and Vault clock skew cannot extend a zero-TTL token. Keep the one-minute
-  safety margin only when more than 60 seconds remain, use a 250 ms minimum renewal delay, and stop
-  background renewal when a renewed absolute expiry moves by no more than one second, matching
-  Vault's TTL precision. A `renewalIncrement` that meaningfully shortens the expiry remains
-  scheduled. After max-TTL expiry, backends that can obtain fresh credentials re-authenticate;
-  `token` auth raises `AuthTokenExpiredError`, while a single-use AppRole secret or an expired
-  literal JWT can make subsequent login attempts fail.
 
 - **Security (GHSA-x5xf-r8x2-647h): AppRole login no longer logs the `role_id`.** Every login and
   re-login logged `making authentication request: role_id=<role id>` at `info` level, which the
