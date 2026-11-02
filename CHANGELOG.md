@@ -1,4 +1,4 @@
-# Unreleased
+# 3.0.1 Release notes (2026-11-02)
 
 - **Fixed (#201): a renewable token that reaches its maximum TTL is no longer reused after Vault
   expires it.** `lookup-self` can return `ttl: 0` alongside `expire_time`; the client previously
