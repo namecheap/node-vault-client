@@ -1,3 +1,40 @@
+# Unreleased
+
+- **Fixed: a literal `distributedClaimAccessToken` is validated at construction.** An empty,
+  whitespace-only or non-string value (`''` from `process.env.GRAPH_TOKEN || ''`, `null`, a number)
+  used to be sent to Vault as-is, so the login failed later at Vault's group-fetch step with an error
+  that did not mention the option. It now raises `InvalidArgumentsError`. `undefined` still means
+  "not sent". Surrounding whitespace is trimmed from the literal and from the provider's value, and
+  a provider resolving a whitespace-only string is rejected like an empty one.
+- **Changed: the JWT and the distributed claim access token are acquired concurrently.** With
+  `jwtProvider` and `distributedClaimAccessTokenProvider` both set, the two run at the same time,
+  not one after the other. Login latency is the slower of the two rather than their sum, and the JWT
+  is no longer minted early and left to age while the Graph token is fetched. As a result, the
+  access token provider is now also called when the JWT source fails.
+- **Changed: a failing credential provider is named in the log.** When `jwtProvider` or
+  `distributedClaimAccessTokenProvider` throws or rejects, the client logs
+  `JWT login aborted: "<option>" failed: <message>` at error level. The login still rejects with the
+  provider's own error object, unchanged. The JWT login info line now always ends with
+  `distributed claim access token: literal|provider|none`, so a token that is missing because its
+  variable was unset shows up in the log.
+- **Fixed: `VaultClient.boot()` notices a changed provider function.** The options fingerprint
+  rendered every function as the same constant. Re-booting a name with a different `jwtProvider` or
+  `distributedClaimAccessTokenProvider` therefore did not log the "different options" warning, and
+  the new function was silently ignored. Those two provider keys are now compared by identity, as
+  the code comment already claimed. Every other function (logger methods, an IAM `credentials`
+  provider chain) still compares equal, so re-booting with freshly created ones stays silent.
+- **Types: `distributedClaimAccessToken` and `distributedClaimAccessTokenProvider` accept
+  `undefined`.** Under `strict`, `{ jwt, distributedClaimAccessToken: maybe }` with
+  `maybe: string | undefined` failed with TS2322. Setting both keys is still a type error.
+- **Hardening: the literal `jwt` and `distributedClaimAccessToken` are kept in private class
+  fields.** `console.log`, `util.inspect` and `JSON.stringify` of the auth object no longer show
+  either credential.
+- **Docs:** the JWT example no longer wires `distributedClaimAccessToken` to an environment
+  variable. The renewal table now says that `jwtPath`/`jwtProvider` combined with a *literal*
+  `distributedClaimAccessToken` replays an expired Graph token on re-login. "Redirects and the
+  Vault token" now says a 307/308 also replays the login body and its credentials. The JSDoc no
+  longer calls `fetch_groups` a role setting.
+
 # 3.0.1 Release notes (2026-11-02)
 
 - **Fixed (#201): a renewable token that reaches its maximum TTL is no longer reused after Vault

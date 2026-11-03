@@ -79,10 +79,14 @@ declare namespace VaultClient {
         namespace?: string;
     }
 
+    // Either key may be `undefined` (it is then not sent), so a conditionally-set value such as
+    // `process.env.GRAPH_TOKEN` type-checks; setting both is still rejected.
     type JwtDistributedClaimConfig =
-        | { distributedClaimAccessToken?: never; distributedClaimAccessTokenProvider?: never }
-        | { distributedClaimAccessToken: string; distributedClaimAccessTokenProvider?: never }
-        | { distributedClaimAccessTokenProvider: () => string | Promise<string>; distributedClaimAccessToken?: never };
+        | { distributedClaimAccessToken?: string | undefined; distributedClaimAccessTokenProvider?: undefined }
+        | {
+            distributedClaimAccessTokenProvider?: (() => string | Promise<string>) | undefined;
+            distributedClaimAccessToken?: undefined;
+        };
 
     type JwtAuthConfig = JwtAuthConfigCommon &
         (

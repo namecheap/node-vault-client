@@ -11,6 +11,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import util from 'util';
 import sinon from 'sinon';
 import { expect, use } from 'chai';
 import sinonChai from 'sinon-chai';
@@ -18,7 +19,7 @@ import VaultApiClient from '../src/VaultApiClient.js';
 import VaultClient from '../src/VaultClient.js';
 import VaultJwtAuth from '../src/auth/VaultJwtAuth.js';
 import errors from '../src/errors.js';
-import { createNoopLogger, createSpyLogger, loggedText } from './helpers/logger.mjs';
+import { LOG_METHODS, createNoopLogger, createSpyLogger, loggedText } from './helpers/logger.mjs';
 
 use(sinonChai);
 
@@ -50,6 +51,11 @@ function stubFetch({ tokenTtl = 0, tokenCreation = 1600000000 } = {}) {
             status: 200, headers: { 'Content-Type': 'application/json' },
         }));
     });
+}
+
+/** Every spy-logger call rendered the way a printf-style logger would print it. */
+function formattedLog(log) {
+    return LOG_METHODS.flatMap((m) => log[m].getCalls().map((c) => util.format(...c.args))).join('\n');
 }
 
 function loginCalls(fetchStub) {
@@ -262,6 +268,32 @@ describe('VaultJwtAuth (TDD spec for #130)', function () {
                 new VaultJwtAuth(api(), logger, { role: 'r', jwt: THE_JWT, distributedClaimAccessTokenProvider: provider });
                 expect(provider).to.not.have.been.called;
             });
+
+            for (const [label, value] of [
+                ['an empty string', ''],
+                ['a whitespace-only string', '  \n'],
+                ['null', null],
+                ['a number', 42],
+                ['an object', { a: 1 }],
+                ['false', false],
+            ]) {
+                it(`rejects ${label} as distributedClaimAccessToken`, function () {
+                    expect(() => new VaultJwtAuth(api(), logger, {
+                        jwt: THE_JWT, distributedClaimAccessToken: value,
+                    })).to.throw(
+                        errors.InvalidArgumentsError,
+                        '"distributedClaimAccessToken" should be a non-empty string for VaultJwtAuth'
+                    );
+                });
+            }
+
+            it('treats an explicitly undefined distributedClaimAccessToken as not configured', async function () {
+                const auth = new VaultJwtAuth(api(), logger, {
+                    role: 'r', jwt: THE_JWT, distributedClaimAccessToken: undefined,
+                });
+                await auth.getAuthToken();
+                expect(loginCalls(fetchStub)[0].body).to.deep.equal({ role: 'r', jwt: THE_JWT });
+            });
         });
 
         describe('login body', function () {
@@ -307,6 +339,19 @@ describe('VaultJwtAuth (TDD spec for #130)', function () {
                 });
                 await auth.getAuthToken();
                 expect(loginCalls(fetchStub)[0].body.distributed_claim_access_token).to.equal(THE_ACCESS_TOKEN);
+            });
+
+            it('trims surrounding whitespace from the literal and the provider value', async function () {
+                const literal = new VaultJwtAuth(api(), logger, {
+                    jwt: THE_JWT, distributedClaimAccessToken: ` ${THE_ACCESS_TOKEN}\n`,
+                });
+                await literal.getAuthToken();
+                const provided = new VaultJwtAuth(api(), logger, {
+                    jwt: THE_JWT, distributedClaimAccessTokenProvider: async () => `${THE_ACCESS_TOKEN}\n`,
+                });
+                await provided.getAuthToken();
+                expect(loginCalls(fetchStub).map((l) => l.body.distributed_claim_access_token))
+                    .to.deep.equal([THE_ACCESS_TOKEN, THE_ACCESS_TOKEN]);
             });
 
             it('omits the role key while still sending the access token', async function () {
@@ -392,17 +437,32 @@ describe('VaultJwtAuth (TDD spec for #130)', function () {
                 expect(loginCalls(fetchStub)).to.have.length(0); // no garbage login sent
             });
 
-            it('rejects with InvalidArgumentsError when the provider resolves an empty string', async function () {
-                const auth = new VaultJwtAuth(api(), logger, {
-                    role: 'r', jwt: THE_JWT, distributedClaimAccessTokenProvider: async () => '',
+            for (const [label, value] of [['an empty string', ''], ['a whitespace-only string', '  \n']]) {
+                it(`rejects with InvalidArgumentsError when the provider resolves ${label}`, async function () {
+                    const auth = new VaultJwtAuth(api(), logger, {
+                        role: 'r', jwt: THE_JWT, distributedClaimAccessTokenProvider: async () => value,
+                    });
+                    let thrown;
+                    try { await auth.getAuthToken(); } catch (err) { thrown = err; }
+                    expect(thrown).to.be.instanceOf(errors.InvalidArgumentsError);
+                    expect(thrown.message).to.equal(
+                        '"distributedClaimAccessTokenProvider" must resolve to a non-empty access token string'
+                    );
+                    expect(loginCalls(fetchStub)).to.have.length(0);
+                });
+            }
+
+            it('logs which provider failed and rethrows the original error', async function () {
+                const log = createSpyLogger();
+                const boom = new Error('connect ECONNREFUSED 169.254.169.254:80');
+                const auth = new VaultJwtAuth(api(), log, {
+                    role: 'r', jwt: THE_JWT, distributedClaimAccessTokenProvider: () => Promise.reject(boom),
                 });
                 let thrown;
                 try { await auth.getAuthToken(); } catch (err) { thrown = err; }
-                expect(thrown).to.be.instanceOf(errors.InvalidArgumentsError);
-                expect(thrown.message).to.equal(
-                    '"distributedClaimAccessTokenProvider" must resolve to a non-empty access token string'
-                );
-                expect(loginCalls(fetchStub)).to.have.length(0);
+                expect(thrown, 'the caller still gets its own error object').to.equal(boom);
+                expect(formattedLog(log)).to.contain('"distributedClaimAccessTokenProvider" failed');
+                expect(formattedLog(log)).to.contain('ECONNREFUSED');
             });
         });
 
@@ -452,6 +512,44 @@ describe('VaultJwtAuth (TDD spec for #130)', function () {
                 expect(loginCalls(fetchStub)).to.have.length(0);
             });
 
+            it('rejects with the JWT provider error, naming it in the log, when both providers fail', async function () {
+                const log = createSpyLogger();
+                const jwtBoom = new Error('IdP unavailable');
+                const auth = new VaultJwtAuth(api(), log, {
+                    jwtProvider: () => Promise.reject(jwtBoom),
+                    // Settles later, so the JWT failure is the first rejection Promise.all sees.
+                    distributedClaimAccessTokenProvider: () => new Promise((_, reject) => {
+                        setTimeout(() => reject(new Error('Graph unavailable')), 5);
+                    }),
+                });
+                let thrown;
+                try { await auth.getAuthToken(); } catch (err) { thrown = err; }
+                expect(thrown).to.equal(jwtBoom);
+                expect(formattedLog(log)).to.contain('"jwtProvider" failed');
+                expect(loginCalls(fetchStub)).to.have.length(0);
+            });
+
+            it('runs the JWT provider and the access token provider concurrently', async function () {
+                const started = [];
+                const releases = [];
+                const deferred = (name, value) => () => new Promise((resolve) => {
+                    started.push(name);
+                    releases.push(() => resolve(value));
+                });
+                const auth = new VaultJwtAuth(api(), logger, {
+                    jwtProvider: deferred('jwt', THE_JWT),
+                    distributedClaimAccessTokenProvider: deferred('graph', THE_ACCESS_TOKEN),
+                });
+                const pending = auth.getAuthToken();
+                await new Promise((resolve) => setImmediate(resolve));
+                expect(started, 'both providers start before either resolves').to.have.members(['jwt', 'graph']);
+                releases.forEach((release) => release());
+                await pending;
+                expect(loginCalls(fetchStub)[0].body).to.deep.equal({
+                    jwt: THE_JWT, distributed_claim_access_token: THE_ACCESS_TOKEN,
+                });
+            });
+
             it('logs in against a custom mount with the access token attached', async function () {
                 const auth = new VaultJwtAuth(api(), logger, {
                     role: 'r', jwt: THE_JWT, distributedClaimAccessToken: THE_ACCESS_TOKEN,
@@ -481,6 +579,35 @@ describe('VaultJwtAuth (TDD spec for #130)', function () {
             });
             await auth.getAuthToken();
             expect(loggedText(log), 'access token must never reach the logger').to.not.contain(THE_ACCESS_TOKEN);
+        });
+
+        it('never logs a provider-resolved JWT or access token [#175]', async function () {
+            const log = createSpyLogger();
+            const auth = new VaultJwtAuth(new VaultApiClient({ url: 'https://vault.example' }, log), log, {
+                role: 'r', jwtProvider: async () => THE_JWT, distributedClaimAccessTokenProvider: async () => THE_ACCESS_TOKEN,
+            });
+            await auth.getAuthToken();
+            const text = loggedText(log);
+            expect(text, 'raw JWT must never reach the logger').to.not.contain(THE_JWT);
+            expect(text, 'access token must never reach the logger').to.not.contain(THE_ACCESS_TOKEN);
+            expect(formattedLog(log)).to.contain('distributed claim access token: provider');
+        });
+
+        it('says so in the login log when no distributed claim access token is configured', async function () {
+            const log = createSpyLogger();
+            const auth = new VaultJwtAuth(api(), log, { role: 'r', jwt: THE_JWT, distributedClaimAccessToken: undefined });
+            await auth.getAuthToken();
+            expect(formattedLog(log)).to.contain('distributed claim access token: none');
+        });
+
+        it('keeps the literal JWT and access token out of util.inspect and JSON.stringify', function () {
+            const auth = new VaultJwtAuth(api(), logger, {
+                role: 'r', jwt: THE_JWT, distributedClaimAccessToken: THE_ACCESS_TOKEN,
+            });
+            for (const text of [util.inspect(auth, { showHidden: true, depth: 5 }), JSON.stringify(auth)]) {
+                expect(text).to.not.contain(THE_JWT);
+                expect(text).to.not.contain(THE_ACCESS_TOKEN);
+            }
         });
     });
 

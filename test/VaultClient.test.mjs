@@ -236,6 +236,40 @@ describe('VaultClient', function () {
             expect(loggedText(log)).to.not.contain('different options');
         });
 
+        it('warns when only a provider function differs, and not for the same function', function () {
+            const log = createSpyLogger();
+            const jwtOpts = (provider) => ({
+                logger: log,
+                api: { url: 'https://example.com/' },
+                auth: { type: 'jwt', config: { jwt: 'e.y.z', distributedClaimAccessTokenProvider: provider } },
+            });
+            const providerA = () => 'a';
+            VaultClient.boot('fn', jwtOpts(providerA));
+            VaultClient.boot('fn', jwtOpts(providerA));
+            expect(loggedText(log), 'the same function must not warn').to.not.contain('different options');
+
+            VaultClient.boot('fn', jwtOpts(() => 'a'));
+            expect(loggedText(log), 'a different function must warn').to.contain('different options');
+        });
+
+        it('warns for a different jwtProvider too', function () {
+            const log = createSpyLogger();
+            const jwtOpts = (jwtProvider) => ({
+                logger: log, api: { url: 'https://example.com/' }, auth: { type: 'jwt', config: { jwtProvider } },
+            });
+            VaultClient.boot('jwt-fn', jwtOpts(() => 'a'));
+            VaultClient.boot('jwt-fn', jwtOpts(() => 'a'));
+            expect(loggedText(log)).to.contain('different options');
+        });
+
+        it('does not warn when only re-created non-provider functions differ (logger methods)', function () {
+            const warn = sinon.spy();
+            const freshLogger = () => ({ error() {}, warn, info() {}, debug() {}, trace() {} });
+            VaultClient.boot('logger-fn', bootOpts({ logger: freshLogger() }));
+            VaultClient.boot('logger-fn', bootOpts({ logger: freshLogger() }));
+            expect(warn.getCalls().map((c) => String(c.args[0])).join(' ')).to.not.contain('different options');
+        });
+
         it('does not warn for a name that was never booted', function () {
             const log = createSpyLogger();
             VaultClient.boot('fresh', bootOpts({ logger: log }));
