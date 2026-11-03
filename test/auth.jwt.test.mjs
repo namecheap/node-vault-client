@@ -528,22 +528,48 @@ describe('VaultJwtAuth (TDD spec for #130)', function () {
                 expect(loginCalls(fetchStub)).to.have.length(0);
             });
 
-            it('reports every provider failure before the login rejects, never after', async function () {
-                const log = createSpyLogger();
-                const auth = new VaultJwtAuth(api(), log, {
-                    jwtProvider: () => Promise.reject(new Error('IdP unavailable')),
-                    distributedClaimAccessTokenProvider: () => new Promise((_, reject) => {
-                        setTimeout(() => reject(new Error('Graph unavailable')), 5);
-                    }),
+            it('rejects with the JWT source error at once, without waiting for a hanging access token provider', async function () {
+                const jwtBoom = new Error('IdP unavailable');
+                const graphProvider = sinon.stub().returns(new Promise(() => {}));
+                const auth = new VaultJwtAuth(api(), logger, {
+                    jwtProvider: () => Promise.reject(jwtBoom),
+                    distributedClaimAccessTokenProvider: graphProvider,
                 });
+                const timedOut = new Error('login still pending');
                 let thrown;
-                try { await auth.getAuthToken(); } catch (err) { thrown = err; }
-                expect(thrown.message).to.equal('IdP unavailable');
-                const atRejection = log.error.callCount;
-                expect(formattedLog(log)).to.contain('"jwtProvider" failed');
-                expect(formattedLog(log)).to.contain('"distributedClaimAccessTokenProvider" failed');
-                await new Promise((resolve) => setTimeout(resolve, 20));
-                expect(log.error.callCount, 'no abort is logged after the login already rejected').to.equal(atRejection);
+                try {
+                    await Promise.race([
+                        auth.getAuthToken(),
+                        new Promise((_, reject) => { setTimeout(() => reject(timedOut), 50); }),
+                    ]);
+                } catch (err) { thrown = err; }
+                expect(thrown, 'the login must not wait for the access token provider').to.equal(jwtBoom);
+                expect(graphProvider.calledOnce).to.equal(true);
+                expect(loginCalls(fetchStub)).to.have.length(0);
+            });
+
+            it('logs an access token provider failure that lands after the login rejected, without an unhandled rejection', async function () {
+                const log = createSpyLogger();
+                const unhandled = [];
+                const onUnhandled = (reason) => { unhandled.push(reason); };
+                process.on('unhandledRejection', onUnhandled);
+                try {
+                    const auth = new VaultJwtAuth(api(), log, {
+                        jwtProvider: () => Promise.reject(new Error('IdP unavailable')),
+                        distributedClaimAccessTokenProvider: () => new Promise((_, reject) => {
+                            setTimeout(() => reject(new Error('Graph unavailable')), 5);
+                        }),
+                    });
+                    let thrown;
+                    try { await auth.getAuthToken(); } catch (err) { thrown = err; }
+                    expect(thrown.message).to.equal('IdP unavailable');
+                    expect(formattedLog(log)).not.to.contain('"distributedClaimAccessTokenProvider" failed');
+                    await new Promise((resolve) => setTimeout(resolve, 20));
+                    expect(formattedLog(log)).to.contain('"distributedClaimAccessTokenProvider" failed: Graph unavailable');
+                    expect(unhandled).to.deep.equal([]);
+                } finally {
+                    process.removeListener('unhandledRejection', onUnhandled);
+                }
             });
 
             it('runs the JWT provider and the access token provider concurrently', async function () {

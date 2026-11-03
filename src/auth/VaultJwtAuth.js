@@ -103,19 +103,19 @@ class VaultJwtAuth extends VaultBaseAuth {
     _authenticate() {
         // Both credentials are independent and usually network-bound (IdP, IMDS, MSAL), so they
         // are acquired concurrently: login latency is the slower of the two rather than their
-        // sum, and the JWT does not age while the Graph token is fetched. allSettled rather than
-        // all: the login rejects only once both have settled, so a failed JWT source is the error
-        // the caller gets whichever provider rejected first, and no provider reports its failure
-        // after the login was already rejected.
-        return Promise.allSettled([this.__acquireJwt(), this.__acquireDistributedClaimAccessToken()])
-            .then(([jwtResult, claimResult]) => {
-                const failed = [jwtResult, claimResult].find((result) => result.status === 'rejected');
-                if (failed !== undefined) {
-                    throw failed.reason;
-                }
-                const { jwt, source } = jwtResult.value;
-                const distributedClaim = claimResult.value;
+        // sum, and the JWT does not age while the Graph token is fetched.
+        //
+        // A failed JWT source rejects the login at once, as it did when the two ran in turn, so a
+        // Graph provider that hangs cannot hold up that error. A failed access token instead waits
+        // for the JWT source, so the JWT source's error is the one raised whenever both fail. The
+        // Graph provider is not cancelled: if it fails after the login already rejected, its
+        // failure is still logged, and its rejection is handled here.
+        const jwtPromise = this.__acquireJwt();
+        const claimPromise = this.__acquireDistributedClaimAccessToken()
+            .catch((claimErr) => jwtPromise.then(() => { throw claimErr; }));
 
+        return Promise.all([jwtPromise, claimPromise])
+            .then(([{ jwt, source }, distributedClaim]) => {
                 this._log.info(
                     'making authentication request: Vault role: "%s"; JWT source: %s (%d bytes);'
                     + ' distributed claim access token: %s',
