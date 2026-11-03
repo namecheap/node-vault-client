@@ -20,8 +20,9 @@
 - **Fixed: `VaultClient.boot()` notices a changed provider function.** The options fingerprint
   rendered every function as the same constant. Re-booting a name with a different `jwtProvider` or
   `distributedClaimAccessTokenProvider` therefore did not log the "different options" warning, and
-  the new function was silently ignored. Functions are now compared by identity, as the code
-  comment already claimed.
+  the new function was silently ignored. Those two provider keys are now compared by identity, as
+  the code comment already claimed. Every other function (logger methods, an IAM `credentials`
+  provider chain) still compares equal, so re-booting with freshly created ones stays silent.
 - **Types: `distributedClaimAccessToken` and `distributedClaimAccessTokenProvider` accept
   `undefined`.** Under `strict`, `{ jwt, distributedClaimAccessToken: maybe }` with
   `maybe: string | undefined` failed with TS2322. Setting both keys is still a type error.

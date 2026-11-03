@@ -18,8 +18,13 @@ const { trimTrailingSlashes } = require('./slashes');
 const noop = () => {};
 const vaultInstances = {};
 
-// Per-process ids for functions seen in boot options. A WeakMap so that fingerprinting
-// never keeps a provider (or the closure state it captures) alive.
+// Only credential providers compare by identity: a different provider means the client would
+// authenticate differently. Other functions (logger methods, an IAM `credentials` provider
+// chain) are often re-created per call with the same behaviour, so they all fingerprint alike.
+const IDENTITY_COMPARED_KEYS = new Set(['jwtProvider', 'distributedClaimAccessTokenProvider']);
+
+// Per-process ids for those providers. A WeakMap so that fingerprinting never keeps a
+// provider (or the closure state it captures) alive.
 const functionIds = new WeakMap();
 let nextFunctionId = 0;
 
@@ -32,12 +37,12 @@ function functionId(fn) {
 
 /**
  * Order-insensitive canonical form of the boot options, hashed so that no credential is
- * retained just to compare two boot() calls. Functions compare by identity, which is what
- * a caller passing `jwtProvider` or `distributedClaimAccessTokenProvider` expects.
+ * retained just to compare two boot() calls. `jwtProvider` and
+ * `distributedClaimAccessTokenProvider` compare by identity; every other function is `fn`.
  */
-function fingerprintOptions(value, seen) {
+function fingerprintOptions(value, seen, key) {
     if (typeof value === 'function') {
-        return `fn#${functionId(value)}`;
+        return IDENTITY_COMPARED_KEYS.has(key) ? `fn#${functionId(value)}` : 'fn';
     }
     if (value === null || typeof value !== 'object') {
         return JSON.stringify(value) || String(value);
@@ -51,7 +56,7 @@ function fingerprintOptions(value, seen) {
         return `[${value.map((item) => fingerprintOptions(item, seen)).join(',')}]`;
     }
     const body = Object.keys(value).sort()
-        .map((key) => `${JSON.stringify(key)}:${fingerprintOptions(value[key], seen)}`)
+        .map((key) => `${JSON.stringify(key)}:${fingerprintOptions(value[key], seen, key)}`)
         .join(',');
     return `{${body}}`;
 }
