@@ -392,8 +392,11 @@ max_ttl of "20m"; TTL value is capped accordingly`. The client stops background 
 warning and logs `token renewal stopped (accessor=…): Vault capped the renewal at the token's
 maximum TTL`. A renewal without the warning is never treated as capped, however little it moved
 the deadline. That includes short periodic tokens renewed less than a second apart, and a
-`renewalIncrement` that leaves the deadline where it was or brings it closer. The next renewal is
-always scheduled from the new deadline.
+`renewalIncrement` that leaves the deadline where it was or brings it closer. Vault's other cap
+warning, `period of "…" exceeded the effective max_ttl of "…"; period value is capped accordingly`,
+does not stop renewal either: it comes with every renewal of a periodic token whose period is above
+the role's `token_max_ttl` or the mount's max lease TTL, and that token stays renewable at the
+shorter period. The next renewal is always scheduled from the new deadline.
 
 The client uses Vault's absolute `expire_time` when available and treats `ttl: 0` as expired
 immediately. Because Vault truncates `ttl` to whole seconds, a token with a period of **1 second**

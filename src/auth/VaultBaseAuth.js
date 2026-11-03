@@ -55,6 +55,11 @@ function tokenExpiryMilliseconds(authToken) {
  * (measured on 1.21 and 2.2) and never on an uncapped one. A capped token's deadline cannot move
  * again, so further renewals are pointless; the next one would fail with "past the max TTL".
  *
+ * Vault's other cap warning, `period of "4s" exceeded the effective max_ttl of "2s"; period value
+ * is capped accordingly`, must NOT match: it is sent on every renewal of a periodic token whose
+ * period exceeds the role's `token_max_ttl` or the mount's max lease TTL, and that token stays
+ * renewable indefinitely at the shorter period (measured on 2.2).
+ *
  * `lease_duration < increment` is not a usable substitute: periodic tokens ignore the increment.
  *
  * @param {Object|null|undefined} renewResponse - renew-self response body
@@ -64,7 +69,7 @@ function tokenExpiryMilliseconds(authToken) {
 function renewalCappedByMaxTtl(renewResponse) {
     const warnings = renewResponse && Array.isArray(renewResponse.warnings) ? renewResponse.warnings : [];
     return warnings.some((warning) => typeof warning === 'string'
-        && /max_?ttl/i.test(warning) && /capped/i.test(warning));
+        && /max_?ttl/i.test(warning) && /\bTTL value is capped\b/i.test(warning));
 }
 
 /**

@@ -18,7 +18,11 @@
   exceeded the effective max_ttl of "…"; TTL value is capped accordingly`), and an uncapped one
   never does; this was measured on Vault 1.21 and 2.2 for explicit max TTLs, AppRole
   `token_max_ttl` and the mount's max lease TTL. Renewal stops on that warning and continues
-  otherwise. The stop is logged as `Vault capped the renewal at the token's maximum TTL`, replacing
+  otherwise. Vault's `period of "…" exceeded the effective max_ttl of "…"; period value is capped
+  accordingly` warning is deliberately not a stop signal: it comes with every renewal of a periodic
+  token whose period is above the role's `token_max_ttl` or the mount's max lease TTL, and that
+  token stays renewable at the shorter period. The stop is logged as
+  `Vault capped the renewal at the token's maximum TTL`, replacing
   `Vault did not extend the token (maximum TTL likely reached)`. A capped token stops at its
   first capped renewal. 3.0.1 sometimes made one more renewal first, when the cap still moved the
   deadline by more than a second (a 1 h token capped at 1 h 20 m, for example).

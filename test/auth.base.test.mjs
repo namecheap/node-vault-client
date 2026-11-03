@@ -616,6 +616,38 @@ describe('VaultBaseAuth', function () {
             }
         });
 
+        it('keeps renewing a periodic token whose period Vault capped to the max TTL', async function () {
+            // Measured on Vault 2.2: an AppRole with token_period 4s and token_max_ttl 2s (or a
+            // period-5s token on a mount with max_lease_ttl 3s) gets this warning on EVERY
+            // renewal and stays renewable indefinitely at the capped period. It mentions max_ttl
+            // and "capped" but is not the max-TTL stop signal.
+            clock.setSystemTime(10000);
+            const api = apiStub();
+            api.makeRequest.callsFake((method) => Promise.resolve(method === 'POST'
+                ? {
+                    auth: { lease_duration: 2, renewable: true },
+                    warnings: ['period of "4s" exceeded the effective max_ttl of "2s"; period value is capped accordingly'],
+                }
+                : lookupResponse({ id: 'period-capped', ttl: 2, expireMs: Date.now() + 2000 })));
+            const initial = AuthToken.fromResponse(lookupResponse({ id: 'period-capped', ttl: 2, expireMs: 12000 }));
+            const auth = new TestAuth(api, 'mount', { authStub: sinon.stub().resolves(initial) });
+            const log = spyLogger();
+            auth._log = log;
+
+            try {
+                await auth.getAuthToken();
+                for (let i = 1; i <= 5; i++) {
+                    clock.tick(1000);
+                    await flush();
+                    expect(api.makeRequest.callCount, `renewal ${i}`).to.equal(i * 2);
+                }
+                expect(auth.__refreshTimeout, 'still armed after five capped-period renewals').to.not.equal(null);
+                expect(log.warn).to.not.have.been.called;
+            } finally {
+                auth.cancelTokenRefresh();
+            }
+        });
+
         it('supports duck-typed AuthToken objects from the public TypeScript interface', async function () {
             clock.setSystemTime(1000);
             const api = apiStub();
