@@ -1,4 +1,4 @@
-# Unreleased
+# 3.0.2 Release notes (2026-11-03)
 
 - **Fixed: background renewal no longer stops for tokens that have not reached a maximum TTL.**
   3.0.1 inferred "maximum TTL reached" from wall-clock arithmetic: whether the absolute expiry
