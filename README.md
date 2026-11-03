@@ -452,7 +452,10 @@ once less than 250 ms of lifetime is left, and the client then stops with `too l
 to renew`.
 
 `renewalIncrement` is a request, not a guarantee: Vault grants at most the token's max TTL and may
-return less. Both keys are validated at construction — a `renewalFraction` outside `(0, 1)` or a
+return less. For a non-periodic token the increment *replaces* the remaining lifetime, counted from
+the renewal, so a value below the remaining TTL shortens the token. `renewalIncrement: 1` leaves a
+1-second token that lookup reports as `ttl: 0`, so the client treats it as expired after the first
+renewal; use at least `2`. Periodic tokens ignore the increment and renew to their period. Both keys are validated at construction — a `renewalFraction` outside `(0, 1)` or a
 non-positive/non-integer `renewalIncrement` raises `InvalidArgumentsError` rather than failing later
 inside a background timer.
 
