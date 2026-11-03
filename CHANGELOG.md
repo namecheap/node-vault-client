@@ -41,6 +41,9 @@
   - It notes that a 1-second period is too short, because lookup reports `ttl: 0` right after each
     renewal.
   - The `renewalFraction` notes now state that low fractions on short TTLs are safe.
+  - The `renewalIncrement` notes now state that, on a non-periodic token, the increment replaces
+    the remaining lifetime (a smaller value shortens the token, and `1` is treated as expired after
+    the first renewal), and that periodic tokens ignore it.
 - **Fixed: a literal `distributedClaimAccessToken` is validated at construction.** An empty,
   whitespace-only or non-string value (`''` from `process.env.GRAPH_TOKEN || ''`, `null`, a number)
   used to be sent to Vault as-is, so the login failed later at Vault's group-fetch step with an error
