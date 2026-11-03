@@ -79,6 +79,13 @@
   `distributedClaimAccessToken` replays an expired Graph token on re-login. "Redirects and the
   Vault token" now says a 307/308 also replays the login body and its credentials. The JSDoc no
   longer calls `fetch_groups` a role setting.
+- **Security (development dependencies only): raise `minimatch` to `^11.0.4`
+  (GHSA-g3hv-75wg-m249).** eslint, mocha and c8 pulled `minimatch@10.2.6`, whose pattern
+  preprocessing can be made to grow without bound (denial of service). Only the 11.x line is
+  fixed. A new `minimatch` override raises it, and the `glob` override moves from `^13.0.0` to
+  `^14.0.3`, the release built for minimatch 11: glob 13 relies on minimatch 10 internals that 11
+  removed. Lint, test discovery (776 tests in 26 files) and coverage (16 files) are unchanged.
+  Nothing here ships to consumers: the package has no runtime dependency on either.
 
 # 3.0.1 Release notes (2026-11-02)
 
