@@ -236,6 +236,22 @@ describe('VaultClient', function () {
             expect(loggedText(log)).to.not.contain('different options');
         });
 
+        it('warns when only a provider function differs, and not for the same function', function () {
+            const log = createSpyLogger();
+            const jwtOpts = (provider) => ({
+                logger: log,
+                api: { url: 'https://example.com/' },
+                auth: { type: 'jwt', config: { jwt: 'e.y.z', distributedClaimAccessTokenProvider: provider } },
+            });
+            const providerA = () => 'a';
+            VaultClient.boot('fn', jwtOpts(providerA));
+            VaultClient.boot('fn', jwtOpts(providerA));
+            expect(loggedText(log), 'the same function must not warn').to.not.contain('different options');
+
+            VaultClient.boot('fn', jwtOpts(() => 'a'));
+            expect(loggedText(log), 'a different function must warn').to.contain('different options');
+        });
+
         it('does not warn for a name that was never booted', function () {
             const log = createSpyLogger();
             VaultClient.boot('fresh', bootOpts({ logger: log }));

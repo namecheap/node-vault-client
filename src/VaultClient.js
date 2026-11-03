@@ -18,14 +18,26 @@ const { trimTrailingSlashes } = require('./slashes');
 const noop = () => {};
 const vaultInstances = {};
 
+// Per-process ids for functions seen in boot options. A WeakMap so that fingerprinting
+// never keeps a provider (or the closure state it captures) alive.
+const functionIds = new WeakMap();
+let nextFunctionId = 0;
+
+function functionId(fn) {
+    if (!functionIds.has(fn)) {
+        functionIds.set(fn, ++nextFunctionId);
+    }
+    return functionIds.get(fn);
+}
+
 /**
  * Order-insensitive canonical form of the boot options, hashed so that no credential is
  * retained just to compare two boot() calls. Functions compare by identity, which is what
- * a caller passing `jwtProvider` expects.
+ * a caller passing `jwtProvider` or `distributedClaimAccessTokenProvider` expects.
  */
 function fingerprintOptions(value, seen) {
     if (typeof value === 'function') {
-        return 'fn';
+        return `fn#${functionId(value)}`;
     }
     if (value === null || typeof value !== 'object') {
         return JSON.stringify(value) || String(value);

@@ -97,6 +97,27 @@ describe('E2E: JWT auth backend', function () {
         }
     });
 
+    // Resolving distributed claims needs a real Entra ID tenant, so this only proves the wire
+    // contract: Vault's login endpoint accepts `distributed_claim_access_token` next to `jwt`
+    // (on a non-Azure mount it is accepted and ignored), and both providers run on login.
+    it('logs in with jwtProvider plus distributedClaimAccessTokenProvider [#175]', async function () {
+        const calls = [];
+        const client = boot({
+            role: 'tst',
+            jwtProvider: async () => { calls.push('jwt'); return signJwt(claims()); },
+            distributedClaimAccessTokenProvider: async () => { calls.push('graph'); return 'e2e-graph-access-token'; },
+        });
+        const lease = await client.read('secret/jwt-tst');
+        expect(lease.getValue('hello')).to.equal('from-jwt');
+        expect(calls).to.have.members(['jwt', 'graph']);
+    });
+
+    it('logs in with a literal distributedClaimAccessToken [#175]', async function () {
+        const client = boot({ role: 'tst', jwt: signJwt(claims()), distributedClaimAccessToken: 'e2e-graph-access-token' });
+        const lease = await client.read('secret/jwt-tst');
+        expect(lease.getValue('hello')).to.equal('from-jwt');
+    });
+
     it('rejects a JWT with the wrong audience as VaultHttpError 400', async function () {
         const client = boot({ role: 'tst', jwt: signJwt(claims({ aud: 'someone-else' })) });
         let thrown;

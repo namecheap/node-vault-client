@@ -38,6 +38,11 @@ new VaultClient({ api: { url: 'u' }, auth: { type: 'jwt', config: { jwtProvider:
 new VaultClient({ api: { url: 'u' }, auth: { type: 'jwt', config: { jwt: 'e.y.z', distributedClaimAccessToken: 'graph-token' } } });
 new VaultClient({ api: { url: 'u' }, auth: { type: 'jwt', config: { jwt: 'e.y.z', distributedClaimAccessTokenProvider: () => 'graph-token' } } });
 new VaultClient({ api: { url: 'u' }, auth: { type: 'jwt', config: { jwtProvider: async () => 'e.y.z', distributedClaimAccessTokenProvider: async () => 'graph-token' } } });
+// Conditionally-set values: `undefined` means "not sent".
+declare const maybeGraphToken: string | undefined;
+declare const maybeGraphProvider: (() => Promise<string>) | undefined;
+new VaultClient({ api: { url: 'u' }, auth: { type: 'jwt', config: { jwt: 'e.y.z', distributedClaimAccessToken: maybeGraphToken } } });
+new VaultClient({ api: { url: 'u' }, auth: { type: 'jwt', config: { jwt: 'e.y.z', distributedClaimAccessTokenProvider: maybeGraphProvider } } });
 
 new VaultClient({
     api: { url: 'u' },

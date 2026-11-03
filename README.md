@@ -174,7 +174,7 @@ const vaultClient = VaultClient.boot('main', {
         config: {
             role: 'my-app',                                       // Optional. Role configured in Vault's JWT auth backend; omitted uses the mount's `default_role`
             jwt: process.env.CI_JOB_JWT,                          // Exactly one of `jwt` / `jwtPath` / `jwtProvider` is required (see below)
-            distributedClaimAccessToken: process.env.GRAPH_TOKEN, // Optional. Azure/Entra ID group lookups only (see below); or `distributedClaimAccessTokenProvider`
+            // distributedClaimAccessTokenProvider: () => getGraphAccessToken(), // Optional. Azure/Entra ID group lookups only (see below)
         },
     },
 });
@@ -244,17 +244,27 @@ group lookup rather than anything about your token.
 
 Two optional, mutually exclusive `config` keys supply it. Passing both raises
 `InvalidArgumentsError` at construction; passing neither leaves the login request byte-for-byte
-what it was before these keys existed.
+what it was before these keys existed. A key whose value is `undefined` counts as not passed, so
+`distributedClaimAccessToken: process.env.GRAPH_TOKEN` with the variable unset logs in *without* a
+Graph token — and on a mount/role that needs one, fails at Vault's group lookup. The login log line
+always names the source (`distributed claim access token: literal`, `provider` or `none`), so check
+it first when that happens.
 
 * **`distributedClaimAccessToken`** — a literal Graph access token. It carries exactly the caveat
   the literal `jwt` above does, for the same reason: the value is fixed at construction and every
   re-login re-sends it, so it works until that token expires. Entra access tokens last about an
   hour, which is shorter than most processes — fine for a one-shot script, wrong for a service.
+  Surrounding whitespace is trimmed; an empty, whitespace-only or non-string value raises
+  `InvalidArgumentsError` at construction instead of being sent.
 * **`distributedClaimAccessTokenProvider`** — an (optionally async) function, called fresh at login
   time (never at construction, never cached), returning `string | Promise<string>`. Acquire the
   Graph token inside it — an MSAL client-credentials call, the Azure IMDS managed-identity endpoint
-  — and every login gets a current one. Resolving to a non-string or an empty string raises
-  `InvalidArgumentsError` without sending a login request.
+  — and every login gets a current one. It runs concurrently with the JWT source, so login takes as
+  long as the slower of the two rather than both in turn. Surrounding whitespace is trimmed;
+  resolving to a non-string, an empty or a whitespace-only string raises `InvalidArgumentsError`
+  without sending a login request. If either provider throws or rejects, the client logs which one
+  (`JWT login aborted: "distributedClaimAccessTokenProvider" failed: ...`) and the login rejects with
+  your provider's own error, unchanged.
 
 ```javascript
 const vaultClient = VaultClient.boot('main', {
@@ -368,6 +378,7 @@ backend can obtain a *fresh* credential unaided:
 | backend | on expiry with `renewal: false` | at max TTL with renewal enabled |
 | --- | --- | --- |
 | `kubernetes`, `iam`, `jwt` with `jwtPath`/`jwtProvider` | clean re-login — the JWT or AWS credential is re-acquired, so this is the intended case | clean re-login on the next call after the client-side expiry deadline |
+| `jwt` with `jwtPath`/`jwtProvider` **and a literal `distributedClaimAccessToken`** | the JWT is fresh but the Graph access token is **replayed**; once it expires (about an hour for Entra ID) Vault's group lookup fails every re-login. Use `distributedClaimAccessTokenProvider` | same: re-login replays the expired Graph token and is rejected |
 | `appRole` | re-login **replays the same `secret_id`**. Fine for a reusable one; with Vault's recommended hardening (`secret_id_num_uses=1`, or a short `secret_id_ttl`) the second login is rejected | re-login replays the same `secret_id`; a single-use or expired secret is rejected |
 | `jwt` with a literal `jwt` | replays the same JWT, so it works only until the IdP-issued token expires | replays the same JWT; once it expires, login is rejected |
 | `token` | **cannot re-authenticate at all.** The client raises `AuthTokenExpiredError` from then on, permanently | **cannot re-authenticate at all.** The client raises `AuthTokenExpiredError` after the max-TTL expiry |
@@ -556,9 +567,13 @@ later ones with `TimeoutError`. Pass a fresh signal per call, or use the dispatc
 
 Requests follow HTTP redirects, because Vault HA clusters answer standby nodes with a 307 to the
 active node. Node's `fetch()` strips only `Authorization`, `Cookie` and `Proxy-Authorization` when
-a redirect crosses origins — `X-Vault-Token` is **not** on that list and is forwarded. A host that
-can answer for `api.url` can therefore redirect the client and receive its Vault token, so treat
-`api.url` (and the DNS and any load balancer in front of it) as trusted infrastructure.
+a redirect crosses origins — `X-Vault-Token` is **not** on that list and is forwarded. A 307 or 308
+also re-sends the request body, so a login is replayed to the redirect target with its credentials:
+the AppRole `secret_id`, the Kubernetes or JWT token, the signed IAM request and, with
+`distributedClaimAccessToken`, a Microsoft Graph access token that is a credential for systems other
+than Vault. A host that can answer for `api.url` can therefore redirect the client and receive its
+Vault token and its login credentials, so treat `api.url` (and the DNS and any load balancer in
+front of it) as trusted infrastructure.
 
 <a name="VaultClient+fillNodeConfig"></a>
 
