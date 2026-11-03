@@ -10,7 +10,8 @@
   `jwtProvider` and `distributedClaimAccessTokenProvider` both set, the two run at the same time,
   not one after the other. Login latency is the slower of the two rather than their sum, and the JWT
   is no longer minted early and left to age while the Graph token is fetched. As a result, the
-  access token provider is now also called when the JWT source fails.
+  access token provider is now also called when the JWT source fails. The login rejects once both
+  have settled: when both fail, the JWT source's error is the one raised, whichever failed first.
 - **Changed: a failing credential provider is named in the log.** When `jwtProvider` or
   `distributedClaimAccessTokenProvider` throws or rejects, the client logs
   `JWT login aborted: "<option>" failed: <message>` at error level. The login still rejects with the
