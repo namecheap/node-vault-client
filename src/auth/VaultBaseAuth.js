@@ -9,8 +9,6 @@ const AuthToken = require('./AuthToken');
 
 /** Renew at the halfway point of the token's remaining lifetime. */
 const DEFAULT_RENEWAL_FRACTION = 0.5;
-/** Maximum rounding difference allowed when comparing expiry movement with a renewal interval. */
-const MAX_EXPIRY_JITTER_MS = 1000;
 const errors = require('../errors');
 const safeMessage = require('../safeMessage');
 
@@ -50,35 +48,40 @@ function tokenExpiryMilliseconds(authToken) {
 }
 
 /**
- * Read Vault's unadjusted absolute expiry when available; duck-typed tokens fall back to their
- * public expiry in seconds.
- * @param {AuthToken} authToken
- * @returns {number|null}
+ * True when Vault says it granted less than the requested lifetime because the token reached a
+ * maximum TTL (its explicit max TTL, the role's `token_max_ttl` or the mount's max lease TTL).
+ * Vault reports this on every capped renew-self as a warning such as
+ * `TTL of "10s" exceeded the effective max_ttl of "9s"; TTL value is capped accordingly`
+ * (measured on 1.21 and 2.2) and never on an uncapped one. A capped token's deadline cannot move
+ * again, so further renewals are pointless; the next one would fail with "past the max TTL".
+ *
+ * Vault's other cap warning, `period of "4s" exceeded the effective max_ttl of "2s"; period value
+ * is capped accordingly`, must NOT match: it is sent on every renewal of a periodic token whose
+ * period exceeds the role's `token_max_ttl` or the mount's max lease TTL, and that token stays
+ * renewable indefinitely at the shorter period (measured on 2.2).
+ *
+ * `lease_duration < increment` is not a usable substitute: periodic tokens ignore the increment.
+ *
+ * @param {Object|null|undefined} renewResponse - renew-self response body
+ * @returns {boolean}
  * @private
  */
-function tokenUnadjustedExpiryMilliseconds(authToken) {
-    if (typeof authToken.getUnadjustedExpiresAtMilliseconds === 'function') {
-        const expiry = authToken.getUnadjustedExpiresAtMilliseconds();
-        if (Number.isFinite(expiry)) {
-            return expiry;
-        }
-    }
-
-    return tokenExpiryMilliseconds(authToken);
+function renewalCappedByMaxTtl(renewResponse) {
+    const warnings = renewResponse && Array.isArray(renewResponse.warnings) ? renewResponse.warnings : [];
+    return warnings.some((warning) => typeof warning === 'string'
+        && /max_?ttl/i.test(warning) && /\bTTL value is capped\b/i.test(warning));
 }
 
 /**
- * Read Vault's whole-second TTL when the token implementation exposes it.
- * @param {AuthToken} authToken
- * @returns {number|null}
+ * ISO form of a millisecond timestamp, or its plain string form when Date cannot represent it,
+ * so that a log line about a duck-typed token never throws a RangeError.
+ * @param {number} ms
+ * @returns {string}
  * @private
  */
-function tokenTtlSeconds(authToken) {
-    if (typeof authToken.getTtlSeconds !== 'function') {
-        return null;
-    }
-    const ttl = authToken.getTtlSeconds();
-    return typeof ttl === 'number' && Number.isFinite(ttl) ? ttl : null;
+function formatTimestamp(ms) {
+    const date = new Date(ms);
+    return Number.isNaN(date.getTime()) ? String(ms) : date.toISOString();
 }
 
 /**
@@ -101,7 +104,7 @@ function warnRenewalStopped(auth, authToken, reason) {
         'token renewal stopped (accessor=%s): %s; client-side expiry is %s; %s',
         authToken.getAccessor(),
         reason,
-        expiry === null ? 'unknown' : new Date(expiry).toISOString(),
+        expiry === null ? 'unknown' : formatTimestamp(expiry),
         nextAction
     );
 }
@@ -255,16 +258,10 @@ class VaultBaseAuth {
             this.__renewalEpoch++;
 
             if (authToken.isRenewable()) {
-                // Gate the log on the flag too: the guard lives inside
-                // __setupTokenRefreshTimer, so without this the client claims it armed a
-                // timer while arming nothing -- the one diagnostic an operator reads when a
-                // `renewal: false` process still hangs.
-                if (this.__renewalEnabled) {
-                    this._log.debug(
-                        'setting refresh timer for token (accessor=%s)',
-                        authToken.getAccessor()
-                    );
-                } else {
+                // __setupTokenRefreshTimer logs once it has actually armed a timer, and warns
+                // when it cannot; this covers the remaining case, the one diagnostic an operator
+                // reads when a `renewal: false` process still hangs.
+                if (!this.__renewalEnabled) {
                     this._log.debug(
                         'renewal disabled by config; not arming a refresh timer (accessor=%s)',
                         authToken.getAccessor()
@@ -371,7 +368,6 @@ class VaultBaseAuth {
         // permanently un-renewed. Anything that supersedes this timer bumps the epoch.
         const epoch = ++this.__renewalEpoch;
         const superseded = () => this.__renewalEpoch !== epoch;
-        const scheduledAt = Date.now();
 
         this.__refreshTimeout = lt.setTimeout(() => {
             if (superseded()) {
@@ -379,47 +375,20 @@ class VaultBaseAuth {
             }
             this.__refreshTimeout = null;
 
-            this.__renewToken(authToken).then(renewedToken => {
+            // Two handlers, not .then().catch(): once the renewed token is adopted, a failure
+            // in the bookkeeping below must not be mistaken for a failed renewal and re-arm a
+            // timer against the token this client no longer holds.
+            this.__renewToken(authToken).then(({ renewedToken, cappedByMaxTtl }) => {
                 if (superseded()) {
                     return;
                 }
                 this.__authToken = renewedToken;
-                if (!renewedToken.isRenewable() || renewedToken.isExpired()) {
-                    this.__setupTokenRefreshTimer(renewedToken);
+                if (cappedByMaxTtl) {
+                    warnRenewalStopped(this, renewedToken, 'Vault capped the renewal at the token\'s maximum TTL');
                     return;
                 }
-
-                const previousExpiry = tokenUnadjustedExpiryMilliseconds(authToken);
-                const renewedExpiry = tokenUnadjustedExpiryMilliseconds(renewedToken);
-                const expiryMovement = previousExpiry === null || renewedExpiry === null
-                    ? null
-                    : renewedExpiry - previousExpiry;
-                const previousTtl = tokenTtlSeconds(authToken);
-                const renewedTtl = tokenTtlSeconds(renewedToken);
-                const ttlDidNotDecrease = previousTtl === null || renewedTtl === null
-                    || renewedTtl >= previousTtl;
-                const renewalElapsedMs = Date.now() - scheduledAt;
-                // A max-TTL cap leaves the absolute expiry roughly fixed, while a periodic
-                // renewal moves it forward by about the time spent waiting. Compare the
-                // reported TTL too, so whole-second rounding does not make a short extension
-                // look like a capped token.
-                const expiryAdvancedWithRenewal = expiryMovement !== null
-                    && expiryMovement >= 0
-                    && ttlDidNotDecrease
-                    && Math.abs(expiryMovement - renewalElapsedMs) <= MAX_EXPIRY_JITTER_MS;
-                const expiryMovedMaterially = expiryMovement !== null
-                    && Math.abs(expiryMovement) > MAX_EXPIRY_JITTER_MS;
-
-                if (expiryMovedMaterially || expiryAdvancedWithRenewal) {
-                    this.__setupTokenRefreshTimer(renewedToken);
-                } else {
-                    warnRenewalStopped(
-                        this,
-                        renewedToken,
-                        'Vault did not extend the token (maximum TTL likely reached)'
-                    );
-                }
-            }).catch(err => {
+                this.__setupTokenRefreshTimer(renewedToken);
+            }, err => {
                 if (superseded()) {
                     return;
                 }
@@ -433,18 +402,27 @@ class VaultBaseAuth {
                 } else {
                     this._log.error(message, err);
                 }
+            }).catch(err => {
+                // Only a throwing logger (or a broken duck-typed token) gets here. Report it if
+                // the logger allows, and never let it surface as an unhandled rejection.
+                try {
+                    this._log.error('token renewal bookkeeping failed: %s', safeMessage(err));
+                } catch {
+                    // nothing left to report to
+                }
             });
         }, timer);
 
         this._log.debug(
-            'sleeping for %s',
+            'renewal timer armed (accessor=%s); renewing in %s',
+            authToken.getAccessor(),
             humanizeMs(timer)
         );
     }
 
     /**
      * @param {AuthToken} authToken
-     * @returns {Promise.<AuthToken>}
+     * @returns {Promise.<{renewedToken: AuthToken, cappedByMaxTtl: boolean}>}
      * @private
      */
     __renewToken(authToken) {
@@ -454,9 +432,11 @@ class VaultBaseAuth {
         const data = this.__renewalIncrement === undefined ? null : {increment: this.__renewalIncrement};
 
         return this.__apiClient.makeRequest('POST', '/auth/token/renew-self', data, {'X-Vault-Token': authToken.getId()})
-            .then(() => {
+            .then((renewResponse) => {
                 this._log.info('successfully renewed token');
-                return this._getTokenEntity(authToken.getId());
+                const cappedByMaxTtl = renewalCappedByMaxTtl(renewResponse);
+                return this._getTokenEntity(authToken.getId())
+                    .then((renewedToken) => ({ renewedToken, cappedByMaxTtl }));
             })
             .catch((reason) => {
                 this._log.error('token renew failed: %s', safeMessage(reason));

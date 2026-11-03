@@ -104,7 +104,17 @@ class VaultJwtAuth extends VaultBaseAuth {
         // Both credentials are independent and usually network-bound (IdP, IMDS, MSAL), so they
         // are acquired concurrently: login latency is the slower of the two rather than their
         // sum, and the JWT does not age while the Graph token is fetched.
-        return Promise.all([this.__acquireJwt(), this.__acquireDistributedClaimAccessToken()])
+        //
+        // A failed JWT source rejects the login at once, as it did when the two ran in turn, so a
+        // Graph provider that hangs cannot hold up that error. A failed access token instead waits
+        // for the JWT source, so the JWT source's error is the one raised whenever both fail. The
+        // Graph provider is not cancelled: if it fails after the login already rejected, its
+        // failure is still logged, and its rejection is handled here.
+        const jwtPromise = this.__acquireJwt();
+        const claimPromise = this.__acquireDistributedClaimAccessToken()
+            .catch((claimErr) => jwtPromise.then(() => { throw claimErr; }));
+
+        return Promise.all([jwtPromise, claimPromise])
             .then(([{ jwt, source }, distributedClaim]) => {
                 this._log.info(
                     'making authentication request: Vault role: "%s"; JWT source: %s (%d bytes);'

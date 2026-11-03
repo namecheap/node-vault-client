@@ -264,7 +264,8 @@ it first when that happens.
   resolving to a non-string, an empty or a whitespace-only string raises `InvalidArgumentsError`
   without sending a login request. If either provider throws or rejects, the client logs which one
   (`JWT login aborted: "distributedClaimAccessTokenProvider" failed: ...`) and the login rejects with
-  your provider's own error, unchanged.
+  your provider's own error, unchanged. A failing JWT source rejects the login at once, without
+  waiting for this provider; when both fail, the JWT source's error is the one raised.
 
 ```javascript
 const vaultClient = VaultClient.boot('main', {
@@ -385,20 +386,31 @@ backend can obtain a *fresh* credential unaided:
 
 #### Tokens that reach their maximum TTL
 
-Vault stops extending a renewable token when it reaches its maximum TTL. The client uses Vault's
-absolute `expire_time` when available, treats `ttl: 0` as expired immediately, and stops background
-renewal when successive absolute expiry deadlines do not materially advance. Because Vault reports
-whole-second TTLs, the scheduler also compares the reported TTL with the elapsed renewal interval;
-short periodic tokens keep renewing even when each expiry advance is one second or less. A
-`renewalIncrement` that meaningfully shortens the expiry still schedules from the new deadline. For positive TTLs above 60 seconds, the client keeps a one-minute
-safety margin for requests in flight; TTLs of 60 seconds or less have no margin. The next call after
-the client-side expiry deadline re-authenticates, as shown in the table above.
+Vault stops extending a renewable token when it reaches its maximum TTL: the token's explicit max
+TTL, the role's `token_max_ttl`, or the auth mount's max lease TTL. When a renewal is capped, Vault
+says so in the `renew-self` response, with a warning such as `TTL of "1h" exceeded the effective
+max_ttl of "20m"; TTL value is capped accordingly`. The client stops background renewal on that
+warning and logs `token renewal stopped (accessor=…): Vault capped the renewal at the token's
+maximum TTL`. A renewal without the warning is never treated as capped, however little it moved
+the deadline. That includes short periodic tokens renewed less than a second apart, and a
+`renewalIncrement` that leaves the deadline where it was or brings it closer. Vault's other cap
+warning, `period of "…" exceeded the effective max_ttl of "…"; period value is capped accordingly`,
+does not stop renewal either: it comes with every renewal of a periodic token whose period is above
+the role's `token_max_ttl` or the mount's max lease TTL, and that token stays renewable at the
+shorter period. The next renewal is always scheduled from the new deadline.
+
+The client uses Vault's absolute `expire_time` when available and treats `ttl: 0` as expired
+immediately. Because Vault truncates `ttl` to whole seconds, a token with a period of **1 second**
+reports `ttl: 0` right after each renewal and is treated as expired. Use a period of at least
+2 seconds. For positive TTLs above 60 seconds, the client keeps a one-minute safety margin for
+requests in flight; TTLs of 60 seconds or less have no margin. The next call after the client-side
+expiry deadline re-authenticates, as shown in the table above.
 
 Two consequences worth stating plainly:
 
 * **For `token` auth, there is no fresh credential for re-authentication.** With `renewal: false`,
   an otherwise renewable token is allowed to expire without a background renewal. With renewal
-  enabled, the client stops the background loop once Vault no longer extends the expiry materially.
+  enabled, the client stops the background loop once Vault reports that a renewal was capped.
   After expiry every later call rejects for the life of the process. `close()` does not reset it —
   recovery means `VaultClient.clear(name)` and booting again.
 * For `appRole` and literal-`jwt`, a login that can no longer succeed is retried on **every**
@@ -434,7 +446,10 @@ Lower `renewalFraction` values renew earlier and more often, which buys headroom
 unreachable. A failed renewal is retried on the same rule against the *same* token, so the waits
 shrink geometrically as the remaining lifetime does — for a 1-hour token that is roughly 12 attempts
 at `0.5` (1800s, 900s, 450s, …) versus 27 at `0.25`, both bottoming out at a 250 ms minimum delay
-when it still fits before expiry. Higher values renew later and talk to Vault less.
+when it still fits before expiry. Higher values renew later and talk to Vault less. A low fraction on a
+short TTL is safe: renewals under a second apart keep working. The 250 ms minimum delay only matters
+once less than 250 ms of lifetime is left, and the client then stops with `too little lifetime left
+to renew`.
 
 `renewalIncrement` is a request, not a guarantee: Vault grants at most the token's max TTL and may
 return less. Both keys are validated at construction — a `renewalFraction` outside `(0, 1)` or a

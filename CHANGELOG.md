@@ -1,5 +1,46 @@
 # Unreleased
 
+- **Fixed: background renewal no longer stops for tokens that have not reached a maximum TTL.**
+  3.0.1 inferred "maximum TTL reached" from wall-clock arithmetic: whether the absolute expiry
+  moved by about the time spent waiting, within one second, and whether the whole-second `ttl`
+  went down. On real Vault this stopped renewal for uncapped tokens in two cases. After that, every
+  call failed once the token expired: `token` auth with `AuthTokenExpiredError`, and other backends
+  re-authenticated.
+  - *Renewals under a second apart* (period × `renewalFraction` < 1 s). Examples: a period-2 token
+    at 0.4, a period-3 token at 0.3, a period-10 token at 0.05. `lookup-self` truncates `ttl`, so it
+    flips between neighbouring whole seconds. On Vault 2.2, most clients tested stopped within a
+    few renewals.
+  - *A `renewalIncrement` equal to the remaining lifetime*, for example a 20 s token renewed at 10 s
+    with `renewalIncrement: 10`. The deadline stays put, and the token died at its original
+    expiry.
+
+  The client now reads Vault's own signal. A capped `renew-self` carries a warning (`TTL of "…"
+  exceeded the effective max_ttl of "…"; TTL value is capped accordingly`), and an uncapped one
+  never does; this was measured on Vault 1.21 and 2.2 for explicit max TTLs, AppRole
+  `token_max_ttl` and the mount's max lease TTL. Renewal stops on that warning and continues
+  otherwise. Vault's `period of "…" exceeded the effective max_ttl of "…"; period value is capped
+  accordingly` warning is deliberately not a stop signal: it comes with every renewal of a periodic
+  token whose period is above the role's `token_max_ttl` or the mount's max lease TTL, and that
+  token stays renewable at the shorter period. The stop is logged as
+  `Vault capped the renewal at the token's maximum TTL`, replacing
+  `Vault did not extend the token (maximum TTL likely reached)`. A capped token stops at its
+  first capped renewal. 3.0.1 sometimes made one more renewal first, when the cap still moved the
+  deadline by more than a second (a 1 h token capped at 1 h 20 m, for example).
+- **Fixed: a failure after a successful renewal no longer re-arms against the old token.** Such a
+  failure (a logger that throws, or a duck-typed token whose expiry `Date` cannot represent) used
+  to be handled as a failed renewal. That scheduled another renewal of a token the client had
+  already replaced. Now it is logged as `token renewal bookkeeping failed`, the renewed token stays
+  in use, and no unhandled rejection is raised. The "renewal stopped" warning also no longer throws
+  a `RangeError` (which could reject a successful login) for an out-of-range expiry.
+- **Changed: debug logging.** The debug line `setting refresh timer for token (accessor=…)` was
+  logged before the client knew whether it would arm a timer. It is replaced by
+  `renewal timer armed (accessor=…); renewing in <delay>`, logged only when a timer is actually
+  armed; that line also replaces `sleeping for <delay>`.
+- **Docs (renewal):**
+  - The README's maximum-TTL section describes the actual stop rule.
+  - It notes that a 1-second period is too short, because lookup reports `ttl: 0` right after each
+    renewal.
+  - The `renewalFraction` notes now state that low fractions on short TTLs are safe.
 - **Fixed: a literal `distributedClaimAccessToken` is validated at construction.** An empty,
   whitespace-only or non-string value (`''` from `process.env.GRAPH_TOKEN || ''`, `null`, a number)
   used to be sent to Vault as-is, so the login failed later at Vault's group-fetch step with an error
@@ -10,7 +51,11 @@
   `jwtProvider` and `distributedClaimAccessTokenProvider` both set, the two run at the same time,
   not one after the other. Login latency is the slower of the two rather than their sum, and the JWT
   is no longer minted early and left to age while the Graph token is fetched. As a result, the
-  access token provider is now also called when the JWT source fails.
+  access token provider is now also called when the JWT source fails. A failed JWT source still
+  rejects the login at once with its own error, as in 3.0.0, without waiting for the access token
+  provider; that provider is not cancelled, and a failure it reports later is still logged. A failed
+  access token waits for the JWT source, so when both fail the JWT source's error is the one raised,
+  whichever failed first.
 - **Changed: a failing credential provider is named in the log.** When `jwtProvider` or
   `distributedClaimAccessTokenProvider` throws or rejects, the client logs
   `JWT login aborted: "<option>" failed: <message>` at error level. The login still rejects with the

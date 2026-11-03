@@ -119,6 +119,119 @@ describe('E2E', function () {
     });
 
     describe('Auth Token renewal', function () {
+        /** Count renew-self calls made through the global fetch until the returned restore() runs. */
+        function countRenewals() {
+            const originalFetch = globalThis.fetch;
+            const renewals = [];
+            globalThis.fetch = (input, options) => {
+                const url = typeof input === 'string' ? input : (input instanceof URL ? input.href : input.url);
+                if (new URL(url).pathname.endsWith('/auth/token/renew-self')) {
+                    renewals.push(url);
+                }
+                return originalFetch.call(globalThis, input, options);
+            };
+            return { renewals, restore: () => { globalThis.fetch = originalFetch; } };
+        }
+
+        /** A logger that records warnings, so a stop the reads alone would not catch still fails. */
+        function warnRecorder() {
+            const warnings = [];
+            const noop = () => {};
+            return { warnings, logger: { error: noop, info: noop, debug: noop, trace: noop, warn: (...args) => warnings.push(args.join(' ')) } };
+        }
+
+        async function createToken(bootOpts, body) {
+            const res = await rp({method: 'POST', uri: `${bootOpts.api.url}v1/auth/token/create-orphan`, body,
+                headers: {'X-Vault-Token': bootOpts.auth.config.token}});
+            return res.auth.client_token;
+        }
+
+        // An uncapped periodic token renewed less than a second apart: lookup-self's whole-second
+        // ttl flips between 2 and 3 and each renewal moves the deadline by under a second. The
+        // pre-3.0.2 wall-clock rule read that as "maximum TTL reached" and stopped renewing.
+        it('keeps an uncapped period-3 token alive with sub-second renewals', async function () {
+            this.timeout(30000);
+            const token = await createToken(this.bootOpts, {period: '3s'});
+            const { warnings, logger } = warnRecorder();
+            const vaultClient = new VaultClient(_.merge({}, this.bootOpts, {logger, auth: {config: {token}, renewalFraction: 0.2}}));
+            const { renewals, restore } = countRenewals();
+
+            try {
+                await vaultClient.write('/secret/tst-renew', {v: 1});
+                await new Promise(resolve => setTimeout(resolve, 7000));
+                const res = await vaultClient.read('secret/tst-renew');
+                expect(res.getData()).to.deep.equal({v: 1});
+                expect(renewals.length, 'renewed throughout, more than two periods past the original deadline')
+                    .to.be.at.least(8);
+                expect(warnings.filter((w) => w.includes('renewal stopped')), 'renewal must never stop').to.deep.equal([]);
+            } finally {
+                restore();
+                vaultClient.close();
+            }
+        });
+
+        // renewalIncrement equal to the remaining lifetime leaves the deadline where it was on
+        // the first renewal, with no max TTL anywhere. Only renewing keeps this token past 4 s.
+        it('keeps renewing an uncapped token whose renewals do not move its deadline', async function () {
+            this.timeout(30000);
+            const token = await createToken(this.bootOpts, {ttl: '4s'});
+            const { warnings, logger } = warnRecorder();
+            const vaultClient = new VaultClient(_.merge({}, this.bootOpts, {logger, auth: {config: {token}, renewalIncrement: 2}}));
+            const { renewals, restore } = countRenewals();
+
+            try {
+                await vaultClient.write('/secret/tst-renew', {v: 2});
+                await new Promise(resolve => setTimeout(resolve, 6000));
+                const res = await vaultClient.read('secret/tst-renew');
+                expect(res.getData()).to.deep.equal({v: 2});
+                expect(renewals.length).to.be.at.least(3);
+                expect(warnings.filter((w) => w.includes('renewal stopped')), 'renewal must never stop').to.deep.equal([]);
+            } finally {
+                restore();
+                vaultClient.close();
+            }
+        });
+
+        // A token_period above token_max_ttl makes Vault warn `period of "4s" exceeded the
+        // effective max_ttl of "2s"; period value is capped accordingly` on every renewal, yet the
+        // token stays renewable indefinitely at the 2 s period. That warning is not the stop signal.
+        it('keeps renewing a periodic AppRole token whose period Vault capped to token_max_ttl', async function () {
+            this.timeout(30000);
+            const vault = this.bootOpts.api.url;
+            const headers = {'X-Vault-Token': this.bootOpts.auth.config.token};
+            const mount = `approle-period-${Math.floor(Math.random() * 1e6)}`;
+            await rp({method: 'PUT', uri: `${vault}v1/sys/policy/tst-renew-period`, headers,
+                body: {policy: 'path "secret/*" { capabilities = ["create", "read", "update"] }'}});
+            await rp({method: 'POST', uri: `${vault}v1/sys/auth/${mount}`, headers, body: {type: 'approle'}});
+            const { warnings, logger } = warnRecorder();
+            const { renewals, restore } = countRenewals();
+            let vaultClient;
+
+            try {
+                await rp({method: 'POST', uri: `${vault}v1/auth/${mount}/role/p`, headers,
+                    body: {token_period: '4s', token_max_ttl: '2s', token_policies: 'tst-renew-period'}});
+                const roleId = (await rp({uri: `${vault}v1/auth/${mount}/role/p/role-id`, headers})).data.role_id;
+                const secretId = (await rp({method: 'POST', uri: `${vault}v1/auth/${mount}/role/p/secret-id`, headers})).data.secret_id;
+                vaultClient = new VaultClient(_.merge({}, this.bootOpts, {
+                    logger,
+                    auth: {type: 'appRole', mount, config: {role_id: roleId, secret_id: secretId}},
+                }));
+
+                await vaultClient.write('/secret/tst-renew', {v: 3});
+                await new Promise(resolve => setTimeout(resolve, 6000));
+                const res = await vaultClient.read('secret/tst-renew');
+                expect(res.getData()).to.deep.equal({v: 3});
+                expect(renewals.length, 'renewed about every second at the capped 2 s period').to.be.at.least(4);
+                expect(warnings.filter((w) => w.includes('renewal stopped')), 'renewal must never stop').to.deep.equal([]);
+            } finally {
+                restore();
+                if (vaultClient) {
+                    vaultClient.close();
+                }
+                await rp({method: 'DELETE', uri: `${vault}v1/sys/auth/${mount}`, headers});
+            }
+        });
+
         it('renews once, then stops when a real Vault token reaches max TTL', async function () {
             this.timeout(30000);
 
