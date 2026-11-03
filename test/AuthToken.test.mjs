@@ -130,6 +130,11 @@ describe('AuthToken', function () {
             expect(token.getExpiresAt()).to.equal(1000 + (3600 - 60));
         });
 
+        it('exposes the whole-second ttl from the lookup, and null when Vault sent none', function () {
+            expect(build({ creation_time: 1000, ttl: 3600 }).getTtlSeconds()).to.equal(3600);
+            expect(build({ creation_time: 1000, ttl: undefined }).getTtlSeconds()).to.equal(null);
+        });
+
         it('treats ttl 0 as expired on receipt even when the client clock trails Vault', function () {
             const clock = sinon.useFakeTimers({ now: 1000 });
             try {
