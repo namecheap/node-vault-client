@@ -264,7 +264,7 @@ it first when that happens.
   resolving to a non-string, an empty or a whitespace-only string raises `InvalidArgumentsError`
   without sending a login request. If either provider throws or rejects, the client logs which one
   (`JWT login aborted: "distributedClaimAccessTokenProvider" failed: ...`) and the login rejects with
-  your provider's own error, unchanged.
+  your provider's own error, unchanged; when both fail, the JWT source's error is the one raised.
 
 ```javascript
 const vaultClient = VaultClient.boot('main', {

@@ -512,21 +512,38 @@ describe('VaultJwtAuth (TDD spec for #130)', function () {
                 expect(loginCalls(fetchStub)).to.have.length(0);
             });
 
-            it('rejects with the JWT provider error, naming it in the log, when both providers fail', async function () {
+            it('rejects with the JWT provider error when both providers fail, even if the other one failed first', async function () {
                 const log = createSpyLogger();
                 const jwtBoom = new Error('IdP unavailable');
                 const auth = new VaultJwtAuth(api(), log, {
-                    jwtProvider: () => Promise.reject(jwtBoom),
-                    // Settles later, so the JWT failure is the first rejection Promise.all sees.
+                    // The JWT source settles last: the error the caller gets must not depend on timing.
+                    jwtProvider: () => new Promise((_, reject) => { setTimeout(() => reject(jwtBoom), 5); }),
+                    distributedClaimAccessTokenProvider: () => Promise.reject(new Error('Graph unavailable')),
+                });
+                let thrown;
+                try { await auth.getAuthToken(); } catch (err) { thrown = err; }
+                expect(thrown).to.equal(jwtBoom);
+                expect(formattedLog(log)).to.contain('"jwtProvider" failed: IdP unavailable');
+                expect(formattedLog(log)).to.contain('"distributedClaimAccessTokenProvider" failed: Graph unavailable');
+                expect(loginCalls(fetchStub)).to.have.length(0);
+            });
+
+            it('reports every provider failure before the login rejects, never after', async function () {
+                const log = createSpyLogger();
+                const auth = new VaultJwtAuth(api(), log, {
+                    jwtProvider: () => Promise.reject(new Error('IdP unavailable')),
                     distributedClaimAccessTokenProvider: () => new Promise((_, reject) => {
                         setTimeout(() => reject(new Error('Graph unavailable')), 5);
                     }),
                 });
                 let thrown;
                 try { await auth.getAuthToken(); } catch (err) { thrown = err; }
-                expect(thrown).to.equal(jwtBoom);
+                expect(thrown.message).to.equal('IdP unavailable');
+                const atRejection = log.error.callCount;
                 expect(formattedLog(log)).to.contain('"jwtProvider" failed');
-                expect(loginCalls(fetchStub)).to.have.length(0);
+                expect(formattedLog(log)).to.contain('"distributedClaimAccessTokenProvider" failed');
+                await new Promise((resolve) => setTimeout(resolve, 20));
+                expect(log.error.callCount, 'no abort is logged after the login already rejected').to.equal(atRejection);
             });
 
             it('runs the JWT provider and the access token provider concurrently', async function () {
