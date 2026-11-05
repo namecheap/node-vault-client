@@ -7,6 +7,15 @@
   `^14.0.3`, the release built for minimatch 11: glob 13 relies on minimatch 10 internals that 11
   removed. Lint, test discovery (776 tests in 26 files) and coverage (16 files) are unchanged.
   Nothing here ships to consumers: the package has no runtime dependency on either.
+- **Tests: generic-backend e2e suite (#222).** `npm run test:e2e:generic` runs against a real
+  Vault what was only mock-tested: a transit round-trip through `request()`, which never sends a
+  detection request even with `autoDetect: true`; a transit mount under `autoDetect`, detected as
+  passthrough (no `data/` segment, no `{ data }` envelope, KV v2 helpers throw
+  `UnsupportedOperationError` without reaching it); exactly one detection request on the wire for
+  six first reads of a fresh KV v2 mount, five of them started while that request is still waiting
+  for its answer; `Lease.getMetadata()` on a live read; and
+  detection with a token that can only `read` one key and gets 403 from `sys/mounts`. It runs in
+  the `e2e` CI job on every Node × Vault leg. Test-only; no library change.
 
 # 3.0.2 Release notes (2026-11-03)
 
