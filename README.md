@@ -843,6 +843,14 @@ the ones it was booted with, the client logs a warning rather than letting the d
 silently. Use [`VaultClient.get(name)`](#VaultClient.get) to fetch an existing instance, or
 [`VaultClient.clear(name)`](#VaultClient.clear) before booting to replace one.
 
+Options are compared as hashes, so no credential is kept for the comparison. Plain objects and
+arrays compare by content, in any key order. Functions and other objects compare by identity, and
+a `Buffer`, `Date`, `URL` or `RegExp` by value. So a logger class instance, an undici `dispatcher`,
+or a logger object built from new functions counts as different even when it would behave the
+same; a plain object that reuses the same functions does not. The warning names the top-level
+options that differ (for example `logger`) and is logged once per instance for each set of them.
+Boot each name once and fetch it with `get()` elsewhere.
+
 **Kind**: static method of [<code>VaultClient</code>](#VaultClient)  
 **Returns**: <code>VaultClient</code>  
 

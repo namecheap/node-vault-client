@@ -28,6 +28,26 @@
   - README: "Request timeouts" no longer says there is no default timeout, and describes the
     300 s dispatcher timeouts that apply with `timeout: 0`.
 
+- **Fixed: `VaultClient.boot()` notices a different logger, dispatcher or other function
+  (#224).** 3.0.2 compared only `jwtProvider` and `distributedClaimAccessTokenProvider` by
+  identity. Every other function was the same constant, and class instances were compared by
+  their own enumerable keys, which for an undici `dispatcher` say nothing about its proxy or TLS
+  settings. Re-booting a name with a different logger, dispatcher or function therefore returned
+  the existing instance without the "different options" warning, and the new value was silently
+  ignored. Now every function and every object that is not plain data compares by identity, a
+  `Buffer`, `Date`, `URL` or `RegExp` by value, and plain objects and arrays (from any realm) by
+  content as before. No option getter, `toJSON()` or Proxy trap takes part in the comparison, and
+  a `BigInt` option no longer makes `boot()` throw.
+  - *The warning names the options that differ* (`Differing options: logger.`) and is logged once
+    per instance for each set of them, instead of on every call.
+  - *Compatibility.* `boot()` still returns the existing instance and ignores the new options; only
+    the warning changes. This reverses the 3.0.2 note that "re-booting with freshly created ones
+    stays silent": a logger class instance, a dispatcher, or a logger object built from new
+    functions, re-created for each `boot()` call, now logs the warning once, because it is ignored
+    too. So does an equal `Map`, `Set` or typed array (other than a `Buffer`) re-created per call.
+    A plain-object logger that reuses the same functions stays silent. Boot each name once and use
+    `VaultClient.get(name)` elsewhere.
+
 - **Security (development dependencies only): raise `minimatch` to `^11.0.4`
   (GHSA-g3hv-75wg-m249).** eslint, mocha and c8 pulled `minimatch@10.2.6`, whose pattern
   preprocessing can be made to grow without bound (denial of service). Only the 11.x line is
