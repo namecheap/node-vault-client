@@ -89,11 +89,22 @@ export function describeKvPathValidation({ url, rootToken, kvVersion }) {
         const apiPath = (path) => (v2 ? path.replace(/^secret\//, 'secret/data/') : path);
         const dataOf = (body) => (v2 ? body.data.data : body.data);
 
-        const newClient = (token) => new VaultClient({
+        // Every client is closed after the suite: `service` holds a renewable one-hour token whose
+        // renewal timer would otherwise keep the process alive (#220).
+        const clients = [];
+        const track = (client) => {
+            clients.push(client);
+            return client;
+        };
+        after(function () {
+            clients.splice(0).forEach((client) => client.close());
+        });
+
+        const newClient = (token) => track(new VaultClient({
             api: { url, kv: { autoDetect: true } },
             logger: false,
             auth: { type: 'token', config: { token } },
-        });
+        }));
 
         let admin;
         let service;
@@ -265,11 +276,11 @@ export function describeKvPathValidation({ url, rootToken, kvVersion }) {
                 // A decoy where the old KV v2 rewrite landed; admin clients, so ACLs play no part.
                 await admin.write(`secret/secret/${RUN}/tenants/me/key`, { owner: 'decoy' });
                 fetchSpy.resetHistory();
-                const engines = new VaultClient({
+                const engines = track(new VaultClient({
                     api: { url, kv: { autoDetect: false }, engines: { secret: kvVersion } },
                     logger: false,
                     auth: { type: 'token', config: { token: rootToken } },
-                });
+                }));
                 for (const client of [newClient(rootToken), engines]) {
                     for (const path of [`secre%74/${RUN}/tenants/me/key`, `secret%2f${RUN}/tenants/me/key`]) {
                         const outcome = await client.read(path).then((lease) => lease.getData(), (err) => err);

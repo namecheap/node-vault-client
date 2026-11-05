@@ -22,6 +22,16 @@
   Library code and runtime dependencies are unchanged; the packed `package.json` now also lists
   `config` under `devDependencies`, which consumers do not install.
 
+- **Tests: the e2e suites exit without `--exit` (#220).** Plain `mocha` on `e2e.test.mjs` or
+  `e2e.kv2.test.mjs` hung after the summary. Two clients holding renewable tokens were never
+  closed, so their renewal timers kept the event loop alive: the AppRole "with secret ID" test,
+  and the KV path-validation suite shared by both files (a one-hour service token). The renewal
+  tests named in the issue already closed theirs. Both now close their clients, and the
+  `test:e2e*` scripts load `test/e2e/renewal-timer-guard.mjs`. If a renewal timer is still armed
+  after the last test, it fails the run, naming the test or hook in which that client was first
+  used, and cancels the timer so the run exits even without `--exit`. `--exit` stays in the
+  scripts. Test-only; no library change.
+
 # 3.1.0 Release notes (2026-11-05)
 
 Upgrading from 3.0.x needs no code change. Two things behave differently; both are covered
