@@ -161,6 +161,11 @@ jobs:
       - name: Run JWT e2e tests
         run: npm run test:e2e:jwt
 
+      # Non-KV engines through request(), detection dedupe and least-privilege detection.
+      # It mounts its own engines on this KV v1 server, so it rides the same matrix.
+      - name: Run generic-backend e2e tests
+        run: npm run test:e2e:generic
+
       # The example is a smoke test that exits non-zero if any scenario deviates,
       # so running it here keeps it from rotting into stale documentation.
       - name: Run the example app
