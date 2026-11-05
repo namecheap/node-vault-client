@@ -18,51 +18,105 @@ const { trimTrailingSlashes } = require('./slashes');
 const noop = () => {};
 const vaultInstances = {};
 
-// Only credential providers compare by identity: a different provider means the client would
-// authenticate differently. Other functions (logger methods, an IAM `credentials` provider
-// chain) are often re-created per call with the same behaviour, so they all fingerprint alike.
-const IDENTITY_COMPARED_KEYS = new Set(['jwtProvider', 'distributedClaimAccessTokenProvider']);
+// Functions, and objects that are not plain data (an undici dispatcher, a logger class
+// instance), compare by identity. Their own enumerable keys say nothing about what they do:
+// structurally, any two dispatchers look alike, and so do two loggers built from different
+// functions, so a boot() that passed a different one was ignored without a warning (#224).
+// A Buffer, Date, URL or RegExp compares by value, so an equal one re-created per call still
+// matches. No user code (getters, toJSON, Proxy traps) decides the comparison.
+//
+// Per-process ids, in a WeakMap so that fingerprinting never keeps an option (or the closure
+// state it captures) alive.
+const identityIds = new WeakMap();
+let nextIdentityId = 0;
 
-// Per-process ids for those providers. A WeakMap so that fingerprinting never keeps a
-// provider (or the closure state it captures) alive.
-const functionIds = new WeakMap();
-let nextFunctionId = 0;
-
-function functionId(fn) {
-    if (!functionIds.has(fn)) {
-        functionIds.set(fn, ++nextFunctionId);
+function identityId(value) {
+    if (!identityIds.has(value)) {
+        identityIds.set(value, ++nextIdentityId);
     }
-    return functionIds.get(fn);
+    return identityIds.get(value);
 }
 
 /**
- * Order-insensitive canonical form of the boot options, hashed so that no credential is
- * retained just to compare two boot() calls. `jwtProvider` and
- * `distributedClaimAccessTokenProvider` compare by identity; every other function is `fn`.
+ * How an object takes part in the fingerprint: 'array' and 'plain' by content, 'value' by
+ * {@link valueOf}, anything else by identity. Plain includes a null prototype and an
+ * Object.prototype from another realm (vm, a test runner's structuredClone). A Proxy whose
+ * traps throw compares by identity rather than making boot() throw.
  */
-function fingerprintOptions(value, seen, key) {
+function kindOf(value) {
+    try {
+        if (Array.isArray(value)) {
+            return 'array';
+        }
+        if (Buffer.isBuffer(value) || value instanceof Date || value instanceof URL || value instanceof RegExp) {
+            return 'value';
+        }
+        const proto = Object.getPrototypeOf(value);
+        return proto === null || Object.getPrototypeOf(proto) === null ? 'plain' : 'identity';
+    } catch {
+        return 'identity';
+    }
+}
+
+function valueOf(value) {
+    if (Buffer.isBuffer(value)) {
+        return `buffer:${value.toString('base64')}`;
+    }
+    if (value instanceof Date) {
+        return `date:${value.getTime()}`;
+    }
+    return `${value instanceof URL ? 'url' : 'regexp'}:${JSON.stringify(String(value))}`;
+}
+
+/**
+ * Order-insensitive canonical form of a boot option, hashed so that no credential is retained
+ * just to compare two boot() calls. Plain objects and arrays compare by content, functions and
+ * other objects by identity, and a Buffer, Date, URL or RegExp by value.
+ */
+function fingerprintOptions(value, seen) {
     if (typeof value === 'function') {
-        return IDENTITY_COMPARED_KEYS.has(key) ? `fn#${functionId(value)}` : 'fn';
+        return `fn#${identityId(value)}`;
+    }
+    if (typeof value === 'bigint') {
+        return `${value}n`;
     }
     if (value === null || typeof value !== 'object') {
         return JSON.stringify(value) || String(value);
+    }
+    const kind = kindOf(value);
+    if (kind === 'value') {
+        return valueOf(value);
+    }
+    if (kind === 'identity') {
+        return `obj#${identityId(value)}`;
     }
     seen = seen || new Set();
     if (seen.has(value)) {
         return 'circular';
     }
     seen.add(value);
-    if (Array.isArray(value)) {
+    if (kind === 'array') {
         return `[${value.map((item) => fingerprintOptions(item, seen)).join(',')}]`;
     }
     const body = Object.keys(value).sort()
-        .map((key) => `${JSON.stringify(key)}:${fingerprintOptions(value[key], seen, key)}`)
+        .map((key) => `${JSON.stringify(key)}:${fingerprintOptions(value[key], seen)}`)
         .join(',');
     return `{${body}}`;
 }
 
-function optionsDigest(options) {
-    return crypto.createHash('sha256').update(fingerprintOptions(options)).digest('hex');
+/** One digest per top-level option, so a mismatch can name the options that differ. */
+function optionsDigests(options) {
+    const digests = new Map();
+    for (const key of Object.keys(options)) {
+        digests.set(key, crypto.createHash('sha256').update(fingerprintOptions(options[key])).digest('hex'));
+    }
+    return digests;
+}
+
+/** The top-level options whose digests differ, sorted; empty when the options match. */
+function differingOptions(before, after) {
+    const keys = new Set([...before.keys(), ...after.keys()]);
+    return [...keys].filter((key) => before.get(key) !== after.get(key)).sort();
 }
 
 // fetch() parses the joined URL per the WHATWG URL Standard: '?' starts the query, '#' the
@@ -230,8 +284,15 @@ class VaultClient {
      * `options` are used only when the instance is first created. A later call for a name
      * that already exists returns the existing instance and ignores the options it was
      * given; when those options differ from the ones the instance was booted with, that is
-     * logged as a warning rather than passing silently. Use {@link VaultClient.get} to
-     * fetch an existing instance, or {@link VaultClient.clear} to replace one.
+     * logged as a warning, naming the top-level options that differ, rather than passing
+     * silently. The warning is logged once per instance for each set of differing options.
+     * Use {@link VaultClient.get} to fetch an existing instance, or {@link VaultClient.clear}
+     * to replace one.
+     *
+     * Options are compared as hashes, so no credential is kept for the comparison. Plain
+     * objects and arrays compare by content, in any key order. Functions and other objects (a
+     * logger class instance, an undici dispatcher) compare by identity, and a Buffer, Date,
+     * URL or RegExp by value.
      *
      * @param {String} name - Vault instance name
      * @param {Object} options - options for {@link VaultClient#constructor}. Required on
@@ -246,14 +307,22 @@ class VaultClient {
         let instance = vaultInstances[name];
         if (instance === undefined) {
             vaultInstances[name] = instance = new VaultClient(options);
-            instance.__bootDigest = optionsDigest(options);
-        } else if (instance.__bootDigest !== optionsDigest(options)) {
+            instance.__bootDigests = optionsDigests(options);
+            instance.__bootWarned = new Set();
+            return instance;
+        }
+
+        // Once per instance for each set of differing options: code that re-creates its logger
+        // for every boot() call would otherwise log this on every call.
+        const differing = differingOptions(instance.__bootDigests, optionsDigests(options)).join(', ');
+        if (differing !== '' && !instance.__bootWarned.has(differing)) {
+            instance.__bootWarned.add(differing);
             instance.__log.warn(
                 'VaultClient.boot("%s") was called with different options than the existing ' +
                 'instance was booted with; the existing instance is returned and these options ' +
                 'are ignored. Use VaultClient.get("%s") to fetch it, or VaultClient.clear("%s") ' +
-                'first to replace it.',
-                name, name, name
+                'first to replace it. Differing options: %s.',
+                name, name, name, differing
             );
         }
         return instance;

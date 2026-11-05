@@ -1,3 +1,4 @@
+import vm from 'node:vm';
 import _ from 'lodash';
 import sinon from 'sinon';
 import { expect, use } from 'chai';
@@ -262,12 +263,173 @@ describe('VaultClient', function () {
             expect(loggedText(log)).to.contain('different options');
         });
 
-        it('does not warn when only re-created non-provider functions differ (logger methods)', function () {
-            const warn = sinon.spy();
-            const freshLogger = () => ({ error() {}, warn, info() {}, debug() {}, trace() {} });
-            VaultClient.boot('logger-fn', bootOpts({ logger: freshLogger() }));
-            VaultClient.boot('logger-fn', bootOpts({ logger: freshLogger() }));
-            expect(warn.getCalls().map((c) => String(c.args[0])).join(' ')).to.not.contain('different options');
+        describe('functions and non-plain objects compare by identity (#224)', function () {
+            const warned = (log) => log.warn.getCalls().some((c) => String(c.args[0]).includes('different options'));
+
+            it('warns for a different logger built from different functions, and returns the first instance', function () {
+                const L1 = createSpyLogger();
+                const L2 = createSpyLogger();
+                const first = VaultClient.boot('logger', bootOpts({ logger: L1 }));
+                const second = VaultClient.boot('logger', bootOpts({ logger: L2 }));
+
+                expect(second).to.equal(first);
+                // The existing instance warns through its own logger; L2 is never used.
+                expect(warned(L1), 'L2 was ignored, which must be visible').to.equal(true);
+                expect(L2.warn).to.not.have.been.called;
+            });
+
+            it('warns when only re-created logger methods differ', function () {
+                const warn = sinon.spy();
+                const freshLogger = () => ({ error() {}, warn, info() {}, debug() {}, trace() {} });
+                VaultClient.boot('logger-fn', bootOpts({ logger: freshLogger() }));
+                VaultClient.boot('logger-fn', bootOpts({ logger: freshLogger() }));
+                expect(warn.getCalls().map((c) => String(c.args[0])).join(' ')).to.contain('different options');
+            });
+
+            it('stays silent for the same logger class instance', function () {
+                class Logger {
+                    constructor() { this.calls = []; }
+                    error() {} warn(...args) { this.calls.push(args.join(' ')); } info() {} debug() {} trace() {}
+                }
+                const logger = new Logger();
+                VaultClient.boot('logger-class', bootOpts({ logger }));
+                VaultClient.boot('logger-class', bootOpts({ logger }));
+                expect(logger.calls.join(' ')).to.not.contain('different options');
+            });
+
+            it('warns for a different dispatcher even when its own fields are identical', function () {
+                // A dispatcher keeps its configuration in symbol-keyed and prototype state, so
+                // structurally any two look alike.
+                class Dispatcher {
+                    constructor(ca) { this[Symbol.for('options')] = { ca }; this._events = {}; }
+                    dispatch() {}
+                }
+                const log = createSpyLogger();
+                const withDispatcher = (dispatcher) => bootOpts({ logger: log, api: { requestOptions: { dispatcher } } });
+                const original = new Dispatcher('old-ca');
+
+                VaultClient.boot('dispatcher', withDispatcher(original));
+                VaultClient.boot('dispatcher', withDispatcher(original));
+                expect(warned(log), 'the same dispatcher must not warn').to.equal(false);
+
+                VaultClient.boot('dispatcher', withDispatcher(new Dispatcher('new-ca')));
+                expect(warned(log), 'a different dispatcher must warn').to.equal(true);
+            });
+
+            it('warns for a different function anywhere in the options, not only provider keys', function () {
+                const log = createSpyLogger();
+                const opts = (credentials) => bootOpts({ logger: log, auth: { type: 'token', config: { token: 't', credentials } } });
+                const provider = () => ({});
+
+                VaultClient.boot('any-fn', opts(provider));
+                VaultClient.boot('any-fn', opts(provider));
+                expect(warned(log)).to.equal(false);
+
+                VaultClient.boot('any-fn', opts(() => ({})));
+                expect(warned(log)).to.equal(true);
+            });
+
+            it('compares a Buffer, Date, URL or RegExp by value, so an equal re-created one stays silent', function () {
+                const log = createSpyLogger();
+                const opts = (n) => bootOpts({ logger: log, api: { requestOptions: {
+                    ca: Buffer.from(`pem-${n}`), at: new Date(1000 * n), proxy: new URL(`http://proxy-${n}/`), match: new RegExp(`^${n}$`),
+                } } });
+
+                VaultClient.boot('values', opts(1));
+                VaultClient.boot('values', opts(1));
+                expect(warned(log), 'equal values must not warn').to.equal(false);
+
+                VaultClient.boot('values', opts(2));
+                expect(warned(log), 'different values must warn').to.equal(true);
+            });
+
+            it('compares plain data by content: arrays, cross-realm objects and shared or circular references', function () {
+                const log = createSpyLogger();
+                const opts = () => {
+                    const shared = { k: 'v' };
+                    const circular = { name: 'c' };
+                    circular.self = circular;
+                    return bootOpts({ logger: log, api: { requestOptions: {
+                        list: ['a', { b: 1 }], a: shared, b: shared, circular,
+                        // A plain object from another realm has a different Object.prototype.
+                        foreign: vm.runInNewContext('({ x: 1 })'),
+                    } } });
+                };
+
+                VaultClient.boot('plain-data', opts());
+                VaultClient.boot('plain-data', opts());
+                expect(warned(log), 'equal plain data must not warn').to.equal(false);
+
+                VaultClient.boot('plain-data', bootOpts({ logger: log, api: { requestOptions: { list: ['a', { b: 2 }] } } }));
+                expect(warned(log), 'a different array must warn').to.equal(true);
+            });
+
+            it('never lets option code decide or fail the comparison: throwing traps and toJSON compare by identity', function () {
+                const log = createSpyLogger();
+                class Strict {}
+                const throwingProxy = () => new Proxy(new Strict(), {
+                    get() { throw new ReferenceError('strict mock'); },
+                    getPrototypeOf() { throw new Error('no prototype'); },
+                });
+                class Redacting { toJSON() { return '[redacted]'; } }
+                // Built by hand: bootOpts() deep-merges, and lodash would run the proxy's traps.
+                const opts = (proxy, redacting) => ({
+                    logger: log,
+                    api: { url: 'https://example.com/', requestOptions: { proxy, redacting, big: 10n } },
+                    auth: { type: 'token', config: { token: 'tok-123' } },
+                });
+                const proxy = throwingProxy();
+                const redacting = new Redacting();
+
+                VaultClient.boot('user-code', opts(proxy, redacting));
+                expect(() => VaultClient.boot('user-code', opts(proxy, redacting))).to.not.throw();
+                expect(warned(log), 'the same objects must not warn').to.equal(false);
+
+                // A toJSON() that hides its state no longer makes two different objects look equal.
+                expect(() => VaultClient.boot('user-code', opts(proxy, new Redacting()))).to.not.throw();
+                expect(warned(log), 'a different object must warn').to.equal(true);
+                log.warn.resetHistory();
+                VaultClient.clear('user-code');
+                VaultClient.boot('user-code', opts(proxy, redacting));
+                VaultClient.boot('user-code', opts(throwingProxy(), redacting));
+                expect(warned(log), 'a different throwing proxy must warn').to.equal(true);
+            });
+
+            it('names the differing options and warns once per instance for each set of them', function () {
+                const warn = sinon.spy();
+                const freshLogger = () => ({ error() {}, warn, info() {}, debug() {}, trace() {} });
+                const first = freshLogger();
+                VaultClient.boot('once', bootOpts({ logger: first }));
+                for (let i = 0; i < 5; i++) {
+                    VaultClient.boot('once', bootOpts({ logger: freshLogger() }));
+                }
+                expect(warn).to.have.been.calledOnce;
+                expect(warn.firstCall.args.at(-1)).to.equal('logger');
+                expect(String(warn.firstCall.args[0])).to.contain('Differing options: %s.');
+
+                VaultClient.boot('once', bootOpts({ logger: first, api: { url: 'https://other.example/' } }));
+                VaultClient.boot('once', bootOpts({ logger: first, api: { url: 'https://third.example/' } }));
+                expect(warn).to.have.been.calledTwice;
+                expect(warn.secondCall.args.at(-1)).to.equal('api');
+
+                VaultClient.boot('once', bootOpts({ logger: freshLogger(), api: { url: 'https://other.example/' } }));
+                expect(warn).to.have.been.calledThrice;
+                expect(warn.thirdCall.args.at(-1)).to.equal('api, logger');
+            });
+
+            it('names an option that was added or left out', function () {
+                const log = createSpyLogger();
+                VaultClient.boot('keys', { logger: log, api: { url: 'https://example.com/' }, auth: { type: 'token', config: { token: 't' } } });
+                VaultClient.boot('keys', { api: { url: 'https://example.com/' }, auth: { type: 'token', config: { token: 't' } } });
+                expect(log.warn.firstCall.args.at(-1)).to.equal('logger');
+            });
+
+            it('stays silent for logger: false and for plain options re-created per call', function () {
+                const instance = VaultClient.boot('plain', bootOpts({ logger: false, api: { kv: { autoDetect: true } } }));
+                const warn = sinon.spy(instance.__log, 'warn');
+                VaultClient.boot('plain', bootOpts({ logger: false, api: { kv: { autoDetect: true } } }));
+                expect(warn).to.not.have.been.called;
+            });
         });
 
         it('does not warn for a name that was never booted', function () {
