@@ -16,3 +16,8 @@ export declare class VaultHttpError extends VaultError {
     statusCode: number;
     error: unknown;
 }
+
+export declare class RequestTimeoutError extends VaultError {
+    constructor(timeout: number, options?: { cause?: unknown });
+    timeout: number;
+}

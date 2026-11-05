@@ -11,6 +11,7 @@ new VaultClient({
         apiVersion: 'v1',
         namespace: 'team-a',
         requestOptions: { dispatcher: {} },
+        timeout: 30000,
         kv: { autoDetect: true },
         engines: { secret: 2, legacy: 1 },
     },

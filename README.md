@@ -505,6 +505,7 @@ Client constructor function.
 | options.api.url | <code>String</code> |  | the url of the vault server |
 | [options.api.apiVersion] | <code>String</code> | `v1` |  |
 | [options.api.requestOptions] | <code>Object</code> |  | extra options merged into every HTTP request (see [Custom transport](#custom-transport-proxy--self-signed-tls)) |
+| [options.api.timeout] | <code>number</code> | `120000` | milliseconds a request may take, response headers, body and redirects included, before it rejects with `RequestTimeoutError`; `0` turns the limit off, `null` gives the default (see [Request timeouts](#request-timeouts)) |
 | [options.api.namespace] | <code>String</code> |  | Optional. Vault namespace, sent as the `X-Vault-Namespace` header on **every** request — login, token lookup/renewal, and all secret operations — for every auth type. This is the canonical location; `auth.config.namespace` is still honored for backward compatibility. |
 | [options.api.kv.autoDetect] | <code>boolean</code> | `false` | auto-detect the KV version of each mount on first use (see [KV v2 & generic backends](#kv-v2--generic-backends)) |
 | [options.api.engines] | <code>Object</code> | `{}` | static mount-to-version map, e.g. `{ secret: 2, legacy: 1 }` (see [KV v2 & generic backends](#kv-v2--generic-backends)) |
@@ -559,8 +560,35 @@ bundle undici 7.x, so pin `undici@^7`.
 
 ##### Request timeouts
 
-There is no default timeout. A Vault that accepts the connection and never answers will leave
-`read()` (and every other call) pending indefinitely. Set one through the dispatcher:
+Every request to Vault, including logins, `lookup-self` and background `renew-self`, has to
+finish within `api.timeout` milliseconds: **120 000 (2 minutes) by default**. The limit covers the
+whole request: response headers, the body and any redirects. A request that runs out of time
+rejects with `RequestTimeoutError` (its `timeout` property holds the limit, `cause` the
+`fetch()` rejection). With `api.kv.autoDetect`, a mount detection that times out fails the call
+with the usual detection `VaultError`, with `RequestTimeoutError` on its `cause`. A renewal that
+times out is handled like any other failed renewal.
+
+`api.timeout` is in milliseconds; `null` or leaving it out gives the default, and a value under
+1000 logs a warning in case it was meant as seconds. Anything but an integer from 0 to 2147483647
+raises `InvalidArgumentsError` when the client is created.
+
+The default sits above Vault's own default `max_request_duration` (90 s), so it does not cut
+short a request that a Vault with default settings would still answer. Set it lower to fail
+fast, or higher if your Vault allows longer requests:
+
+```javascript
+const vaultClient = VaultClient.boot('main', {
+    api: { url: 'https://vault.example.com:8200/', timeout: 10000 },
+    auth: { type: 'token', config: { token: '...' } },
+});
+```
+
+`timeout: 0` turns the limit off, as it was before `api.timeout` existed. What remains then
+are the timeouts of the dispatcher `fetch()` uses: Node's default one gives up after 300 s
+without response headers (`TypeError: fetch failed`, `cause.code` `UND_ERR_HEADERS_TIMEOUT`) or
+300 s without body data (`UND_ERR_BODY_TIMEOUT`). Those limits apply per phase, so a body that
+keeps trickling in is never cut off. Any timeouts set on a custom dispatcher still apply
+alongside `api.timeout`, and whichever fires first rejects the request:
 
 ```javascript
 const { Agent } = require('undici');
@@ -574,12 +602,11 @@ const vaultClient = VaultClient.boot('main', {
 });
 ```
 
-A failed request rejects with `TypeError: fetch failed`, with `cause.code` set to
-`UND_ERR_HEADERS_TIMEOUT` or `UND_ERR_BODY_TIMEOUT`.
-
-Do **not** put `signal: AbortSignal.timeout(ms)` in `requestOptions`. It is created once and
-shared by every request the client makes, so it works for the first call and then aborts all
-later ones with `TimeoutError`. Pass a fresh signal per call, or use the dispatcher above.
+A `signal` in `requestOptions` still aborts every request in flight when it fires (with the
+signal's own reason, not `RequestTimeoutError`), so an `AbortController` can cancel requests
+on shutdown. `fetch()` then receives the client's own per-request signal, which follows it. Do **not** use `signal: AbortSignal.timeout(ms)` there: it is created once and
+shared by every request the client makes, so it works for the first calls and then aborts all
+later ones. Use `api.timeout` instead.
 
 ##### Redirects and the Vault token
 
@@ -1061,10 +1088,11 @@ try {
 |---|---|---|
 | `VaultError` | `Error` | Base class for every error below. Raised directly when mount detection fails (e.g. permission denied) and no `api.engines` override was provided. |
 | `VaultHttpError` | `VaultError` | Vault answered with a non-2xx status. Carries the status as `statusCode` and the parsed body as `error`. `message` (`"<status> - <raw body text>"`) and `error` hold the full response body, which can include secret material (e.g. a partially failed transit batch), so log `statusCode` and `error.errors` rather than the error object itself. |
-| `InvalidArgumentsError` | `VaultError` | Bad arguments or configuration: `boot()` called without options, an unknown instance name passed to `get()`, an unsupported `auth.type`, invalid renewal options, an invalid node-config substitution map, or a KV method path that fails [path validation](#path-validation). |
+| `InvalidArgumentsError` | `VaultError` | Bad arguments or configuration: `boot()` called without options, an unknown instance name passed to `get()`, an unsupported `auth.type`, invalid renewal options or `api.timeout`, an invalid node-config substitution map, or a KV method path that fails [path validation](#path-validation). |
 | `InvalidAWSCredentialsError` | `InvalidArgumentsError` | `auth.config.credentials` was supplied but is not a usable `accessKeyId` / `secretAccessKey` pair. |
 | `AuthTokenExpiredError` | `VaultError` | The Vault token expired and the backend cannot obtain a new one. `token` auth can never re-authenticate and reaches this error at max TTL even with renewal enabled; other backends can also reach it when re-authentication is disabled or their credential can no longer be replayed. |
 | `UnsupportedOperationError` | `VaultError` | A v2-only method (`deleteVersions`, `undeleteVersions`, `destroyVersions`, `readMetadata`, `deleteMetadata`) was called against a mount that did not resolve as KV v2. |
+| `RequestTimeoutError` | `VaultError` | A request to Vault did not finish within `api.timeout` milliseconds (see [Request timeouts](#request-timeouts)). Carries the limit as `timeout` and the `fetch()` rejection (a `TimeoutError` DOMException) as `cause`. |
 
 ## Contributing
 

@@ -41,6 +41,23 @@ class VaultHttpError extends VaultError {
     }
 }
 
+/**
+ * A request to Vault did not complete within `api.timeout` milliseconds: response headers,
+ * body and any redirects included. The `fetch()` rejection (a `TimeoutError` DOMException)
+ * is on `cause`.
+ */
+class RequestTimeoutError extends VaultError {
+    /**
+     * @param {number} timeout - the `api.timeout` that elapsed, in milliseconds. Exposed as
+     *   `error.timeout`.
+     * @param {{cause?: *}} [options]
+     */
+    constructor(timeout, options) {
+        super(`Vault request timed out after ${timeout} ms (api.timeout)`, options);
+        this.timeout = timeout;
+    }
+}
+
 module.exports = {
     VaultError,
     InvalidArgumentsError,
@@ -48,4 +65,5 @@ module.exports = {
     AuthTokenExpiredError,
     UnsupportedOperationError,
     VaultHttpError,
+    RequestTimeoutError,
 };

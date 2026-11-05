@@ -38,6 +38,7 @@ const checks = [
             const expected = [
                 'VaultError', 'InvalidArgumentsError', 'InvalidAWSCredentialsError',
                 'AuthTokenExpiredError', 'UnsupportedOperationError', 'VaultHttpError',
+                'RequestTimeoutError',
             ];
             assert.deepStrictEqual(Object.keys(errors).sort(), expected.slice().sort());
             assert.ok(new errors.UnsupportedOperationError('x') instanceof errors.VaultError);
