@@ -18,8 +18,7 @@ By participating in this project you agree to abide by our [Code of Conduct](COD
 ## Development workflow
 
 ```shell
-npm ci                 # install dependencies from the lockfile
-npm install config     # peer dependency used by the node-config integration and coverage
+npm ci                 # install dependencies, including the `config` peer, from the lockfile
 docker compose up -d --wait   # local dev Vaults: KV v1 on 127.0.0.1:8200, KV v2 on 127.0.0.1:8202
 
 npm run lint           # ESLint (must be clean)

@@ -3,9 +3,14 @@ import { mkdtempSync, rmSync, renameSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sandboxEnv } from './helpers/sandboxEnv.mjs';
 
 const repo = dirname(dirname(fileURLToPath(import.meta.url)));
-const run = (cmd, args, cwd) => execFileSync(cmd, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+const run = (cmd, args, cwd, env = process.env) =>
+    execFileSync(cmd, args, { cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+// What the packed tarball pulls in comes from the registry without a lockfile; it is installed
+// and loaded without the job's credentials (#229).
+const sandbox = sandboxEnv();
 
 const checks = [
     {
@@ -53,7 +58,9 @@ try {
     renameSync(join(repo, tarball), join(workdir, tarball));
 
     writeFileSync(join(workdir, 'package.json'), JSON.stringify({ name: 'nvc-verify-package', private: true }));
-    run('npm', ['install', '--no-audit', '--no-fund', `./${tarball}`], workdir);
+    // --ignore-scripts: the runtime dependencies are resolved from the registry without a
+    // lockfile, in the publish job too (#229).
+    run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', `./${tarball}`], workdir, sandbox);
 
     let failed = 0;
 
@@ -62,7 +69,7 @@ try {
         writeFileSync(file, `const assert = require('node:assert');\n${check.source}`);
 
         try {
-            run('node', [file], workdir);
+            run('node', [file], workdir, sandbox);
             process.stdout.write(`  ok    ${check.name}\n`);
         } catch (err) {
             failed += 1;
