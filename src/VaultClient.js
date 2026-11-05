@@ -145,6 +145,9 @@ class VaultClient {
      * @param {Object} [options.api.requestOptions] - extra options merged into every HTTP
      *      request (e.g. an undici `dispatcher` for a proxy/SOCKS agent or custom TLS/CA trust).
      *      See {@link VaultApiClient#constructor}.
+     * @param {number} [options.api.timeout=120000] - milliseconds a request may take, response
+     *      headers, body and redirects included, before it rejects with RequestTimeoutError.
+     *      `0` turns the limit off.
      * @param {Object} [options.api.kv] - KV engine options
      * @param {boolean} [options.api.kv.autoDetect=false] - When true, auto-detect KV version per mount
      * @param {Object} [options.api.engines] - Mount-to-version overrides, e.g. { secret: 2, legacy: 1 }

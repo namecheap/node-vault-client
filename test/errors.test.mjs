@@ -13,6 +13,7 @@ describe('errors', function () {
             'AuthTokenExpiredError',
             'UnsupportedOperationError',
             'VaultHttpError',
+            'RequestTimeoutError',
         ]);
     });
 
@@ -73,6 +74,23 @@ describe('errors', function () {
             expect(err).to.be.instanceOf(errors.VaultError);
             expect(err).to.be.instanceOf(Error);
             expect(err.name).to.equal('VaultHttpError');
+        });
+
+        it('RequestTimeoutError extends VaultError', function () {
+            const err = new errors.RequestTimeoutError(100);
+            expect(err).to.be.instanceOf(errors.VaultError);
+            expect(err).to.be.instanceOf(Error);
+            expect(err.name).to.equal('RequestTimeoutError');
+        });
+    });
+
+    describe('RequestTimeoutError', function () {
+        it('names the elapsed limit in the message and as `timeout`, and chains the cause', function () {
+            const cause = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+            const err = new errors.RequestTimeoutError(2500, { cause });
+            expect(err.message).to.equal('Vault request timed out after 2500 ms (api.timeout)');
+            expect(err.timeout).to.equal(2500);
+            expect(err.cause).to.equal(cause);
         });
     });
 

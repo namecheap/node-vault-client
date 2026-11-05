@@ -7,6 +7,8 @@ const aws: errors.InvalidAWSCredentialsError = new errors.InvalidAWSCredentialsE
 const expired: errors.AuthTokenExpiredError = new errors.AuthTokenExpiredError('gone');
 const unsupported: errors.UnsupportedOperationError = new errors.UnsupportedOperationError('v2 only');
 const http: errors.VaultHttpError = new errors.VaultHttpError(403, 'permission denied', { errors: [] });
+const timedOut: errors.RequestTimeoutError = new errors.RequestTimeoutError(120000, { cause: new Error('timeout') });
+const limit: number = timedOut.timeout;
 
 const asError: Error = base;
 const asVaultError: errors.VaultError = args;
@@ -26,10 +28,13 @@ function narrows(err: unknown): number {
     if (err instanceof errors.UnsupportedOperationError) {
         return 0;
     }
+    if (err instanceof errors.RequestTimeoutError) {
+        return err.timeout;
+    }
     return -1;
 }
 
-void [structurallyInterchangeable, chained, expired, unsupported, asError, asVaultError, asInvalidArguments, status, body, name, message, narrows];
+void [structurallyInterchangeable, chained, expired, unsupported, timedOut, limit, asError, asVaultError, asInvalidArguments, status, body, name, message, narrows];
 
 // @ts-expect-error statusCode is a number
 const badStatus: string = http.statusCode;
@@ -37,6 +42,9 @@ void badStatus;
 
 // @ts-expect-error VaultHttpError requires a status code and text
 new errors.VaultHttpError();
+
+// @ts-expect-error RequestTimeoutError requires the elapsed limit
+new errors.RequestTimeoutError();
 
 // @ts-expect-error there is no such export
 new errors.NoSuchError('x');

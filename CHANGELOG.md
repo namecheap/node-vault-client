@@ -1,5 +1,33 @@
 # Unreleased
 
+- **Added: a default request timeout, `api.timeout` (#223).** Every request to Vault, including
+  logins, `lookup-self` and background `renew-self`, now has to finish within `api.timeout`
+  milliseconds, **120 000 by default**. The limit covers response headers, body and redirects. A
+  request that runs out of time rejects with the new `RequestTimeoutError` (a `VaultError`;
+  `timeout` holds the limit and `cause` the `fetch()` rejection). With `api.kv.autoDetect`, a mount
+  detection that times out fails the call with the usual `VaultError` ("Failed to detect KV engine
+  version…"), with `RequestTimeoutError` on its `cause`. A timed-out renewal is retried like any
+  other failed one. Before, nothing in the client bounded a request: Node's default dispatcher
+  gave up after 300 s without response headers, and a body that kept trickling in was never cut
+  off.
+  - *Compatibility.* The default is above Vault's own default `max_request_duration` (90 s), so a
+    request that a Vault with default settings would still answer is not cut short. Responses and
+    the other errors are unchanged. If your Vault allows longer requests, raise `api.timeout`;
+    `api.timeout: 0` turns the limit off and sends exactly the `fetch()` options 3.0.2 sent.
+  - *An `api.timeout` key that 3.0.x ignored is now honoured, in milliseconds.* `null` means "not
+    set" (the default). Anything other than an integer from 0 to 2147483647 raises
+    `InvalidArgumentsError` at construction, including a numeric string such as `'30000'` from an
+    environment variable (use node-config's `__format: 'number'`). A value under 1000 logs a
+    warning, since `timeout: 30` meant as seconds now fails every request after 30 ms.
+  - *What `fetch()` receives.* With a limit in force, every request carries the client's own
+    `signal`. A `signal` in `api.requestOptions` (an `AbortSignal` or a signal-like polyfill) is
+    not passed on directly; it still aborts requests with its own reason, through a listener the
+    client removes when each request settles, and its listener limit is raised to 1500 as
+    `fetch()` did. Code that wraps or stubs `fetch` and checks the signal will see the difference.
+    The deadline is a timer cleared when the request settles, so none outlives a fast request.
+  - README: "Request timeouts" no longer says there is no default timeout, and describes the
+    300 s dispatcher timeouts that apply with `timeout: 0`.
+
 - **Security (development dependencies only): raise `minimatch` to `^11.0.4`
   (GHSA-g3hv-75wg-m249).** eslint, mocha and c8 pulled `minimatch@10.2.6`, whose pattern
   preprocessing can be made to grow without bound (denial of service). Only the 11.x line is

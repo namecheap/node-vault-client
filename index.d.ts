@@ -39,6 +39,8 @@ declare namespace VaultClient {
         apiVersion?: string;
         namespace?: string;
         requestOptions?: Record<string, any>;
+        /** Milliseconds a request may take before it rejects with RequestTimeoutError; `0` turns it off. Default 120000. */
+        timeout?: number | null;
         kv?: { autoDetect?: boolean };
         engines?: Record<string, 1 | 2>;
     }
