@@ -1,4 +1,15 @@
-# Unreleased
+# 3.1.0 Release notes (2026-11-05)
+
+Upgrading from 3.0.x needs no code change. Two things behave differently; both are covered
+below:
+
+- Requests now time out after **120 s** by default (`api.timeout`). Raise it if your Vault allows
+  longer requests, or set `api.timeout: 0` for the 3.0.x behaviour. An `api.timeout` key already
+  in your config, ignored until now, takes effect in milliseconds.
+- `VaultClient.boot()` warns once when a later call for the same name passes a different logger,
+  dispatcher or function, which it ignores. Boot each name once and use `VaultClient.get()`.
+
+Changes in this release:
 
 - **Added: a default request timeout, `api.timeout` (#223).** Every request to Vault, including
   logins, `lookup-self` and background `renew-self`, now has to finish within `api.timeout`
@@ -61,9 +72,11 @@
   passthrough (no `data/` segment, no `{ data }` envelope, KV v2 helpers throw
   `UnsupportedOperationError` without reaching it); exactly one detection request on the wire for
   six first reads of a fresh KV v2 mount, five of them started while that request is still waiting
-  for its answer; `Lease.getMetadata()` on a live read; and
-  detection with a token that can only `read` one key and gets 403 from `sys/mounts`. It runs in
-  the `e2e` CI job on every Node × Vault leg. Test-only; no library change.
+  for its answer; `Lease.getMetadata()` on a live read; and detection with a token that can only
+  `read` one key and gets 403 from `sys/mounts`. It runs in the `e2e` CI job on every Node × Vault
+  leg. Test-only; no library change.
+- **Dependencies:** lockfile refresh within the existing ranges: `@aws-sdk/credential-providers`
+  3.1161.0 (#219) and development tooling (#218). No `package.json` range changed.
 
 # 3.0.2 Release notes (2026-11-03)
 
