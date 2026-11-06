@@ -21,6 +21,8 @@ const noop = () => {};
 // meet and an object that converts to a symbol is keyed by that symbol.
 const vaultInstances = new Map();
 const instanceKey = (name) => Reflect.ownKeys({ [name]: undefined })[0];
+// What clear(name) accepts as a single name.
+const CLEARABLE_NAME_TYPES = new Set(['string', 'number', 'bigint', 'symbol']);
 
 // Functions, and objects that are not plain data (an undici dispatcher, a logger class
 // instance), compare by identity. Their own enumerable keys say nothing about what they do:
@@ -358,7 +360,7 @@ class VaultClient {
      * If no name passed all named instances will be cleared.
      *
      * @param {String} [name] - Vault instance name, all instances will be cleared if no name were passed
-     * @throws {InvalidArgumentsError} when `name` is neither a string nor undefined
+     * @throws {InvalidArgumentsError} when `name` is given but is not a string, number or symbol
      */
     static clear(name) {
         if (name === undefined) {
@@ -372,17 +374,20 @@ class VaultClient {
             }
             return;
         }
-        // Anything else used to clear every instance too, so a stray argument tore them all down.
-        if (typeof name !== 'string') {
+        // Only an omitted name means all. A name is keyed as boot() and get() key it; anything
+        // else (null, a boolean, an object) is a mistake, which used to clear every instance.
+        if (!CLEARABLE_NAME_TYPES.has(typeof name)) {
             throw new errors.InvalidArgumentsError(
-                `Instance name should be a string, or omitted to clear every instance; got ${name === null ? 'null' : typeof name}`
+                'Instance name should be a string, number or symbol, or omitted to clear every ' +
+                `instance; got ${name === null ? 'null' : typeof name}`
             );
         }
 
-        const instance = vaultInstances.get(name);
+        const key = instanceKey(name);
+        const instance = vaultInstances.get(key);
         if (instance !== undefined) {
             instance.close();
-            vaultInstances.delete(name);
+            vaultInstances.delete(key);
         }
     }
 

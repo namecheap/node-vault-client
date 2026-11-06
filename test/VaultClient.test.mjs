@@ -153,11 +153,9 @@ describe('VaultClient', function () {
 
     describe('clear() validates its argument (#239)', function () {
         [
-            ['a number', 42, 'number'],
             ['null', null, 'null'],
             ['an object', {}, 'object'],
             ['a boolean', false, 'boolean'],
-            ['a symbol', Symbol('a'), 'symbol'],
             ['a function', () => {}, 'function'],
         ].forEach(([label, value, type]) => it(`throws for ${label} and leaves every instance in place`, function () {
             const a = VaultClient.boot('a', bootOpts());
@@ -165,12 +163,19 @@ describe('VaultClient', function () {
             const closeA = sinon.spy(a, 'close');
 
             expect(() => VaultClient.clear(value)).to.throw(errors.InvalidArgumentsError,
-                `Instance name should be a string, or omitted to clear every instance; got ${type}`);
+                'Instance name should be a string, number or symbol, or omitted to clear every instance; ' +
+                `got ${type}`);
 
             expect(VaultClient.get('a')).to.equal(a);
             expect(VaultClient.get('b')).to.equal(b);
             expect(closeA).not.to.have.been.called;
         }));
+
+        it('does not echo the argument, which may be an options object with a token', function () {
+            const options = bootOpts();
+            expect(() => VaultClient.clear(options)).to.throw(errors.InvalidArgumentsError)
+                .with.property('message').that.does.not.include('tok-123');
+        });
 
         it('still clears every instance with no argument, or an explicit undefined', function () {
             VaultClient.boot('a', bootOpts());
@@ -182,9 +187,10 @@ describe('VaultClient', function () {
             expect(() => VaultClient.get('a')).to.throw(errors.InvalidArgumentsError, 'Invalid instance name');
         });
 
-        it('still clears exactly the named instance, and nothing for an unknown name', function () {
+        it('still clears exactly the named instance, and nothing for an unknown or empty name', function () {
             const a = VaultClient.boot('a', bootOpts());
             const b = VaultClient.boot('b', bootOpts());
+            const empty = VaultClient.boot('', bootOpts());
             const closeB = sinon.spy(b, 'close');
 
             VaultClient.clear('a');
@@ -192,16 +198,49 @@ describe('VaultClient', function () {
 
             expect(() => VaultClient.get('a')).to.throw(errors.InvalidArgumentsError);
             expect(VaultClient.get('b')).to.equal(b);
+            expect(VaultClient.get('')).to.equal(empty);
             expect(closeB).not.to.have.been.called;
             expect(VaultClient.boot('a', bootOpts())).not.to.equal(a);
+
+            VaultClient.clear('');
+            expect(() => VaultClient.get('')).to.throw(errors.InvalidArgumentsError);
+            expect(VaultClient.get('b')).to.equal(b);
         });
 
-        it('clears a name booted as a number by its string form', function () {
-            VaultClient.boot(1, bootOpts());
+        [
+            ['a number', 1, '1'],
+            ['a number booted as its string', '1', 1],
+            ['a bigint', 1n, '1'],
+        ].forEach(([label, booted, cleared]) => it(`clears only the instance named by ${label}`, function () {
+            const named = VaultClient.boot(booted, bootOpts());
+            const other = VaultClient.boot('other', bootOpts());
+            const close = sinon.spy(named, 'close');
 
-            VaultClient.clear('1');
+            VaultClient.clear(cleared);
 
-            expect(() => VaultClient.get(1)).to.throw(errors.InvalidArgumentsError);
+            expect(close).to.have.been.calledOnce;
+            expect(() => VaultClient.get(booted)).to.throw(errors.InvalidArgumentsError);
+            expect(VaultClient.get('other')).to.equal(other);
+        }));
+
+        it('clears only the instance named by a symbol', function () {
+            const key = Symbol('svc');
+            const named = VaultClient.boot(key, bootOpts());
+            const other = VaultClient.boot('other', bootOpts());
+
+            VaultClient.clear(key);
+
+            expect(() => VaultClient.get(key)).to.throw(errors.InvalidArgumentsError);
+            expect(VaultClient.get('other')).to.equal(other);
+            expect(named).to.be.instanceOf(VaultClient);
+        });
+
+        it('used as an exit listener, clears no instance named after the exit code and does not throw', function () {
+            VaultClient.boot('a', bootOpts());
+
+            expect(() => VaultClient.clear(0)).not.to.throw();
+
+            expect(VaultClient.get('a')).to.be.instanceOf(VaultClient);
         });
     });
 

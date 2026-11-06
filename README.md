@@ -879,8 +879,9 @@ times with the same name will return the same instance.
 #### VaultClient.clear([name])
 Clear named Vault instance
 
-If no name passed all named instances will be cleared. Any other argument that is not a string
-throws `InvalidArgumentsError`; earlier versions cleared every instance for it.
+If no name passed all named instances will be cleared. A number or symbol names an instance as it
+does for `boot()` and `get()`. Any other argument, such as `null`, throws `InvalidArgumentsError`;
+earlier versions cleared every instance for it.
 
 **Kind**: static method of [<code>VaultClient</code>](#VaultClient)  
 
