@@ -121,7 +121,7 @@ declare namespace VaultClient {
     }
 
     interface Lease {
-        getValue<T = any>(key: string): T;
+        getValue<T = any>(key: string | number): T;
         getData<T = Record<string, any>>(): T;
         isRenewable(): boolean;
         getMetadata(): Record<string, any> | undefined;
