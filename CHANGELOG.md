@@ -32,6 +32,16 @@
   used, and cancels the timer so the run exits even without `--exit`. `--exit` stays in the
   scripts. Test-only; no library change.
 
+- **Fixed: `VaultClient.get()` and `boot()` with a name such as `"toString"` (#238).** The named
+  instances lived in a plain object, so a name matching an `Object.prototype` member found that
+  member. `get("toString")` returned `Object.prototype.toString` instead of throwing
+  `InvalidArgumentsError`, and `boot("constructor", options)` treated `Object` as an existing
+  instance and threw a `TypeError`. The registry is now a `Map`, so every name, `__proto__`
+  included, behaves like any other.
+  - *Compatibility.* Names are keyed as object properties were: a number is the same name as
+    its string (`boot(1)` then `get('1')` returns that instance), and a symbol stays a symbol.
+    `clear()` is unchanged.
+
 # 3.1.0 Release notes (2026-11-05)
 
 Upgrading from 3.0.x needs no code change. Two things behave differently; both are covered

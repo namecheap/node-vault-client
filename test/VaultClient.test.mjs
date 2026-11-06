@@ -66,6 +66,60 @@ describe('VaultClient', function () {
         });
     });
 
+    describe('the instance registry holds only registered instances (#238)', function () {
+        const PROTOTYPE_NAMES = ['toString', 'valueOf', 'constructor', 'hasOwnProperty', '__proto__', 'isPrototypeOf'];
+
+        PROTOTYPE_NAMES.forEach((name) => it(`get("${name}") throws when nothing was booted under that name`, function () {
+            expect(() => VaultClient.get(name)).to.throw(errors.InvalidArgumentsError, 'Invalid instance name');
+        }));
+
+        PROTOTYPE_NAMES.forEach((name) => it(`boot("${name}") creates, caches and clears an instance like any other name`, function () {
+            const logger = createSpyLogger();
+            const instance = VaultClient.boot(name, bootOpts({ logger }));
+
+            expect(instance).to.be.instanceOf(VaultClient);
+            expect(VaultClient.boot(name, bootOpts({ logger }))).to.equal(instance);
+            expect(VaultClient.get(name)).to.equal(instance);
+            expect(logger.warn).not.to.have.been.called;
+
+            VaultClient.clear(name);
+            expect(() => VaultClient.get(name)).to.throw(errors.InvalidArgumentsError, 'Invalid instance name');
+        }));
+
+        it('keeps object-key semantics for names: boot(1) and get("1") are the same instance', function () {
+            const one = VaultClient.boot(1, bootOpts());
+
+            expect(VaultClient.get('1')).to.equal(one);
+            expect(VaultClient.get(1)).to.equal(one);
+            expect(VaultClient.boot('1', bootOpts())).to.equal(one);
+            const nameless = VaultClient.boot(undefined, bootOpts());
+            expect(VaultClient.get('undefined')).to.equal(nameless);
+        });
+
+        it('keeps a symbol name distinct from its description', function () {
+            const key = Symbol('main');
+            const bySymbol = VaultClient.boot(key, bootOpts());
+            const byString = VaultClient.boot('Symbol(main)', bootOpts());
+
+            expect(bySymbol).not.to.equal(byString);
+            expect(VaultClient.get(key)).to.equal(bySymbol);
+        });
+
+        it('clear() with no name closes and removes every instance, prototype-member names included', function () {
+            const a = VaultClient.boot('constructor', bootOpts());
+            const b = VaultClient.boot('b', bootOpts());
+            const closeA = sinon.spy(a, 'close');
+            const closeB = sinon.spy(b, 'close');
+
+            VaultClient.clear();
+
+            expect(closeA).to.have.been.calledOnce;
+            expect(closeB).to.have.been.calledOnce;
+            expect(() => VaultClient.get('constructor')).to.throw(errors.InvalidArgumentsError);
+            expect(() => VaultClient.get('b')).to.throw(errors.InvalidArgumentsError);
+        });
+    });
+
     describe('#close()', function () {
         it('delegates to the auth provider\'s cancelTokenRefresh', function () {
             const client = new VaultClient(bootOpts());
