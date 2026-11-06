@@ -134,6 +134,18 @@
     Vault is still not contacted. Calls made while that login is still pending share its error;
     the next call after it tries the file again, as before.
 
+- **Fixed: each caller gets its own mount-detection error (part of #202).** With
+  `api.kv.autoDetect`, requests whose paths share a first segment wait for one in-flight
+  detection. When it failed, every one of them got the same `VaultError`, whose message named
+  the first caller's path. Each caller now gets its own `VaultError`, naming its own path. The
+  underlying error stays on `cause`, shared by all.
+  - *Compatibility.* The failure is still shared: one detection request, whatever it answered
+    (a 403, a rate limit, a failed login), so the request count is unchanged. The message
+    format, the first caller's message and the error class (`VaultError`, not `VaultHttpError`)
+    are unchanged. The status is still only on `err.cause.statusCode`. Copying it onto the error
+    would let a "403 means use a default" handler swallow a mistyped mount, because Vault answers
+    403 for a mount that does not exist.
+
 # 3.1.0 Release notes (2026-11-05)
 
 Upgrading from 3.0.x needs no code change. Two things behave differently; both are covered
