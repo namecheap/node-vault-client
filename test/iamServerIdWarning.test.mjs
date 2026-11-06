@@ -1,8 +1,8 @@
 /**
  * A warning when an IAM login is configured without `iam_server_id_header_value` (part of
  * #202): the signed STS request then names no Vault server and could be replayed to another
- * one that trusts the same AWS principal. Logged once per mount per process; nothing else
- * changes, including the login request itself.
+ * one that trusts the same AWS principal. Logged on the first login, once per Vault server,
+ * namespace and mount in a process; nothing else changes, including the login request itself.
  */
 import sinon from 'sinon';
 import { expect, use } from 'chai';
@@ -20,7 +20,7 @@ const WARNING = 'IAM login on mount "%s" is not configured with "iam_server_id_h
 
 const CREDENTIALS = { accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY' };
 
-// The warning is deduplicated per mount for the whole process, so every test gets mounts of its own.
+// The warning is deduplicated for the whole process, so every test gets mounts of its own.
 let seq = 0;
 const mount = () => `aws-${process.pid}-${Date.now().toString(36)}-${++seq}`;
 
@@ -28,9 +28,28 @@ function serverIdWarnings(logger) {
     return logger.warn.getCalls().filter((c) => c.args[0] === WARNING);
 }
 
-function iamAuth(logger, config, mountName) {
-    return new VaultIAMAuth(sinon.createStubInstance(VaultApiClient), logger,
-        Object.assign({ role: 'r', credentials: CREDENTIALS }, config), mountName);
+const answerLogin = (method, path) => Promise.resolve(path.endsWith('/login')
+    ? { auth: { client_token: 't', accessor: 'a' } }
+    : { data: { id: 't', accessor: 'a', ttl: 60, renewable: false } });
+
+/** A stub VaultApiClient that answers the IAM login and the lookup-self that follows it. */
+function loginApi(url, namespace) {
+    const api = sinon.createStubInstance(VaultApiClient);
+    if (url !== undefined) {
+        Object.assign(api, { __config: { url }, __namespace: namespace });
+    }
+    api.makeRequest.callsFake(answerLogin);
+    return api;
+}
+
+function iamAuth(logger, config, mountName, api = loginApi()) {
+    return new VaultIAMAuth(api, logger, Object.assign({ role: 'r', credentials: CREDENTIALS }, config), mountName);
+}
+
+async function login(logger, config, mountName, api) {
+    const auth = iamAuth(logger, config, mountName, api);
+    await auth._authenticate();
+    return auth;
 }
 
 describe('IAM iam_server_id_header_value warning', function () {
@@ -38,141 +57,163 @@ describe('IAM iam_server_id_header_value warning', function () {
         sinon.restore();
     });
 
-    it('warns, naming the mount, when the value is not configured', function () {
+    it('warns on the first login, naming the mount, when the value is not configured', async function () {
         const logger = createSpyLogger();
         const name = mount();
-        iamAuth(logger, {}, name);
+        const auth = iamAuth(logger, {}, name);
+        expect(logger.warn, 'nothing at construction').not.to.have.been.called;
+
+        await auth._authenticate();
 
         expect(serverIdWarnings(logger).map((c) => c.args)).to.deep.equal([[WARNING, name, name]]);
     });
 
-    it('warns for an empty value, which sends no header either', function () {
+    it('warns for an empty value, which sends no header either', async function () {
         const logger = createSpyLogger();
-        const name = mount();
-        iamAuth(logger, { iam_server_id_header_value: '' }, name);
-
+        await login(logger, { iam_server_id_header_value: '' }, mount());
         expect(serverIdWarnings(logger)).to.have.length(1);
     });
 
-    it('does not warn when the value is configured', function () {
+    it('does not warn when the value is configured', async function () {
         const logger = createSpyLogger();
-        iamAuth(logger, { iam_server_id_header_value: 'vault.example.com' }, mount());
-
+        await login(logger, { iam_server_id_header_value: 'vault.example.com' }, mount());
         expect(logger.warn).not.to.have.been.called;
     });
 
-    it('logs once per mount for the whole process, however many backends use it', function () {
+    it('sends a truthy non-string value as before, without a warning', async function () {
+        const logger = createSpyLogger();
+        await login(logger, { iam_server_id_header_value: 42 }, mount());
+        expect(logger.warn).not.to.have.been.called;
+    });
+
+    it('logs once for the whole process, however many logins and backends there are', async function () {
         const first = createSpyLogger();
         const second = createSpyLogger();
         const name = mount();
-        iamAuth(first, {}, name);
-        iamAuth(first, {}, name);
-        iamAuth(second, {}, name);
+        const auth = await login(first, {}, name);
+        await auth._authenticate();
+        await login(first, {}, name);
+        await login(second, {}, name);
 
         expect(serverIdWarnings(first)).to.have.length(1);
         expect(serverIdWarnings(second), 'already warned in this process').to.have.length(0);
     });
 
-    it('warns again for another mount', function () {
+    it('warns separately for another mount, namespace or Vault server', async function () {
         const logger = createSpyLogger();
         const a = mount();
         const b = mount();
-        iamAuth(logger, {}, a);
-        iamAuth(logger, {}, b);
+        await login(logger, {}, a, loginApi('https://a.example:8200', 'ns1'));
+        await login(logger, {}, a, loginApi('https://a.example:8200', 'ns1'));
+        await login(logger, {}, a, loginApi('https://a.example:8200', 'ns2'));
+        await login(logger, {}, a, loginApi('https://b.example:8200', 'ns1'));
+        await login(logger, {}, a, loginApi('https://a.example:8200', undefined));
+        await login(logger, {}, b, loginApi('https://a.example:8200', 'ns1'));
 
-        expect(serverIdWarnings(logger).map((c) => c.args[1])).to.deep.equal([a, b]);
+        expect(serverIdWarnings(logger)).to.have.length(5);
     });
 
-    it('sends a truthy non-string value as before, without a warning', function () {
-        const logger = createSpyLogger();
-        iamAuth(logger, { iam_server_id_header_value: 42 }, mount());
-        expect(logger.warn).not.to.have.been.called;
-    });
-
-    it('logs nothing, and uses up no warning, when the constructor rejects the credentials', function () {
+    it('logs nothing for a config the constructor rejects, nor for a backend that never logs in', async function () {
         const logger = createSpyLogger();
         const name = mount();
         expect(() => iamAuth(logger, { credentials: { accessKeyId: 'AKIDEXAMPLE' } }, name)).to.throw();
+        iamAuth(logger, {}, name);
         expect(logger.warn).not.to.have.been.called;
 
-        iamAuth(logger, {}, name);
-        expect(serverIdWarnings(logger), 'the corrected client still warns').to.have.length(1);
+        await login(logger, {}, name);
+        expect(serverIdWarnings(logger), 'the first real login still warns').to.have.length(1);
     });
 
-    it('warns separately for the same mount under another namespace or Vault server', function () {
-        const logger = createSpyLogger();
-        const name = mount();
-        const make = (url, namespace) => new VaultIAMAuth(new VaultApiClient({ url }, createNoopLogger(), namespace),
-            logger, { role: 'r', credentials: CREDENTIALS }, name);
-        make('https://a.example:8200', 'ns1');
-        make('https://a.example:8200', 'ns1');
-        make('https://a.example:8200', 'ns2');
-        make('https://b.example:8200', 'ns1');
-        make('https://a.example:8200', undefined);
-
-        expect(serverIdWarnings(logger)).to.have.length(4);
-    });
-
-    it('does not let a throwing logger fail construction', function () {
-        const logger = createNoopLogger();
-        logger.warn = () => {
+    it('does not fail the login when the logger throws, and warns once a logger works', async function () {
+        const throwing = createNoopLogger();
+        throwing.warn = () => {
             throw new Error('logger down');
         };
-        expect(() => iamAuth(logger, {}, mount())).not.to.throw();
+        const name = mount();
+        const token = await iamAuth(throwing, {}, name)._authenticate();
+        expect(token.getId()).to.equal('t');
+
+        const logger = createSpyLogger();
+        await login(logger, {}, name);
+        expect(serverIdWarnings(logger), 'the throwing logger did not use it up').to.have.length(1);
+    });
+
+    it('does not fail the login for an api object whose fields cannot be read', async function () {
+        const logger = createSpyLogger();
+        const api = loginApi();
+        Object.defineProperty(api, '__config', { get() { throw new Error('trap'); } });
+
+        const token = await iamAuth(logger, {}, mount(), api)._authenticate();
+        expect(token.getId()).to.equal('t');
     });
 
     it('keeps the "role" check first: a missing role still throws, without the warning', function () {
         const logger = createSpyLogger();
-        expect(() => new VaultIAMAuth(sinon.createStubInstance(VaultApiClient), logger, {}, mount()))
+        expect(() => new VaultIAMAuth(loginApi(), logger, {}, mount()))
             .to.throw('"role" should be provided for VaultIAMAuth');
         expect(logger.warn).not.to.have.been.called;
     });
 
-    it('sends the same login request as before, still without the header', async function () {
-        const logger = createSpyLogger();
-        const api = sinon.createStubInstance(VaultApiClient);
-        api.makeRequest.onFirstCall().resolves({ auth: { client_token: 't', accessor: 'a' } });
-        api.makeRequest.onSecondCall().resolves({ data: { id: 't', accessor: 'a', ttl: 60, renewable: false } });
-        const name = mount();
-        const auth = new VaultIAMAuth(api, logger, { role: 'r', credentials: CREDENTIALS }, name);
+    it('sends the same login request as with the value set, minus only the header', async function () {
+        // Sign both at one fixed time so the requests can be compared field for field.
+        const clock = sinon.useFakeTimers({ now: Date.UTC(2026, 10, 6, 12, 0, 0), toFake: ['Date'] });
+        try {
+            const name = mount();
+            const without = loginApi();
+            const withHeader = loginApi();
+            await iamAuth(createNoopLogger(), {}, name, without)._authenticate();
+            await iamAuth(createNoopLogger(), { iam_server_id_header_value: 'v' }, name, withHeader)._authenticate();
 
-        await auth._authenticate();
+            const [method, path, body] = without.makeRequest.firstCall.args;
+            const [, pathWith, bodyWith] = withHeader.makeRequest.firstCall.args;
+            expect(method).to.equal('POST');
+            expect(path).to.equal(`/auth/${name}/login`).and.to.equal(pathWith);
 
-        const [method, path, body] = api.makeRequest.firstCall.args;
-        expect(method).to.equal('POST');
-        expect(path).to.equal(`/auth/${name}/login`);
-        const decode = (b64) => Buffer.from(b64, 'base64').toString();
-        expect(Object.keys(body).sort()).to.deep.equal([
-            'iam_http_request_method', 'iam_request_body', 'iam_request_headers', 'iam_request_url', 'role',
-        ]);
-        expect(body.role).to.equal('r');
-        expect(body.iam_http_request_method).to.equal('POST');
-        expect(decode(body.iam_request_url)).to.equal('https://sts.amazonaws.com/');
-        expect(decode(body.iam_request_body)).to.equal('Action=GetCallerIdentity&Version=2011-06-15');
-        const headers = JSON.parse(decode(body.iam_request_headers));
-        expect(Object.keys(headers).map((h) => h.toLowerCase())).not.to.include('x-vault-aws-iam-server-id');
+            const decode = (b64) => Buffer.from(b64, 'base64').toString();
+            for (const key of ['role', 'iam_http_request_method']) {
+                expect(body[key]).to.equal(bodyWith[key]);
+            }
+            for (const key of ['iam_request_url', 'iam_request_body']) {
+                expect(decode(body[key])).to.equal(decode(bodyWith[key]));
+            }
+            expect(decode(body.iam_request_url)).to.equal('https://sts.amazonaws.com/');
+
+            const names = (b64) => Object.keys(JSON.parse(decode(b64))).map((k) => k.toLowerCase()).sort();
+            expect(names(body.iam_request_headers)).to.deep.equal(
+                names(bodyWith.iam_request_headers).filter((k) => k !== 'x-vault-aws-iam-server-id'));
+            expect(names(body.iam_request_headers)).not.to.include('x-vault-aws-iam-server-id');
+        } finally {
+            clock.restore();
+        }
     });
 
     describe('through VaultClient', function () {
-        it('goes to the configured logger with the configured mount', function () {
+        it('does not warn for a client whose construction fails after the backend was built', function () {
             const logger = createSpyLogger();
-            const name = mount();
-            new VaultClient({
+            expect(() => new VaultClient({
                 api: { url: 'https://vault.example.com:8200' },
                 logger,
-                auth: { type: 'iam', mount: name, config: { role: 'r', credentials: CREDENTIALS } },
-            });
-            expect(serverIdWarnings(logger).map((c) => c.args[1])).to.deep.equal([name]);
+                auth: { type: 'iam', mount: mount(), renewal: 'false', config: { role: 'r', credentials: CREDENTIALS } },
+            })).to.throw();
+            expect(logger.warn).not.to.have.been.called;
         });
 
-        it('is silent with logger: false', function () {
-            const warn = sinon.stub(console, 'warn');
-            new VaultClient({
+        it('warns on the first login with the configured mount, also with a legacy auth.config.namespace', async function () {
+            const logger = createSpyLogger();
+            const name = mount();
+            const client = new VaultClient({
                 api: { url: 'https://vault.example.com:8200' },
-                logger: false,
-                auth: { type: 'iam', mount: mount(), config: { role: 'r', credentials: CREDENTIALS } },
+                logger,
+                auth: { type: 'iam', mount: name, config: { role: 'r', namespace: 'legacy-ns', credentials: CREDENTIALS } },
             });
-            expect(warn).not.to.have.been.called;
+            expect(logger.warn).not.to.have.been.called;
+            sinon.stub(client.__auth.__apiClient, 'makeRequest').callsFake(answerLogin);
+
+            await client.__auth.getAuthToken();
+
+            expect(client.__auth.__apiClient.__namespace).to.equal('legacy-ns');
+            expect(serverIdWarnings(logger).map((c) => c.args[1])).to.deep.equal([name]);
+            client.close();
         });
     });
 });

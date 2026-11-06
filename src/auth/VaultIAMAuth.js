@@ -59,8 +59,8 @@ class VaultIAMAuth extends VaultBaseAuth {
      * @property {String} [namespace] - Optional. Vault namespace. Applied as the X-Vault-Namespace
      *   header to every request by {@link VaultApiClient}; see {@link VaultClient#constructor}.
      * @property {String} [iam_server_id_header_value] - Optional. Header's value X-Vault-AWS-IAM-Server-ID.
-     *   Without it the signed request names no Vault server, and a warning is logged once per
-     *   Vault server, namespace and mount in a process.
+     *   Without it the signed request names no Vault server, and the first login logs a warning,
+     *   once per Vault server, namespace and mount in a process.
      * @property {String} [region] - Optional. AWS region used to sign the STS GetCallerIdentity
      *   request. When set, the request is signed against the regional STS endpoint
      *   (`sts.<region>.amazonaws.com`) and the SigV4 credential scope is bound to that region.
@@ -88,37 +88,39 @@ class VaultIAMAuth extends VaultBaseAuth {
         this._validateCredentialsConfig(credentials);
 
         this.__credentialChain = credentials ? () => Promise.resolve(credentials) : fromNodeProviderChain();
-        // Last, so a config that is rejected above logs nothing and uses up no warning.
-        this.__warnOnMissingServerId();
     }
 
     /**
      * Without `X-Vault-AWS-IAM-Server-ID` the signed STS request names no Vault server, so a
      * server that receives it (or anyone who captures it) can replay it to another Vault server
      * that trusts the same AWS principal until the signature expires. Warn once per Vault server,
-     * namespace and mount in a process when the header will not be sent. A throwing logger must not fail construction.
+     * namespace and mount in a process when the header will not be sent. Called on login, not in
+     * the constructor, so a client whose construction fails later (in VaultClient) uses up no
+     * warning. Never throws: a failure here must not fail the login.
      * @returns {void}
      * @private
      */
     __warnOnMissingServerId() {
-        if (this.__iam_server_id_header_value) {
-            return;
-        }
-        const api = this.__apiClient || {};
-        const key = JSON.stringify([api.__config && api.__config.url, api.__namespace, this._mount]);
-        if (warnedMissingServerId.has(key)) {
-            return;
-        }
-        warnedMissingServerId.add(key);
         try {
+            if (this.__iam_server_id_header_value) {
+                return;
+            }
+            const api = this.__apiClient || {};
+            const key = [api.__config && api.__config.url, api.__namespace, this._mount]
+                .map((part) => String(part)).join('\u0000');
+            if (warnedMissingServerId.has(key)) {
+                return;
+            }
             this._log.warn(
                 'IAM login on mount "%s" is not configured with "iam_server_id_header_value", so the signed '
                 + 'STS request names no Vault server and could be replayed to another one that trusts the same '
                 + 'AWS principal. Set it to the same value as iam_server_id_header_value on auth/%s/config/client',
                 this._mount, this._mount
             );
+            // Only once it has been logged, so a throwing logger does not use it up.
+            warnedMissingServerId.add(key);
         } catch {
-            // a throwing logger changes nothing here
+            // a throwing logger or an odd api object changes nothing here
         }
     }
 
@@ -126,6 +128,7 @@ class VaultIAMAuth extends VaultBaseAuth {
      * @inheritDoc
      */
     _authenticate() {
+        this.__warnOnMissingServerId();
         this._log.info(
             'making authentication request: role=%s',
             this.__role
