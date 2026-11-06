@@ -151,6 +151,60 @@ describe('VaultClient', function () {
         });
     });
 
+    describe('clear() validates its argument (#239)', function () {
+        [
+            ['a number', 42, 'number'],
+            ['null', null, 'null'],
+            ['an object', {}, 'object'],
+            ['a boolean', false, 'boolean'],
+            ['a symbol', Symbol('a'), 'symbol'],
+            ['a function', () => {}, 'function'],
+        ].forEach(([label, value, type]) => it(`throws for ${label} and leaves every instance in place`, function () {
+            const a = VaultClient.boot('a', bootOpts());
+            const b = VaultClient.boot('b', bootOpts());
+            const closeA = sinon.spy(a, 'close');
+
+            expect(() => VaultClient.clear(value)).to.throw(errors.InvalidArgumentsError,
+                `Instance name should be a string, or omitted to clear every instance; got ${type}`);
+
+            expect(VaultClient.get('a')).to.equal(a);
+            expect(VaultClient.get('b')).to.equal(b);
+            expect(closeA).not.to.have.been.called;
+        }));
+
+        it('still clears every instance with no argument, or an explicit undefined', function () {
+            VaultClient.boot('a', bootOpts());
+            VaultClient.clear(undefined);
+            expect(() => VaultClient.get('a')).to.throw(errors.InvalidArgumentsError, 'Invalid instance name');
+
+            VaultClient.boot('a', bootOpts());
+            VaultClient.clear();
+            expect(() => VaultClient.get('a')).to.throw(errors.InvalidArgumentsError, 'Invalid instance name');
+        });
+
+        it('still clears exactly the named instance, and nothing for an unknown name', function () {
+            const a = VaultClient.boot('a', bootOpts());
+            const b = VaultClient.boot('b', bootOpts());
+            const closeB = sinon.spy(b, 'close');
+
+            VaultClient.clear('a');
+            VaultClient.clear('never-booted');
+
+            expect(() => VaultClient.get('a')).to.throw(errors.InvalidArgumentsError);
+            expect(VaultClient.get('b')).to.equal(b);
+            expect(closeB).not.to.have.been.called;
+            expect(VaultClient.boot('a', bootOpts())).not.to.equal(a);
+        });
+
+        it('clears a name booted as a number by its string form', function () {
+            VaultClient.boot(1, bootOpts());
+
+            VaultClient.clear('1');
+
+            expect(() => VaultClient.get(1)).to.throw(errors.InvalidArgumentsError);
+        });
+    });
+
     describe('#close()', function () {
         it('delegates to the auth provider\'s cancelTokenRefresh', function () {
             const client = new VaultClient(bootOpts());

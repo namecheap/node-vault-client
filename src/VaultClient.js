@@ -358,15 +358,10 @@ class VaultClient {
      * If no name passed all named instances will be cleared.
      *
      * @param {String} [name] - Vault instance name, all instances will be cleared if no name were passed
+     * @throws {InvalidArgumentsError} when `name` is neither a string nor undefined
      */
     static clear(name) {
-        if (typeof name === 'string') {
-            const instance = vaultInstances.get(name);
-            if (instance !== undefined) {
-                instance.close();
-                vaultInstances.delete(name);
-            }
-        } else {
+        if (name === undefined) {
             for (const [key, instance] of vaultInstances) {
                 // The object this replaced was walked with for...in, which skips symbol keys.
                 if (typeof key === 'symbol') {
@@ -375,6 +370,19 @@ class VaultClient {
                 instance.close();
                 vaultInstances.delete(key);
             }
+            return;
+        }
+        // Anything else used to clear every instance too, so a stray argument tore them all down.
+        if (typeof name !== 'string') {
+            throw new errors.InvalidArgumentsError(
+                `Instance name should be a string, or omitted to clear every instance; got ${name === null ? 'null' : typeof name}`
+            );
+        }
+
+        const instance = vaultInstances.get(name);
+        if (instance !== undefined) {
+            instance.close();
+            vaultInstances.delete(name);
         }
     }
 

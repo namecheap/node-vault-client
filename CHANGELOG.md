@@ -44,6 +44,15 @@
     symbol-named instances registered, as the old `for...in` loop did. `clear('toString')` and
     the like, which threw a `TypeError`, now do nothing when no such instance was booted.
 
+- **Fixed: `VaultClient.clear()` with a non-string argument cleared every instance (#239).** Only
+  a string cleared one named instance; anything else, such as `clear(42)` or `clear(null)`,
+  closed and removed them all. A non-string argument other than `undefined` now throws
+  `InvalidArgumentsError` and leaves every instance in place.
+  - *Compatibility.* `clear()` and `clear(undefined)` still clear every instance, and
+    `clear(name)` with a string still clears that one. Code that passed `null` or another value
+    to mean "all" has to call `clear()` instead. An instance booted under a number is cleared
+    by its string form, `clear('1')`.
+
 # 3.1.0 Release notes (2026-11-05)
 
 Upgrading from 3.0.x needs no code change. Two things behave differently; both are covered
