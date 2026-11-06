@@ -368,7 +368,9 @@ class VaultClient {
             }
         } else {
             for (const [key, instance] of vaultInstances) {
-                // The object this replaced was walked with for...in, which skips symbol keys.
+                // Kept for compatibility: the object this replaced was walked with for...in,
+                // which skips symbol keys, so a symbol-named instance has always stayed
+                // registered, with its renewal timer, through clear(), and callers may rely on it.
                 if (typeof key === 'symbol') {
                     continue;
                 }
