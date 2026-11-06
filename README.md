@@ -916,6 +916,18 @@ Clear named Vault instance
 
 If no name passed all named instances will be cleared.
 
+Only a string names one instance. Any other argument (a number, `null`, an object, a symbol)
+clears every instance not named by a symbol, as it always has. That is rarely what was meant:
+`clear(42)`, or `clear` passed as a callback that receives a code or a resolved value
+(`promise.then(VaultClient.clear)`). So the first such call in a process also emits a
+`DeprecationWarning` with code `NVC_DEP_CLEAR_NON_STRING`, naming the argument's type but not its
+value. Call `clear()` with no argument to clear every instance.
+
+Node delivers warnings on the next tick, so the warning is not shown when `clear` runs inside a
+`process.on('exit')` listener, which still clears every instance. `--no-deprecation` silences the
+warning. Under `--throw-deprecation` it becomes an uncaught exception on the next tick, not an
+error thrown by `clear()`.
+
 **Kind**: static method of [<code>VaultClient</code>](#VaultClient)  
 
 | Param | Type | Description |
