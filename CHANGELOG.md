@@ -58,6 +58,13 @@
       too. Code that stubs `fetch()` and checks its options will see this.
   - README: "Redirects and the Vault token" describes the policy and the opt-out.
 
+- **Fixed: `close()` during a login no longer leaves a renewal timer behind (#251).** A login that
+  was still in flight when `close()` ran, such as the first `read` of a client closed before it
+  settled, armed a refresh timer when it finished, so the process still never exited. Such a login
+  now resolves and caches its token as before, but arms no timer; a `debug` line says so. A login
+  that starts after `close()` arms one as before. Dropping a token Vault no longer accepts (#235)
+  does not count as a `close()`: the token from the next login is renewed.
+
 - **Fixed: a token lookup without a usable `ttl` no longer yields a `NaN` expiry (#236).** Without
   `expire_time`, the expiry is `creation_time` (or `last_renewal_time`) plus `ttl`. A
   `lookup-self` answer where either was missing or not a number made that `NaN`, so

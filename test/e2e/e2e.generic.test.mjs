@@ -22,6 +22,8 @@ const RUN = `e2e-gen-${Date.now().toString(36)}-${process.pid}`;
 const TRANSIT = `transit-${RUN}`;
 const KV2 = `kv2-${RUN}`;
 const POLICY = `lp-${RUN}`;
+const CLOSE_POLICY = `close-${RUN}`;
+const APPROLE = `approle-${RUN}`;
 
 const DETECTION = '/v1/sys/internal/ui/mounts/';
 
@@ -69,6 +71,37 @@ function recordWire({ holdDetection = false } = {}) {
     };
 }
 
+/**
+ * Hold back the response to the first request whose pathname is `pathname` until release();
+ * `sent` settles once that request has gone out. Every other request passes straight through.
+ */
+function holdResponse(pathname) {
+    const originalFetch = globalThis.fetch;
+    let release;
+    const released = new Promise((resolve) => { release = resolve; });
+    let markSent;
+    const sent = new Promise((resolve) => { markSent = resolve; });
+    let held = false;
+    globalThis.fetch = (input, options) => {
+        const url = typeof input === 'string' ? input : (input instanceof URL ? input.href : input.url);
+        const response = originalFetch.call(globalThis, input, options);
+        if (held || new URL(url).pathname !== pathname) {
+            return response;
+        }
+        held = true;
+        markSent();
+        return response.then((res) => released.then(() => res));
+    };
+    return {
+        sent,
+        release,
+        restore: () => {
+            release();
+            globalThis.fetch = originalFetch;
+        },
+    };
+}
+
 const b64 = (text) => Buffer.from(text, 'utf8').toString('base64');
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -87,7 +120,10 @@ describe('E2E generic backends', function () {
 
     after(async function () {
         // Best effort: a failed setup must not hide the original error behind a teardown one.
-        for (const path of [`sys/mounts/${TRANSIT}`, `sys/mounts/${KV2}`, `sys/policies/acl/${POLICY}`]) {
+        for (const path of [
+            `sys/mounts/${TRANSIT}`, `sys/mounts/${KV2}`, `sys/policies/acl/${POLICY}`,
+            `sys/auth/${APPROLE}`, `sys/policies/acl/${CLOSE_POLICY}`,
+        ]) {
             await admin.request('DELETE', path).catch(() => {});
         }
     });
@@ -280,5 +316,86 @@ describe('E2E generic backends', function () {
             expect(wire.detections()).to.deep.equal([`${DETECTION}${KV2}/lp/secret`]);
             expect(wire.paths.filter((p) => !p.startsWith(DETECTION))).to.deep.equal([`/v1/${KV2}/data/lp/secret`]);
         });
+    });
+
+    describe('close() while a login is in flight', function () {
+        const SECRET = `${KV2}/data/close/secret`;
+        let childToken;
+        let roleId;
+        let secretId;
+
+        before(async function () {
+            await admin.request('POST', SECRET, { data: { closed: 'during-login' } });
+            await admin.request('PUT', `sys/policies/acl/${CLOSE_POLICY}`, {
+                policy: `path "${SECRET}" { capabilities = ["read"] }`,
+            });
+            childToken = (await admin.request('POST', 'auth/token/create', {
+                policies: [CLOSE_POLICY], ttl: '10m', renewable: true,
+            })).auth.client_token;
+            await admin.request('POST', `sys/auth/${APPROLE}`, { type: 'approle' });
+            await admin.request('POST', `auth/${APPROLE}/role/r`, { token_policies: [CLOSE_POLICY], token_ttl: '10m' });
+            roleId = (await admin.request('GET', `auth/${APPROLE}/role/r/role-id`)).data.role_id;
+            secretId = (await admin.request('POST', `auth/${APPROLE}/role/r/secret-id`, {})).data.secret_id;
+        });
+
+        after(async function () {
+            if (childToken) {
+                await admin.request('POST', 'auth/token/revoke', { token: childToken }).catch(() => {});
+            }
+        });
+
+        const backends = [
+            {
+                name: 'token auth (the login is its lookup-self)',
+                auth: () => ({ type: 'token', config: { token: childToken } }),
+                loginPath: '/v1/auth/token/lookup-self',
+            },
+            {
+                name: 'AppRole',
+                auth: () => ({ type: 'appRole', mount: APPROLE, config: { role_id: roleId, secret_id: secretId } }),
+                loginPath: `/v1/auth/${APPROLE}/login`,
+            },
+        ];
+
+        for (const backend of backends) {
+            describe(backend.name, function () {
+                let client;
+
+                afterEach(function () {
+                    if (client) {
+                        client.close();
+                        client = null;
+                    }
+                });
+
+                const makeClient = () => {
+                    client = new VaultClient({ api: { url: URL_BASE }, logger: false, auth: backend.auth() });
+                    return client;
+                };
+
+                it('gets a renewal timer when it is not closed (the token is renewable)', async function () {
+                    const lease = await makeClient().read(SECRET);
+                    expect(lease.getData().data).to.deep.equal({ closed: 'during-login' });
+                    expect(client.__auth.__refreshTimeout, 'otherwise the next test proves nothing').to.not.equal(null);
+                });
+
+                it('finishes the read but arms no timer when close() runs mid-login', async function () {
+                    const hold = holdResponse(backend.loginPath);
+                    let lease;
+                    try {
+                        const read = makeClient().read(SECRET);
+                        await hold.sent;
+                        client.close();
+                        hold.release();
+                        lease = await read;
+                    } finally {
+                        hold.restore();
+                    }
+                    expect(lease.getData().data).to.deep.equal({ closed: 'during-login' });
+                    // renewal-timer-guard.mjs also fails the run if a timer is left behind.
+                    expect(client.__auth.__refreshTimeout).to.equal(null);
+                });
+            });
+        }
     });
 });

@@ -850,6 +850,10 @@ discarded rather than arming a fresh timer, so the client stops holding the even
 same applies when a token is replaced by a new login — a renewal still running against the previous
 token cannot overwrite the newer one or cancel its timer.
 
+The same goes for a login that is in flight when `close()` runs, such as the first `read` of a
+client closed before it settles: the read still resolves and the token is cached for later calls,
+but no refresh timer is armed for it. A login that starts after `close()` arms one as before.
+
 <a name="Lease"></a>
 
 ### Lease

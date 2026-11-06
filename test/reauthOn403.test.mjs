@@ -455,12 +455,16 @@ describe('re-authentication on a 403 (#235)', function () {
         vault.state.renewable = true;
         appRoleClient();
         await client.read('secret/a');
+        const stop = sinon.spy(client.__auth, '__stopRenewal');
         const cancel = sinon.spy(client.__auth, 'cancelTokenRefresh');
         vault.state.revoked.add('tok-1');
 
         await client.read('secret/a');
 
-        expect(cancel).to.have.been.calledOnce;
+        expect(stop).to.have.been.calledOnce;
+        // Dropping a dead token is not a close(): the new token gets its own renewal timer.
+        expect(cancel).not.to.have.been.called;
+        expect(client.__auth.__refreshTimeout).to.not.equal(null);
         expect(logins()).to.equal(2);
     });
 });

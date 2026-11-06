@@ -150,6 +150,13 @@ class VaultBaseAuth {
         this.__refreshTimeout = null;
         this.__renewalEpoch = 0;
         /**
+         * Bumped by each public {@link VaultBaseAuth#cancelTokenRefresh} call (that is, by
+         * `VaultClient#close()`), and by nothing else. A login compares it before and after, so a
+         * login that was in flight when the client was closed does not arm a refresh timer.
+         * @type {number}
+         */
+        this.__cancelCount = 0;
+        /**
          * The in-flight {@link VaultBaseAuth#checkRejectedToken} lookup, shared by every
          * request that was rejected with the same token.
          * @type {{id: string, promise: Promise<boolean>}|null}
@@ -269,12 +276,26 @@ class VaultBaseAuth {
 
         this._log.info('getting auth token (mount=%s)', this._mount);
 
+        const cancelCountAtStart = this.__cancelCount;
         const pendingLogin = this._authenticate().then(authToken => {
             this.__pendingLogin = null;
             this.__authToken = authToken;
             this.__renewalEpoch++;
 
             if (authToken.isRenewable() || renewableWithoutExpiry(authToken)) {
+                if (this.__cancelCount !== cancelCountAtStart) {
+                    // close() ran while this login was in flight. The token is cached and
+                    // returned as after any close(), but no timer is armed to hold the event loop.
+                    try {
+                        this._log.debug(
+                            'client closed during login; not arming a refresh timer (accessor=%s)',
+                            authToken.getAccessor()
+                        );
+                    } catch {
+                        // a throwing logger must not fail a login that succeeded
+                    }
+                    return authToken;
+                }
                 // __setupTokenRefreshTimer logs once it has actually armed a timer, and warns
                 // when it cannot; this covers the remaining case, the one diagnostic an operator
                 // reads when a `renewal: false` process still hangs.
@@ -310,6 +331,18 @@ class VaultBaseAuth {
      * @returns {void}
      */
     cancelTokenRefresh() {
+        this.__cancelCount++;
+        this.__stopRenewal();
+    }
+
+    /**
+     * Supersede any in-flight renewal and clear the armed timer. Unlike
+     * {@link VaultBaseAuth#cancelTokenRefresh} this is not a close(): a login in flight still
+     * arms a timer for the token it brings back.
+     * @returns {void}
+     * @private
+     */
+    __stopRenewal() {
         this.__renewalEpoch++;
         if (this.__refreshTimeout !== null) {
             lt.clearTimeout(this.__refreshTimeout);
@@ -365,7 +398,7 @@ class VaultBaseAuth {
                     }
                     if (dead && this.__authToken !== null && this.__authToken.getId() === id) {
                         this.__authToken = null;
-                        this.cancelTokenRefresh();
+                        this.__stopRenewal();
                         try {
                             this._log.warn(
                                 'Vault no longer accepts the token (accessor=%s); logging in again',
