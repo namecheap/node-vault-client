@@ -180,7 +180,7 @@ describe('api.timeout (request deadline)', function () {
             expect(error.statusCode).to.equal(403);
         });
 
-        it('timeout: 0 sends the fetch() options exactly as before, with no signal', async function () {
+        it('timeout: 0 sends the fetch() options with no signal', async function () {
             const fetchStub = sinon.stub(globalThis, 'fetch').resolves(
                 new Response(JSON.stringify({ ok: true }), { status: 200 }));
             const api = new VaultApiClient({ url: baseUrl, timeout: 0 }, createNoopLogger());
@@ -188,7 +188,7 @@ describe('api.timeout (request deadline)', function () {
             await api.makeRequest('POST', '/secret/ok', { a: 1 }, { 'X-Vault-Token': 't' });
 
             expect(fetchStub.firstCall.args[1]).to.deep.equal({
-                redirect: 'follow',
+                redirect: 'manual',
                 method: 'POST',
                 headers: { Accept: 'application/json', 'X-Vault-Token': 't', 'Content-Type': 'application/json' },
                 body: '{"a":1}',
