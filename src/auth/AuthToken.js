@@ -56,19 +56,25 @@ class AuthToken {
         const hasPreciseExpiry = unadjustedExpiresAtMilliseconds !== null;
         const expiresAtMilliseconds = AuthToken.__resolveExpiresAtMilliseconds(data, unadjustedExpiresAtMilliseconds);
 
-        return new AuthToken(
+        const renewable = data.renewable !== undefined ? data.renewable : false;
+        const authToken = new AuthToken(
             data.id,
             data.accessor,
             data.creation_time,
             null,
             data.explicit_max_ttl,
             data.num_uses,
-            data.renewable !== undefined ? data.renewable : false,
+            renewable,
             expiresAtMilliseconds,
             data.ttl,
             hasPreciseExpiry,
             unadjustedExpiresAtMilliseconds
         );
+        // Without an expiry the token is not renewable. Remember that Vault said it was, so the
+        // renewal timer can say why it stops (VaultBaseAuth); a ttl of 0 means it never expires.
+        authToken.__renewableWithoutExpiry = Boolean(renewable) && data.ttl !== 0
+            && expiresAtMilliseconds === null;
+        return authToken;
     }
 
     /**
@@ -85,7 +91,8 @@ class AuthToken {
      * @private
      * @param {Object} data - the `data` object of a token lookup response
      * @param {number|null} expireTime - parsed Vault expiry in milliseconds
-     * @returns {int|null} client expiry in milliseconds, or null when ttl is 0 without expire_time
+     * @returns {int|null} client expiry in milliseconds, or null when there is none to use: ttl 0
+     *      without expire_time, or neither expire_time nor a numeric ttl and creation time
      */
     static __resolveExpiresAtMilliseconds(data, expireTime) {
         const networkLatency = 60;
@@ -106,7 +113,9 @@ class AuthToken {
         // Fallback for responses without a usable `expire_time`.
         const creationTime = parseInt(data.last_renewal_time !== undefined ? data.last_renewal_time : data.creation_time, 10);
         const ttl = data.ttl > networkLatency ? data.ttl - networkLatency : data.ttl;
-        return (creationTime + parseInt(ttl, 10)) * 1000;
+        const expiresAt = (creationTime + parseInt(ttl, 10)) * 1000;
+        // A missing ttl or creation time made this NaN, a deadline that never passes.
+        return Number.isFinite(expiresAt) ? expiresAt : null;
     }
 
     /**
