@@ -864,6 +864,14 @@ discarded rather than arming a fresh timer, so the client stops holding the even
 same applies when a token is replaced by a new login — a renewal still running against the previous
 token cannot overwrite the newer one or cancel its timer.
 
+The same goes for a login that is in flight when `close()` runs, such as the first `read` of a
+client closed before it settles: the read still resolves and the token is cached for later calls,
+but no refresh timer is armed for it. A call made after `close()` that joins that same login
+shares its token and gets no timer either, just as if `close()` had run right after the login. A
+login that starts after `close()` arms one as before. As after any `close()`, the token is then
+used until it expires; under `token` auth, which cannot log in again, later calls reject with
+`AuthTokenExpiredError`, so close a client only once nothing will use it any more.
+
 <a name="Lease"></a>
 
 ### Lease
@@ -871,7 +879,7 @@ token cannot overwrite the newer one or cancel its timer.
 The object returned by `read()` and `list()` (they resolve to `Promise<Lease>`). Use its
 accessors to extract the secret data:
 
-* `getValue(key)` ⇒ <code>String</code> — value for a single key. Throws `Requested key does not exist` when the key is absent.
+* `getValue(key)` ⇒ <code>\*</code> — value for a single key, as Vault returned it: usually a string, but `null`, `false`, `0`, objects and arrays come back as they are. Throws `Requested key does not exist` when the key is not an own property of the response data (for an array, such as a `list()` result, that means an index or `length`). A name such as `constructor` or `toString` counts only when Vault sent a field by that name, never as an inherited member.
 * `getData()` ⇒ <code>Object</code> — a deep-cloned copy of the whole secret data object.
 * `isRenewable()` ⇒ <code>boolean</code> — whether the underlying lease is renewable.
 * `getMetadata()` ⇒ <code>Object</code> | <code>undefined</code> — KV v2 version metadata
@@ -929,6 +937,18 @@ times with the same name will return the same instance.
 Clear named Vault instance
 
 If no name passed all named instances will be cleared.
+
+Only a string names one instance. Any other argument (a number, `null`, an object, a symbol)
+clears every instance not named by a symbol, as it always has. That is rarely what was meant:
+`clear(42)`, or `clear` passed as a callback that receives a code or a resolved value
+(`promise.then(VaultClient.clear)`). So the first such call in a process also emits a
+`DeprecationWarning` with code `NVC_DEP_CLEAR_NON_STRING`, naming the argument's type but not its
+value. Call `clear()` with no argument to clear every instance.
+
+Node delivers warnings on the next tick, so the warning is not shown when `clear` runs inside a
+`process.on('exit')` listener, which still clears every instance. `--no-deprecation` silences the
+warning. Under `--throw-deprecation` it becomes an uncaught exception on the next tick, not an
+error thrown by `clear()`.
 
 **Kind**: static method of [<code>VaultClient</code>](#VaultClient)  
 
@@ -1143,7 +1163,7 @@ try {
 
 | Class | Extends | When thrown |
 |---|---|---|
-| `VaultError` | `Error` | Base class for every error below. Raised directly when mount detection fails (e.g. permission denied) and no `api.engines` override was provided. |
+| `VaultError` | `Error` | Base class for every error below. Raised directly when mount detection fails (e.g. permission denied) and no `api.engines` override was provided; the failure is on `cause`, so Vault's HTTP status is `err.cause.statusCode`. Vault answers 403 both for a mount the token may not use and for one that does not exist. |
 | `VaultHttpError` | `VaultError` | Vault answered with a non-2xx status. Carries the status as `statusCode` and the parsed body as `error`. `message` (`"<status> - <raw body text>"`) and `error` hold the full response body, which can include secret material (e.g. a partially failed transit batch), so log `statusCode` and `error.errors` rather than the error object itself. |
 | `InvalidArgumentsError` | `VaultError` | Bad arguments or configuration: `boot()` called without options, an unknown instance name passed to `get()`, an unsupported `auth.type`, invalid renewal options or `api.timeout`, an invalid node-config substitution map, or a KV method path that fails [path validation](#path-validation). |
 | `InvalidAWSCredentialsError` | `InvalidArgumentsError` | `auth.config.credentials` was supplied but is not a usable `accessKeyId` / `secretAccessKey` pair. |

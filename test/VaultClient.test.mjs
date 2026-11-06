@@ -1,4 +1,5 @@
 import vm from 'node:vm';
+import { fileURLToPath } from 'node:url';
 import _ from 'lodash';
 import sinon from 'sinon';
 import { expect, use } from 'chai';
@@ -148,6 +149,176 @@ describe('VaultClient', function () {
             expect(closeB).to.have.been.calledOnce;
             expect(() => VaultClient.get('constructor')).to.throw(errors.InvalidArgumentsError);
             expect(() => VaultClient.get('b')).to.throw(errors.InvalidArgumentsError);
+        });
+    });
+
+    describe('clear() with a name that is not a string (#239)', function () {
+        // In-process cases stub the warning: it is once per process, so whether this process
+        // still emits it depends on test order. Its content is checked in a child process below.
+        beforeEach(function () {
+            sinon.stub(process, 'emitWarning');
+        });
+
+        afterEach(function () {
+            sinon.restore();
+        });
+
+        [
+            ['null', null],
+            ['undefined', undefined],
+            ['an object', {}],
+            ['a boolean', false],
+            ['a function', () => {}],
+            ['a number', 0],
+            ['a number naming a booted instance', 1],
+            ['a bigint', 1n],
+            ['a symbol', Symbol('not-booted')],
+        ].forEach(([label, value]) => it(`still clears every instance for ${label}, as in 3.1.0`, function () {
+            const a = VaultClient.boot('a', bootOpts());
+            const one = VaultClient.boot(1, bootOpts());
+            const closeA = sinon.spy(a, 'close');
+            const closeOne = sinon.spy(one, 'close');
+
+            expect(() => VaultClient.clear(value)).not.to.throw();
+
+            expect(closeA).to.have.been.calledOnce;
+            expect(closeOne).to.have.been.calledOnce;
+            expect(() => VaultClient.get('a')).to.throw(errors.InvalidArgumentsError, 'Invalid instance name');
+            expect(() => VaultClient.get('1')).to.throw(errors.InvalidArgumentsError, 'Invalid instance name');
+        }));
+
+        it('leaves a symbol-named instance in place, as in 3.1.0', function () {
+            const key = Symbol('svc');
+            const named = VaultClient.boot(key, bootOpts());
+            const close = sinon.spy(named, 'close');
+            VaultClient.boot('a', bootOpts());
+
+            VaultClient.clear(null);
+
+            expect(close).not.to.have.been.called;
+            expect(VaultClient.get(key)).to.equal(named);
+            expect(() => VaultClient.get('a')).to.throw(errors.InvalidArgumentsError);
+            named.close();
+        });
+
+        it('still clears exactly the named instance for a string, and nothing for an unknown or empty name', function () {
+            const a = VaultClient.boot('a', bootOpts());
+            const b = VaultClient.boot('b', bootOpts());
+            const empty = VaultClient.boot('', bootOpts());
+            const closeB = sinon.spy(b, 'close');
+
+            VaultClient.clear('a');
+            VaultClient.clear('never-booted');
+
+            expect(() => VaultClient.get('a')).to.throw(errors.InvalidArgumentsError);
+            expect(VaultClient.get('b')).to.equal(b);
+            expect(VaultClient.get('')).to.equal(empty);
+            expect(closeB).not.to.have.been.called;
+            expect(VaultClient.boot('a', bootOpts())).not.to.equal(a);
+
+            VaultClient.clear('');
+            expect(() => VaultClient.get('')).to.throw(errors.InvalidArgumentsError);
+            expect(VaultClient.get('b')).to.equal(b);
+            expect(process.emitWarning, 'a string never warns').not.to.have.been.called;
+        });
+
+        it('used as an exit listener, still closes every instance', function () {
+            const a = VaultClient.boot('a', bootOpts());
+            const close = sinon.spy(a, 'close');
+
+            VaultClient.clear(0); // what process.on('exit', VaultClient.clear) passes
+
+            expect(close).to.have.been.calledOnce;
+        });
+
+        describe('the deprecation warning (in a child process, so the once-per-process state is fresh)', function () {
+            // Each case starts a node process that loads the client; a busy CI runner needs more
+            // than mocha's default 2 s for that.
+            this.timeout(20000);
+
+            const script = (body) => `
+                const VaultClient = require(${JSON.stringify(fileURLToPath(new URL('../src/VaultClient.js', import.meta.url)))});
+                const warnings = [];
+                process.on('warning', (w) => warnings.push({ name: w.name, code: w.code, message: w.message }));
+                const boot = (name) => VaultClient.boot(name, {
+                    api: { url: 'https://example.com/' }, logger: false,
+                    auth: { type: 'token', config: { token: 'tok-123' } },
+                });
+                ${body}
+                setImmediate(() => { process.stdout.write(JSON.stringify(warnings)); VaultClient.clear(); });
+            `;
+
+            async function run(body, args = []) {
+                const { execFile } = await import('node:child_process');
+                return new Promise((resolve, reject) => {
+                    execFile(process.execPath, [...args, '-e', script(body)], (err, stdout, stderr) => {
+                        if (err) {
+                            reject(Object.assign(err, { stderr }));
+                            return;
+                        }
+                        resolve({ warnings: JSON.parse(stdout), stderr });
+                    });
+                });
+            }
+
+            it('is emitted once per process, as a DeprecationWarning with a code', async function () {
+                const { warnings } = await run(`boot('a'); VaultClient.clear(0); boot('b'); VaultClient.clear(null);`);
+
+                expect(warnings).to.have.length(1);
+                expect(warnings[0]).to.deep.equal({
+                    name: 'DeprecationWarning',
+                    code: 'NVC_DEP_CLEAR_NON_STRING',
+                    message: 'VaultClient.clear() was called with a number instead of a string name, which clears '
+                        + 'every instance not named by a symbol, as it always has. Call clear() with no argument '
+                        + 'to clear them all, or pass the string name of one instance.',
+                });
+            });
+
+            for (const [label, expr, what] of [
+                ['null', 'null', 'null'],
+                ['an object', '{ token: "s3cr3t" }', 'an object'],
+                ['a boolean', 'true', 'a boolean'],
+                ['a bigint', '1n', 'a bigint'],
+                ['a symbol', 'Symbol("x")', 'a symbol'],
+                ['a function', '() => "s3cr3t"', 'a function'],
+            ]) {
+                it(`names the type of ${label}, never its value`, async function () {
+                    const { warnings } = await run(`VaultClient.clear(${expr});`);
+                    expect(warnings).to.have.length(1);
+                    expect(warnings[0].message).to.match(new RegExp(`^VaultClient\\.clear\\(\\) was called with ${what} `));
+                    expect(warnings[0].message).not.to.include('s3cr3t');
+                });
+            }
+
+            it('is not emitted for clear(), clear(undefined) or a string name', async function () {
+                const { warnings } = await run(`boot('a'); VaultClient.clear('a'); VaultClient.clear(); VaultClient.clear(undefined);`);
+                expect(warnings).to.deep.equal([]);
+            });
+
+            it('still clears every instance from an exit listener, where Node shows no warning', async function () {
+                const { execFile } = await import('node:child_process');
+                const body = `
+                    const VaultClient = require(${JSON.stringify(fileURLToPath(new URL('../src/VaultClient.js', import.meta.url)))});
+                    const client = VaultClient.boot('a', {
+                        api: { url: 'https://example.com/' }, logger: false,
+                        auth: { type: 'token', config: { token: 'tok-123' } },
+                    });
+                    client.close = () => process.stdout.write('closed');
+                    process.on('exit', VaultClient.clear);
+                `;
+                const { stdout, stderr } = await new Promise((resolve, reject) => {
+                    execFile(process.execPath, ['-e', body], (err, out, errOut) => (err
+                        ? reject(err) : resolve({ stdout: out, stderr: errOut })));
+                });
+                expect(stdout).to.equal('closed');
+                expect(stderr).not.to.include('NVC_DEP_CLEAR_NON_STRING');
+            });
+
+            it('follows --no-deprecation like any other deprecation', async function () {
+                const { warnings, stderr } = await run(`VaultClient.clear(0);`, ['--no-deprecation']);
+                expect(warnings).to.deep.equal([]);
+                expect(stderr).not.to.include('NVC_DEP_CLEAR_NON_STRING');
+            });
         });
     });
 

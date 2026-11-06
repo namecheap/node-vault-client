@@ -365,6 +365,137 @@ describe('MountResolver', function () {
             }
         });
 
+        describe('the error each caller gets (#202)', function () {
+            const DENIED = () => new errors.VaultHttpError(403, '{"errors":["permission denied"]}', { errors: ['permission denied'] });
+            const message = (path, reason) => `Failed to detect KV engine version for mount "secret" (path: ${path}): ${reason}. ` +
+                'Set api.engines or disable autoDetect to bypass detection.';
+
+            function heldDetection() {
+                let fail;
+                const detectFn = sinon.stub().returns(new Promise((resolve, reject) => { fail = reject; }));
+                return { detectFn, fail: (err) => fail(err) };
+            }
+
+            it('shares a server failure, naming each concurrent caller\'s own path', async function () {
+                const { detectFn, fail } = heldDetection();
+                const resolver = new MountResolver(detectFn, {}, logger);
+                const cause = new errors.VaultHttpError(503, '{"errors":["Vault is sealed"]}', { errors: ['Vault is sealed'] });
+
+                const first = resolver.resolve('secret/app/one').then(() => null, (err) => err);
+                const second = resolver.resolve('secret/app/two').then(() => null, (err) => err);
+                fail(cause);
+                const [a, b] = await Promise.all([first, second]);
+
+                expect(detectFn).to.have.been.calledOnce;
+                expect(a.message).to.equal(message('secret/app/one', '503 - {"errors":["Vault is sealed"]}'));
+                expect(b.message).to.equal(message('secret/app/two', '503 - {"errors":["Vault is sealed"]}'));
+                expect(a).not.to.equal(b);
+                expect(a.cause).to.equal(cause);
+                expect(b.cause).to.equal(cause);
+            });
+
+            it('shares a refusal between callers with the same path, each with its own error object', async function () {
+                const { detectFn, fail } = heldDetection();
+                const resolver = new MountResolver(detectFn, {}, logger);
+                const cause = DENIED();
+
+                const first = resolver.resolve('secret/app').then(() => null, (err) => err);
+                const second = resolver.resolve('secret/app').then(() => null, (err) => err);
+                fail(cause);
+                const [a, b] = await Promise.all([first, second]);
+
+                expect(detectFn).to.have.been.calledOnce;
+                expect(a.message).to.equal(message('secret/app', '403 - {"errors":["permission denied"]}'));
+                expect(b.message).to.equal(a.message);
+                expect(a).not.to.equal(b);
+            });
+
+            it('shares a refusal with a caller on a sibling mount, as before: one request, its own path in the message', async function () {
+                const { detectFn, fail } = heldDetection();
+                const resolver = new MountResolver(detectFn, {}, logger);
+                const cause = DENIED();
+
+                const first = resolver.resolve('team/kvA/x').then(() => null, (err) => err);
+                const second = resolver.resolve('team/kvB/y').then(() => null, (err) => err);
+                fail(cause);
+                const [a, b] = await Promise.all([first, second]);
+
+                expect(detectFn).to.have.been.calledOnce;
+                expect(a.message).to.include('mount "team" (path: team/kvA/x)');
+                expect(b.message).to.include('mount "team" (path: team/kvB/y)');
+                expect(b.cause).to.equal(cause);
+            });
+
+            for (const [label, status, body] of [
+                ['a rate limit (429)', 429, '{"errors":["request path \\"secret/x\\": rate limit quota exceeded"]}'],
+                ['a refusal (403)', 403, '{"errors":["permission denied"]}'],
+                ['a failed login (400)', 400, '{"errors":["invalid role or secret ID"]}'],
+            ]) {
+                it(`sends one detection for 50 concurrent paths when it fails with ${label}`, async function () {
+                    const { detectFn, fail } = heldDetection();
+                    const resolver = new MountResolver(detectFn, {}, logger);
+                    const cause = new errors.VaultHttpError(status, body, undefined);
+
+                    const pending = Array.from({ length: 50 }, (_, i) =>
+                        resolver.resolve(`secret/app/${i}`).then(() => null, (err) => err));
+                    fail(cause);
+                    const failures = await Promise.all(pending);
+
+                    expect(detectFn, 'no request per caller').to.have.been.calledOnce;
+                    failures.forEach((err, i) => {
+                        expect(err).to.be.instanceOf(errors.VaultError);
+                        expect(err.message).to.include(`(path: secret/app/${i})`);
+                        expect(err.cause).to.equal(cause);
+                    });
+                });
+            }
+
+            it('keeps the status on cause only, as before: the error has no statusCode of its own', async function () {
+                const detectFn = sinon.stub().rejects(DENIED());
+                const resolver = new MountResolver(detectFn, {}, logger);
+
+                const err = await resolver.resolve('secret/foo').then(() => null, (e) => e);
+
+                expect(err).to.be.instanceOf(errors.VaultError);
+                expect(err).not.to.be.instanceOf(errors.VaultHttpError);
+                expect(err).not.to.have.property('statusCode');
+                expect(err.cause.statusCode).to.equal(403);
+            });
+
+            it('gives a caller that joined and then started its own detection only that detection\'s error', async function () {
+                const detectFn = sinon.stub();
+                detectFn.onFirstCall().returns(mkDetect('team/kvA', 2));
+                detectFn.onSecondCall().rejects(new errors.VaultHttpError(403, 'denied', undefined));
+                const resolver = new MountResolver(detectFn, {}, logger);
+
+                const [a, b] = await Promise.all([
+                    resolver.resolve('team/kvA/x'),
+                    resolver.resolve('team/kvB/y').then(() => null, (err) => err),
+                ]);
+
+                expect(a.version).to.equal(2);
+                expect(b.message).to.match(/^Failed to detect KV engine version for mount "team\/kvB\/y" \(path: team\/kvB\/y\): 403 /);
+                expect(b.message.match(/Failed to detect/g)).to.have.lengthOf(1);
+                expect(b.cause).to.be.instanceOf(errors.VaultHttpError);
+            });
+
+            it('leaves no unhandled rejection when a failed detection had no other caller', async function () {
+                const unhandled = [];
+                const onUnhandled = (reason) => unhandled.push(reason);
+                process.on('unhandledRejection', onUnhandled);
+                try {
+                    const resolver = new MountResolver(sinon.stub().rejects(DENIED()), {}, logger);
+                    await resolver.resolve('secret/foo').catch(() => {});
+                    await new Promise((resolve) => setImmediate(resolve));
+                    await new Promise((resolve) => setImmediate(resolve));
+                } finally {
+                    process.off('unhandledRejection', onUnhandled);
+                }
+
+                expect(unhandled).to.deep.equal([]);
+            });
+        });
+
         it('clears the in-flight entry on failure so future calls retry', async function () {
             let callCount = 0;
             const detectFn = sinon.stub().callsFake(() => {

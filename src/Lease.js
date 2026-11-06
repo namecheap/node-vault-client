@@ -29,15 +29,21 @@ class Lease {
     }
 
     /**
-     * @param {String} key
-     * @returns {String}
+     * @param {String|number} key - a field name, or an index when the data is an array (a list)
+     * @returns {*} the field's value as Vault returned it: a string for most secrets, but
+     *      `null`, `false`, `0`, an object or an array are returned as they are
+     * @throws {Error} 'Requested key does not exist' unless `key` is an own property of the
+     *      response data whose value is not `undefined`
      */
     getValue(key) {
-        if (this.__data[key] === undefined) {
+        const data = this.__data;
+        // Own fields only: an inherited member such as `constructor` or `__proto__` is not
+        // something Vault returned.
+        if (data === null || typeof data !== 'object' || !Object.hasOwn(data, key) || data[key] === undefined) {
             throw new Error('Requested key does not exist');
         }
 
-        return this.__data[key];
+        return data[key];
     }
 
     /**

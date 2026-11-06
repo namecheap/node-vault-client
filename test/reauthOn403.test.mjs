@@ -461,6 +461,8 @@ describe('re-authentication on a 403 (#235)', function () {
         await client.read('secret/a');
 
         expect(cancel).to.have.been.calledOnce;
+        // Dropping a dead token is not a close() (#251): the new token gets its own renewal timer.
+        expect(client.__auth.__refreshTimeout).to.not.equal(null);
         expect(logins()).to.equal(2);
     });
 });

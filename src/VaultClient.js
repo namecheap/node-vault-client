@@ -21,6 +21,8 @@ const noop = () => {};
 // meet and an object that converts to a symbol is keyed by that symbol.
 const vaultInstances = new Map();
 const instanceKey = (name) => Reflect.ownKeys({ [name]: undefined })[0];
+// clear(name) with a non-string name warns once per process (#239); see VaultClient.clear().
+let warnedClearNonString = false;
 
 // Functions, and objects that are not plain data (an undici dispatcher, a logger class
 // instance), compare by identity. Their own enumerable keys say nothing about what they do:
@@ -191,6 +193,32 @@ function assertSafeKvPath(path, allowTrailingSlash) {
     return trimmed;
 }
 
+/**
+ * clear() with a name that is not a string closes every instance, which is rarely what the
+ * caller meant (#239): `clear(42)`, or `clear` passed as a callback that receives an exit code
+ * or a resolved value. The behaviour stays as it was; this makes it visible, once per process.
+ * It names only the argument's type, never its value, which could be anything (#239).
+ * Node delivers warnings on the next tick, so one emitted from an 'exit' listener is never shown;
+ * --no-deprecation silences it, as for any DeprecationWarning.
+ * @param {*} name
+ * @returns {void}
+ * @private
+ */
+function warnClearNonString(name) {
+    if (warnedClearNonString) {
+        return;
+    }
+    warnedClearNonString = true;
+    const type = typeof name;
+    const what = name === null ? 'null' : (type === 'object' ? 'an object' : `a ${type}`);
+    process.emitWarning(
+        `VaultClient.clear() was called with ${what} ` +
+        'instead of a string name, which clears every instance not named by a symbol, as it always ' +
+        'has. Call clear() with no argument to clear them all, or pass the string name of one instance.',
+        { type: 'DeprecationWarning', code: 'NVC_DEP_CLEAR_NON_STRING' }
+    );
+}
+
 class VaultClient {
 
     /**
@@ -359,6 +387,10 @@ class VaultClient {
      *
      * If no name passed all named instances will be cleared.
      *
+     * Only a string names one instance. Any other argument (a number, `null`, an object) clears
+     * every instance, as it always has, and emits a one-time `DeprecationWarning`
+     * (`NVC_DEP_CLEAR_NON_STRING`): call `clear()` with no argument to clear them all.
+     *
      * @param {String} [name] - Vault instance name, all instances will be cleared if no name were passed
      */
     static clear(name) {
@@ -368,17 +400,20 @@ class VaultClient {
                 instance.close();
                 vaultInstances.delete(name);
             }
-        } else {
-            for (const [key, instance] of vaultInstances) {
-                // Kept for compatibility: the object this replaced was walked with for...in,
-                // which skips symbol keys, so a symbol-named instance has always stayed
-                // registered, with its renewal timer, through clear(), and callers may rely on it.
-                if (typeof key === 'symbol') {
-                    continue;
-                }
-                instance.close();
-                vaultInstances.delete(key);
+            return;
+        }
+        if (name !== undefined) {
+            warnClearNonString(name);
+        }
+        for (const [key, instance] of vaultInstances) {
+            // Kept for compatibility: the object this replaced was walked with for...in,
+            // which skips symbol keys, so a symbol-named instance has always stayed
+            // registered, with its renewal timer, through clear(), and callers may rely on it.
+            if (typeof key === 'symbol') {
+                continue;
             }
+            instance.close();
+            vaultInstances.delete(key);
         }
     }
 
@@ -389,11 +424,17 @@ class VaultClient {
      * alive for renewable tokens. Call this once you are done with the client so a
      * short-lived script can exit on its own. Safe to call when no timer is armed and
      * safe to call multiple times. After calling `close()` the client may still be used;
-     * the next operation that fetches a renewable token will arm a new refresh timer.
+     * the next operation that fetches a renewable token will arm a new refresh timer. A
+     * login already in flight when `close()` runs still resolves, but arms no timer, and
+     * neither does a call that joins that login after `close()`.
      *
      * @returns {void}
      */
     close() {
+        if (this.__auth && typeof this.__auth.__markClosed === 'function') {
+            // Directly as well: a subclass may override cancelTokenRefresh() without super.
+            this.__auth.__markClosed();
+        }
         if (this.__auth && typeof this.__auth.cancelTokenRefresh === 'function') {
             this.__auth.cancelTokenRefresh();
         }
