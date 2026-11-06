@@ -176,17 +176,23 @@ describe('VaultKubernetesAuth', function () {
         }));
 
         it('reaches a .catch()-only caller, so nothing escapes as an uncaught exception', async function () {
-            client = new VaultClient({
-                api: { url: 'http://127.0.0.1:1/' },
-                logger: false,
-                auth: { type: 'kubernetes', config: { role: 'r', tokenPath: '/nonexistent/sa/token' } },
-            });
+            const fetchStub = sinon.stub(globalThis, 'fetch');
+            try {
+                client = new VaultClient({
+                    api: { url: 'http://127.0.0.1:1/' },
+                    logger: false,
+                    auth: { type: 'kubernetes', config: { role: 'r', tokenPath: '/nonexistent/sa/token' } },
+                });
 
-            const caught = await new Promise((resolve) => {
-                client.write('secret/x', { a: 1 }).catch(resolve);
-            });
+                const caught = await new Promise((resolve) => {
+                    client.write('secret/x', { a: 1 }).catch(resolve);
+                });
 
-            expect(caught.code).to.equal('ENOENT');
+                expect(caught.code).to.equal('ENOENT');
+                expect(fetchStub, 'Vault is not contacted').to.not.have.been.called;
+            } finally {
+                fetchStub.restore();
+            }
         });
     });
 });

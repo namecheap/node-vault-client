@@ -367,6 +367,40 @@ describe('VaultBaseAuth', function () {
             expect((await auth.getAuthToken()).getId()).to.equal('second');
         });
 
+        it('accepts a backend whose _authenticate() returns a token rather than a promise', async function () {
+            const token = nonRenewableToken('sync');
+            const authStub = sinon.stub().returns(token);
+            const auth = new TestAuth(apiStub(), 'mount', { authStub });
+
+            let pending;
+            expect(() => { pending = auth.getAuthToken(); }).to.not.throw();
+            expect(await pending).to.equal(token);
+            expect(await auth.getAuthToken(), 'cached as after any login').to.equal(token);
+            expect(authStub).to.have.been.calledOnce;
+        });
+
+        it('rejects, instead of throwing, when _authenticate() returns nothing', async function () {
+            const authStub = sinon.stub().returns(undefined);
+            const auth = new TestAuth(apiStub(), 'mount', { authStub });
+
+            let pending;
+            expect(() => { pending = auth.getAuthToken(); }).to.not.throw();
+            const error = await pending.then(() => null, (err) => err);
+            expect(error).to.be.instanceOf(TypeError);
+            expect(auth.__pendingLogin).to.equal(null);
+            expect(auth.__authToken).to.equal(null);
+        });
+
+        it('still calls _authenticate() synchronously, in the same tick as getAuthToken()', function () {
+            const authStub = sinon.stub().resolves(nonRenewableToken());
+            const auth = new TestAuth(apiStub(), 'mount', { authStub });
+
+            const pending = auth.getAuthToken();
+
+            expect(authStub, 'no deferral to a later tick').to.have.been.calledOnce;
+            return pending;
+        });
+
         it('authenticates once and caches the token for subsequent calls', function () {
             const token = nonRenewableToken();
             const authStub = sinon.stub().resolves(token);

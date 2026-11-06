@@ -34,7 +34,8 @@ class VaultKubernetesAuth extends VaultBaseAuth {
         );
 
         // Inside the chain, as in VaultJwtAuth and VaultIAMAuth: a missing or unreadable token
-        // file rejects the login instead of throwing out of read() and the other operations.
+        // file rejects the login instead of throwing. getAuthToken() turns any backend throw
+        // into a rejection too; this keeps the backend's own _authenticate() contract async.
         return Promise.resolve()
             .then(() => {
                 const k8sJwtToken = fs.readFileSync(this.__tokenPath).toString();
