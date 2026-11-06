@@ -32,6 +32,32 @@
   used, and cancels the timer so the run exits even without `--exit`. `--exit` stays in the
   scripts. Test-only; no library change.
 
+- **Security: redirects are followed only within the origin of `api.url` (#232).** Requests
+  used `fetch()`'s `redirect: 'follow'`, which sends every header but `Authorization`, `Cookie`
+  and `Proxy-Authorization` to whatever origin a `Location` names. `X-Vault-Token` went with it, a
+  307 or 308 on a login replayed the credentials in its body, and the other origin's answer was
+  returned as Vault data. Requests are now sent with `redirect: 'manual'`, and the client follows
+  a redirect itself only to the same origin (scheme, host and port), as `fetch()` would: up to 20
+  hops, method and body kept on a 307 or 308, a `GET` without a body on a 303 and on a 301 or 302
+  after a `POST`. A redirect to another origin rejects with a `VaultError` before anything is
+  sent there. That includes `https:` to `http:`, and `http:` to `https:` on the same host.
+  - *Compatibility.* Same-origin redirects, such as Vault's own for a `//` in a path, behave as
+    before. A test sends each redirect status with GET, POST, PUT, PATCH and DELETE both ways and
+    compares the method, path, body and headers the server receives. Where `fetch()` gave up
+    (more than 20 hops, a `Location` that does not parse, is not http(s) or carries
+    credentials), the request still rejects with `TypeError: fetch failed`. Changed:
+    - An `http://` `api.url` that a load balancer redirects to `https://` now fails. Use the
+      `https://` URL.
+    - A Vault HA standby answers with a 307 to the active node's `api_addr` when request
+      forwarding fails. If that address is another origin, the request now fails instead of
+      following it.
+    - A `redirect` in `api.requestOptions` is passed to `fetch()` as it is; `'follow'` restores
+      the old behaviour. `redirect: null`, which `fetch()` rejected on every request, now reads
+      as not set.
+    - `fetch()` now receives `redirect: 'manual'` instead of `'follow'`, with `api.timeout: 0`
+      too. Code that stubs `fetch()` and checks its options will see this.
+  - README: "Redirects and the Vault token" describes the policy and the opt-out.
+
 - **Fixed: `Lease.getValue()` returned inherited members as secret values (#240).** It threw
   only when `data[key]` was `undefined`, so `getValue('constructor')` returned `Object` and
   `getValue('__proto__')` returned `Object.prototype`. It now returns only the response data's
