@@ -86,23 +86,54 @@ describe('VaultClient', function () {
             expect(() => VaultClient.get(name)).to.throw(errors.InvalidArgumentsError, 'Invalid instance name');
         }));
 
-        it('keeps object-key semantics for names: boot(1) and get("1") are the same instance', function () {
-            const one = VaultClient.boot(1, bootOpts());
+        [
+            ['1', 1, '1'],
+            ['"1" before 1', '1', 1],
+            ['true', true, 'true'],
+            ['null', null, 'null'],
+            ['undefined', undefined, 'undefined'],
+            ['-0', -0, '0'],
+            ['an object with its own toString', { toString: () => 'custom' }, 'custom'],
+        ].forEach(([label, name, sameAs]) => it(`keys ${label} as an object property would be`, function () {
+            const instance = VaultClient.boot(name, bootOpts());
 
-            expect(VaultClient.get('1')).to.equal(one);
-            expect(VaultClient.get(1)).to.equal(one);
-            expect(VaultClient.boot('1', bootOpts())).to.equal(one);
-            const nameless = VaultClient.boot(undefined, bootOpts());
-            expect(VaultClient.get('undefined')).to.equal(nameless);
-        });
+            expect(VaultClient.boot(name, bootOpts())).to.equal(instance);
+            expect(VaultClient.get(name)).to.equal(instance);
+            expect(VaultClient.get(sameAs)).to.equal(instance);
+            expect(VaultClient.boot(sameAs, bootOpts())).to.equal(instance);
+        }));
 
-        it('keeps a symbol name distinct from its description', function () {
+        it('keeps a symbol name distinct from its description, and keys an object by the symbol it converts to', function () {
             const key = Symbol('main');
             const bySymbol = VaultClient.boot(key, bootOpts());
             const byString = VaultClient.boot('Symbol(main)', bootOpts());
 
             expect(bySymbol).not.to.equal(byString);
             expect(VaultClient.get(key)).to.equal(bySymbol);
+            expect(VaultClient.get(Object(key))).to.equal(bySymbol);
+            expect(VaultClient.boot({ [Symbol.toPrimitive]: () => key }, bootOpts())).to.equal(bySymbol);
+        });
+
+        it('leaves symbol-named instances out of clear() with no name, as before', function () {
+            const key = Symbol('kept');
+            const kept = VaultClient.boot(key, bootOpts());
+            const closeKept = sinon.spy(kept, 'close');
+            VaultClient.boot('gone', bootOpts());
+
+            try {
+                VaultClient.clear();
+
+                expect(VaultClient.get(key)).to.equal(kept);
+                expect(closeKept).not.to.have.been.called;
+                expect(() => VaultClient.get('gone')).to.throw(errors.InvalidArgumentsError);
+            } finally {
+                kept.close();
+            }
+        });
+
+        it('clear("toString") on an empty registry does nothing', function () {
+            expect(() => VaultClient.clear('toString')).not.to.throw();
+            expect(() => VaultClient.clear('__proto__')).not.to.throw();
         });
 
         it('clear() with no name closes and removes every instance, prototype-member names included', function () {

@@ -38,9 +38,11 @@
   `InvalidArgumentsError`, and `boot("constructor", options)` treated `Object` as an existing
   instance and threw a `TypeError`. The registry is now a `Map`, so every name, `__proto__`
   included, behaves like any other.
-  - *Compatibility.* Names are keyed as object properties were: a number is the same name as
-    its string (`boot(1)` then `get('1')` returns that instance), and a symbol stays a symbol.
-    `clear()` is unchanged.
+  - *Compatibility.* Names are keyed exactly as object properties were: a number is the same
+    name as its string (`boot(1)` then `get('1')` returns that instance), and a symbol, or an
+    object that converts to one, stays a symbol. `clear()` with no name still leaves
+    symbol-named instances registered, as the old `for...in` loop did. `clear('toString')` and
+    the like, which threw a `TypeError`, now do nothing when no such instance was booted.
 
 # 3.1.0 Release notes (2026-11-05)
 

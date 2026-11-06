@@ -17,9 +17,10 @@ const { trimTrailingSlashes } = require('./slashes');
 
 const noop = () => {};
 // Named instances. A Map, so a name such as "toString" or "constructor" is not found on
-// Object.prototype; keyed as an object property would be, so boot(1) and get('1') still meet.
+// Object.prototype; keyed exactly as an object property would be, so boot(1) and get('1') still
+// meet and an object that converts to a symbol is keyed by that symbol.
 const vaultInstances = new Map();
-const instanceKey = (name) => (typeof name === 'symbol' ? name : String(name));
+const instanceKey = (name) => Reflect.ownKeys({ [name]: undefined })[0];
 
 // Functions, and objects that are not plain data (an undici dispatcher, a logger class
 // instance), compare by identity. Their own enumerable keys say nothing about what they do:
@@ -367,6 +368,10 @@ class VaultClient {
             }
         } else {
             for (const [key, instance] of vaultInstances) {
+                // The object this replaced was walked with for...in, which skips symbol keys.
+                if (typeof key === 'symbol') {
+                    continue;
+                }
                 instance.close();
                 vaultInstances.delete(key);
             }
