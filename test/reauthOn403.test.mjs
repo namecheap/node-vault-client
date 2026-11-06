@@ -386,6 +386,9 @@ describe('re-authentication on a 403 (#235)', function () {
 
         expect(error.statusCode).to.equal(403);
         expect(logins()).to.equal(1);
+        expect(logger.debug).to.have.been.calledWith(
+            'token rejection check inconclusive (accessor=%s): %s; returning the 403',
+            'acc-1', sinon.match('500'));
     });
 
     it('shares one lookup-self and one login between concurrent requests rejected with the same token', async function () {

@@ -333,7 +333,21 @@ class VaultBaseAuth {
         const check = {
             id,
             promise: this.__apiClient.makeRequest('GET', '/auth/token/lookup-self', null, {'X-Vault-Token': id})
-                .then(() => false, err => err instanceof errors.VaultHttpError && err.statusCode === 403)
+                .then(() => false, err => {
+                    if (err instanceof errors.VaultHttpError && err.statusCode === 403) {
+                        return true;
+                    }
+                    // Neither answer: the 403 is returned as it is, so say why no login follows.
+                    try {
+                        this._log.debug(
+                            'token rejection check inconclusive (accessor=%s): %s; returning the 403',
+                            authToken.getAccessor(), safeMessage(err)
+                        );
+                    } catch {
+                        // a throwing logger changes nothing here
+                    }
+                    return false;
+                })
                 .then(dead => {
                     if (this.__rejectionCheck === check) {
                         this.__rejectionCheck = null;
