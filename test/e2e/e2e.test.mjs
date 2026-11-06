@@ -289,6 +289,16 @@ describe('E2E', function () {
 
         describe('AppRole', function () {
             let appRoleMount;
+            // An AppRole login yields a renewable token, whose renewal timer would keep the
+            // process alive after the suite (#220).
+            let vaultClient;
+            afterEach(function () {
+                if (vaultClient) {
+                    vaultClient.close();
+                    vaultClient = undefined;
+                }
+            });
+
             beforeEach(async function () {
                 appRoleMount = `approle` + Math.floor(Math.random() * 1000);
                 await rp({method: 'POST', uri: `${this.bootOpts.api.url}v1/sys/auth/${appRoleMount}`, body: {
@@ -310,7 +320,7 @@ describe('E2E', function () {
                 });
                 roleId = roleId.data.role_id;
 
-                const vaultClient = new VaultClient(_.merge({}, this.bootOpts, {
+                vaultClient = new VaultClient(_.merge({}, this.bootOpts, {
                     auth: {
                         type: 'appRole',
                         mount: appRoleMount,
@@ -342,7 +352,7 @@ describe('E2E', function () {
                 });
                 secretId = secretId.data.secret_id;
 
-                const vaultClient = new VaultClient(_.merge({}, this.bootOpts, {
+                vaultClient = new VaultClient(_.merge({}, this.bootOpts, {
                     auth: {
                         type: 'appRole',
                         mount: appRoleMount,

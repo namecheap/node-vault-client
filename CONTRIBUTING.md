@@ -37,6 +37,12 @@ npm run test:e2e:jwt   # JWT auth against a throwaway mount it configures and re
 npm run test:e2e:generic  # transit via request(), detection dedupe, least-privilege detection
 ```
 
+Close every e2e client that holds a renewable token (`client.close()`, for example in
+`afterEach`): any login other than the dev root token, which is not renewable. Such a client arms a
+renewal timer, and one left armed keeps plain `mocha` from exiting after the summary. The
+`test:e2e*` scripts load `test/e2e/renewal-timer-guard.mjs`, which then fails the run, names the
+test or hook in which the client was first used, and cancels the timer so the run still exits.
+
 To reproduce a failure from a Vault 2.x leg of CI, point compose at that image:
 
 ```shell
