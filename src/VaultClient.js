@@ -477,8 +477,8 @@ class VaultClient {
     /**
      * Calls `send` with the current auth token. When Vault answers 403 and the token turns out
      * to be one Vault no longer accepts (revoked server-side), logs in again and calls `send`
-     * once more; see {@link VaultBaseAuth#checkRejectedToken}. A policy denial, a 403 under
-     * `token` auth, and a retry that fails all surface the first 403.
+     * once more; see {@link VaultBaseAuth#checkRejectedToken}. A policy denial and a 403 under
+     * `token` auth surface that 403; otherwise the retry's own result or error is returned.
      *
      * @param {function(AuthToken): Promise<*>} send
      * @returns {Promise<*>}
@@ -494,10 +494,9 @@ class VaultClient {
                 if (!retry) {
                     throw err;
                 }
-                return this.__auth.getAuthToken().then(send).catch((retryErr) => {
-                    this.__log.warn('retry after Vault rejected the token failed: %s', safeMessage(retryErr));
-                    throw err;
-                });
+                // What the retry got, success or failure, is the request's outcome now: a login
+                // that fails, a 404 or a timeout says more than the 403 of a token already gone.
+                return this.__auth.getAuthToken().then(send);
             }, () => {
                 throw err;
             });

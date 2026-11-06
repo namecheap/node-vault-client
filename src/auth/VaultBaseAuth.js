@@ -339,12 +339,16 @@ class VaultBaseAuth {
                         this.__rejectionCheck = null;
                     }
                     if (dead && this.__authToken !== null && this.__authToken.getId() === id) {
-                        this._log.warn(
-                            'Vault no longer accepts the token (accessor=%s); logging in again',
-                            authToken.getAccessor()
-                        );
                         this.__authToken = null;
                         this.cancelTokenRefresh();
+                        try {
+                            this._log.warn(
+                                'Vault no longer accepts the token (accessor=%s); logging in again',
+                                authToken.getAccessor()
+                            );
+                        } catch {
+                            // a throwing logger must not keep the dead token in use
+                        }
                     }
                     return dead;
                 }),

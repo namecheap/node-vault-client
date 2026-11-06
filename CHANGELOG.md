@@ -39,11 +39,16 @@
   `autoDetect` mount detection) is checked with `auth/token/lookup-self`. If Vault no longer accepts
   the token, the client drops it with its renewal timer, logs in again and sends the request once
   more.
-  - *Compatibility.* A policy denial is returned as before, after one extra `lookup-self` request,
-    and costs no login, so an AppRole `secret_id` with limited uses is not spent on it. There is at
-    most one retry per call; if it fails, the call rejects with the first 403, as before, and the
-    reason is logged at `warn`. A 403 on the login itself and any 403 under `token` auth are
-    returned as before, without a lookup. Other statuses are untouched.
+  - *Compatibility.* A policy denial is returned as before and costs no login, so an AppRole
+    `secret_id` with limited uses is not spent on it. It does cost one extra `lookup-self` request
+    (with `autoDetect`, also for a mount the token may not see), which counts against a token with
+    limited uses. Each request is sent again at most once, and one login serves every request
+    rejected with the same token. When that attempt fails, the call rejects with its error (a
+    failed login, a 404, a timeout) rather than the dead token's 403. A 403 on the login itself
+    and any 403 under `token` auth are returned as before, without a lookup. Other statuses are
+    untouched.
+  - Revoking a client's token no longer locks it out: it logs straight back in. To cut a client
+    off, also revoke or rotate its login credential.
   - README: "Tokens revoked on the Vault side".
 
 # 3.1.0 Release notes (2026-11-05)

@@ -75,6 +75,9 @@ function fakeVault() {
                 });
             }
             if (path.startsWith('/v1/sys/internal/ui/mounts/')) {
+                if (alive && path.includes('/denied')) {
+                    return reply(403, DENIED);
+                }
                 return alive
                     ? reply(200, { data: { path: 'secret/', type: 'kv', options: { version: '1' } } })
                     : reply(403, INVALID);
@@ -220,7 +223,7 @@ describe('re-authentication on a 403 (#235)', function () {
         expect(vault.count('GET', '/v1/secret/a')).to.equal(2);
     });
 
-    it('retries only once: a request rejected again after the new login surfaces the first 403', async function () {
+    it('retries only once: a request rejected again after the new login gets that 403', async function () {
         // Every token is accepted by the login's own lookup-self and rejected after that.
         const looked = new Map();
         vault.state.lookup = (reply, token) => {
@@ -245,10 +248,9 @@ describe('re-authentication on a 403 (#235)', function () {
         expect(logins()).to.equal(2);
         expect(vault.count('GET', '/v1/secret/a')).to.equal(2);
         expect(lookups('tok-2')).to.equal(1);
-        expect(logger.warn).to.have.been.calledWith('retry after Vault rejected the token failed: %s', sinon.match('403'));
     });
 
-    it('surfaces the first 403 when the new login fails, and logs why', async function () {
+    it('returns the login error when the new login fails', async function () {
         appRoleClient();
         await client.read('secret/a');
         vault.state.revoked.add('tok-1');
@@ -257,10 +259,118 @@ describe('re-authentication on a 403 (#235)', function () {
         const { error } = await settle(client.read('secret/a'));
 
         expect(error).to.be.instanceOf(errors.VaultHttpError);
-        expect(error.statusCode).to.equal(403);
+        expect(error.statusCode).to.equal(400);
+        expect(error.message).to.include('invalid role or secret ID');
         expect(logins()).to.equal(2);
-        expect(logger.warn).to.have.been.calledWith(
-            'retry after Vault rejected the token failed: %s', sinon.match('invalid role or secret ID'));
+    });
+
+    it('returns what the retry got, such as a 404, rather than the dead token\'s 403', async function () {
+        appRoleClient();
+        await client.read('secret/a');
+        vault.state.revoked.add('tok-1');
+
+        const { error } = await settle(client.read('secret/missing'));
+
+        expect(error).to.be.instanceOf(errors.VaultHttpError);
+        expect(error.statusCode).to.equal(404);
+        expect(vault.count('GET', '/v1/secret/missing', 'tok-2')).to.equal(1);
+    });
+
+    it('drops the dead token even when the logger throws', async function () {
+        appRoleClient();
+        await client.read('secret/a');
+        vault.state.revoked.add('tok-1');
+        logger.warn = sinon.stub().throws(new Error('logger broke'));
+
+        const lease = await client.read('secret/a');
+
+        expect(lease.getData().token).to.equal('tok-2');
+        expect(logger.warn).to.have.been.calledOnce;
+    });
+
+    it('leaves a newer token alone when the lookup for the old one lands after it', async function () {
+        appRoleClient();
+        await client.read('secret/a');
+        vault.state.revoked.add('tok-1');
+        let answerLookup;
+        vault.state.lookup = (reply, token) => {
+            if (token !== 'tok-1') {
+                return false;
+            }
+            answerLookup = () => reply(403, INVALID);
+            return true;
+        };
+
+        const pending = settle(client.read('secret/a'));
+        while (!answerLookup) {
+            await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+        // Meanwhile another login replaces the token.
+        client.__auth.__authToken = null;
+        const newer = await client.__auth.getAuthToken();
+        answerLookup();
+        const { value } = await pending;
+
+        expect(newer.getId()).to.equal('tok-2');
+        expect(value.getData().token).to.equal('tok-2');
+        expect(client.__auth.__authToken).to.equal(newer);
+        expect(logins()).to.equal(2);
+    });
+
+    [
+        ['the request was in flight', 'secret'],
+        ['the lookup was in flight', 'lookup'],
+    ].forEach(([label, held]) => it(`drops a dead token that a renewal replaced with a copy while ${label}`, async function () {
+        appRoleClient();
+        await client.read('secret/a');
+        vault.state.revoked.add('tok-1');
+        let answer;
+        vault.state[held] = (reply, token) => {
+            if (token !== 'tok-1' || answer) {
+                return false;
+            }
+            answer = () => reply(403, INVALID);
+            return true;
+        };
+
+        const pending = settle(client.read('secret/a'));
+        while (!answer) {
+            await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+        // A renewal adopts a new AuthToken object for the same token id.
+        const current = client.__auth.__authToken;
+        client.__auth.__authToken = Object.assign(Object.create(Object.getPrototypeOf(current)), current);
+        answer();
+        const { value } = await pending;
+
+        expect(value.getData().token).to.equal('tok-2');
+        expect(logins()).to.equal(2);
+    }));
+
+    it('leaves a duck-typed auth provider without the check as it was: the 403 surfaces', async function () {
+        appRoleClient();
+        await client.read('secret/a');
+        const real = client.__auth;
+        client.__auth = { getAuthToken: () => real.getAuthToken(), cancelTokenRefresh: () => real.cancelTokenRefresh() };
+        vault.state.revoked.add('tok-1');
+
+        const { error } = await settle(client.read('secret/a'));
+
+        expect(error.statusCode).to.equal(403);
+        expect(logins()).to.equal(1);
+        expect(lookups('tok-1')).to.equal(1);
+    });
+
+    it('with autoDetect, leaves a detection the policy denies failing as before, without a login', async function () {
+        appRoleClient({ api: { url, kv: { autoDetect: true } } });
+
+        const { error } = await settle(client.read('secret/denied'));
+
+        expect(error).to.be.instanceOf(errors.VaultError);
+        expect(error.message).to.match(/^Failed to detect KV engine version for mount "secret" \(path: secret\/denied\): /);
+        expect(error.cause).to.be.instanceOf(errors.VaultHttpError);
+        expect(error.cause.statusCode).to.equal(403);
+        expect(logins()).to.equal(1);
     });
 
     it('surfaces the 403 without logging in again when lookup-self fails for another reason', async function () {
