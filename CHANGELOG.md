@@ -34,11 +34,12 @@
 
 - **A warning for a plain `http://` `api.url` off this machine (part of #202).** When `api.url` is
   `http://` and its host is not this machine (`localhost`, `*.localhost`, `127.0.0.0/8` also as
-  `::ffff:127.x.y.z`, `::1`, `0.0.0.0`, `::`), the client now logs one `warn` line when it is
-  created, because the token and secrets would cross the network unencrypted. It names only the host
-  and port, is logged once per host and port per process, and changes nothing else: the client
-  connects and works as before, and a logger that throws does not fail construction. With the default logger it goes to
-  `console.warn`; `logger: false` silences it. README: "Plain `http://` api.url".
+  `::ffff:127.x.y.z`, `::1`, `0.0.0.0`, `::`), the client now logs one `warn` line on its first
+  request, because the token and secrets would cross the network unencrypted. It names only the
+  host and port, is logged once per host and port per process, and changes nothing else: the
+  client connects and works as before, and a logger that throws does not fail the request. With
+  the default logger it goes to `console.warn`; `logger: false` silences it. README: "Plain
+  `http://` api.url".
 
 - **Security: redirects are followed only within the origin of `api.url` (#232).** Requests
   used `fetch()`'s `redirect: 'follow'`, which sends every header but `Authorization`, `Cookie`

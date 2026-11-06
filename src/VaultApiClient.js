@@ -189,12 +189,11 @@ function joinUrl(...parts) {
 
 /**
  * Host:port pairs already warned about for plain http://, so one process logs the warning once
- * per Vault host and port however many clients it creates. Capped so that a process building
- * clients for many distinct hosts cannot grow it without bound; past the cap it stays silent.
+ * per Vault host and port however many clients it creates. It holds one short string per
+ * distinct configured Vault address.
  * @type {Set<string>}
  */
 const warnedPlainHttpHosts = new Set();
-const WARNED_PLAIN_HTTP_HOSTS_MAX = 1000;
 
 /** `::ffff:127.x.y.z` as WHATWG URL prints it: `[::ffff:7fXX:XXXX]`. */
 const IPV4_MAPPED_LOOPBACK = /^\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\]$/;
@@ -224,7 +223,9 @@ function isLoopbackHost(hostname) {
  * Warn, once per host:port and process, when `api.url` is plain http:// to a host off this
  * machine: the token and every secret would cross the network unencrypted. Only the host and
  * port are named, never credentials or a path from the URL. An unparsable URL is left to fail
- * where it is used, as before, and a throwing logger does not fail construction.
+ * where it is used, as before, and a throwing logger does not fail the request. Called on a
+ * client's first request rather than in the constructor, so a VaultClient whose construction
+ * fails after building this client uses up no warning.
  * @param {*} url - `api.url`
  * @param {Object} logger
  * @returns {void}
@@ -237,19 +238,19 @@ function warnOnPlainHttp(url, logger) {
     } catch {
         return;
     }
-    if (parsed.protocol !== 'http:' || isLoopbackHost(parsed.hostname)
-        || warnedPlainHttpHosts.has(parsed.host) || warnedPlainHttpHosts.size >= WARNED_PLAIN_HTTP_HOSTS_MAX) {
+    if (parsed.protocol !== 'http:' || isLoopbackHost(parsed.hostname) || warnedPlainHttpHosts.has(parsed.host)) {
         return;
     }
-    warnedPlainHttpHosts.add(parsed.host);
     try {
         logger.warn(
             '"api.url" uses plain http:// for %s, which is not a loopback address; the Vault token and '
             + 'secrets travel unencrypted. Use https:// unless the network path is protected otherwise',
             parsed.host
         );
+        // Only once it has been logged, so a throwing logger does not use it up.
+        warnedPlainHttpHosts.add(parsed.host);
     } catch {
-        // a throwing logger must not make a working config fail to construct
+        // a throwing logger must not fail the request
     }
 }
 
@@ -297,13 +298,17 @@ class VaultApiClient {
             logger.warn('"api.timeout" is %d ms; it is in milliseconds, not seconds', this.__timeout);
         }
 
-        warnOnPlainHttp(this.__config.url, logger);
+        this.__plainHttpChecked = false;
 
         this.__namespace = namespace !== undefined ? namespace : this.__config.namespace;
         this._logger = logger;
     }
 
     makeRequest(method, path, data, headers) {
+        if (!this.__plainHttpChecked) {
+            this.__plainHttpChecked = true;
+            warnOnPlainHttp(this.__config.url, this._logger);
+        }
         data = data === undefined ? null : data;
         headers = headers === undefined ? {} : headers;
 

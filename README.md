@@ -631,14 +631,14 @@ later ones. Use `api.timeout` instead.
 
 ##### Plain `http://` api.url
 
-When `api.url` is `http://` and its host is not this machine, the client logs one warning when it
-is created: `"api.url" uses plain http:// for <host:port>, which is not a loopback address; the
-Vault token and secrets travel unencrypted. …`. Nothing else changes: the client connects and works
+When `api.url` is `http://` and its host is not this machine, the client logs one warning on its
+first request: `"api.url" uses plain http:// for <host:port>, which is not a loopback address; the
+Vault token and secrets travel unencrypted. …` (on port 80 the message names the bare host). Nothing else changes: the client connects and works
 as before. `localhost` and `*.localhost`, `127.0.0.0/8` (also as `::ffff:127.x.y.z`), `::1`, and
 the unspecified addresses `0.0.0.0` and `::` count as this machine. The warning names only the host
 and port, never credentials or a path from the URL. A process logs it once per host and port,
 however many clients it creates, so when several components share a process only the logger of the
-first client for that host sees it.
+first client to use that host and port sees it.
 
 If the connection is protected another way (a service mesh with mTLS, a TLS-terminating sidecar on
 another host), filter that message in your `logger`, or switch to `https://`.
