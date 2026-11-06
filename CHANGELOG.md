@@ -24,10 +24,12 @@
 
 - **A warning for an IAM login without `iam_server_id_header_value` (part of #202).** The signed
   STS `GetCallerIdentity` request then names no Vault server, so it could be replayed to another
-  Vault server that trusts the same AWS principal. With the value missing or empty, the `iam`
-  backend now logs one `warn` line on its first login, once per Vault server, namespace and mount in
-  a process, and logs in as before, still without the header. A client that never logs in, or whose
-  config is rejected, logs nothing. README: "`iam_server_id_header_value`".
+  Vault server that trusts the same AWS principal. With the value missing, empty or only
+  whitespace, the `iam` backend now logs one `warn` line on its first login, once per Vault server,
+  namespace and mount for each logger (clients on the default logger share one, so once per
+  process), and logs in as before, sending the same request. `logger: false` silences it without
+  using it up for other clients. A client that never logs in, or whose config is rejected, logs
+  nothing. README: "`iam_server_id_header_value`".
 
 - **Tests: the e2e suites exit without `--exit` (#220).** Plain `mocha` on `e2e.test.mjs` or
   `e2e.kv2.test.mjs` hung after the summary. Two clients holding renewable tokens were never
@@ -47,8 +49,7 @@
   share one, so once per process), and changes nothing else: the client connects and works as
   before, and a logger that throws does not fail the request (the client tries again on its next
   one). With the default logger it goes to `console.warn`; `logger: false` silences it without
-  using it up for other clients. README: "Plain
-  `http://` api.url".
+  using it up for other clients. README: "Plain `http://` api.url".
 
 - **Security: redirects are followed only within the origin of `api.url` (#232).** Requests
   used `fetch()`'s `redirect: 'follow'`, which sends every header but `Authorization`, `Cookie`

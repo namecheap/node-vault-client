@@ -2,7 +2,8 @@
  * A warning when an IAM login is configured without `iam_server_id_header_value` (part of
  * #202): the signed STS request then names no Vault server and could be replayed to another
  * one that trusts the same AWS principal. Logged on the first login, once per Vault server,
- * namespace and mount in a process; nothing else changes, including the login request itself.
+ * namespace and mount for each logger (once per process on the default logger); nothing else
+ * changes, including the login request itself.
  */
 import sinon from 'sinon';
 import { expect, use } from 'chai';
@@ -74,6 +75,15 @@ describe('IAM iam_server_id_header_value warning', function () {
         expect(serverIdWarnings(logger)).to.have.length(1);
     });
 
+    it('warns for a value of only whitespace, which is sent but names no server', async function () {
+        const logger = createSpyLogger();
+        const api = loginApi();
+        await login(logger, { iam_server_id_header_value: ' \n' }, mount(), api);
+        expect(serverIdWarnings(logger)).to.have.length(1);
+        const headers = JSON.parse(Buffer.from(api.makeRequest.firstCall.args[2].iam_request_headers, 'base64').toString());
+        expect(headers['X-Vault-AWS-IAM-Server-ID'], 'still sent as before').to.deep.equal([' \n']);
+    });
+
     it('does not warn when the value is configured', async function () {
         const logger = createSpyLogger();
         await login(logger, { iam_server_id_header_value: 'vault.example.com' }, mount());
@@ -86,17 +96,34 @@ describe('IAM iam_server_id_header_value warning', function () {
         expect(logger.warn).not.to.have.been.called;
     });
 
-    it('logs once for the whole process, however many logins and backends there are', async function () {
+    it('logs once for a logger, however many logins and backends share it', async function () {
+        const shared = createSpyLogger();
+        const name = mount();
+        const auth = await login(shared, {}, name);
+        await auth._authenticate();
+        await login(shared, {}, name);
+
+        expect(serverIdWarnings(shared)).to.have.length(1);
+    });
+
+    it('warns a logger of its own even when another logger was warned for that mount', async function () {
         const first = createSpyLogger();
         const second = createSpyLogger();
         const name = mount();
-        const auth = await login(first, {}, name);
-        await auth._authenticate();
         await login(first, {}, name);
         await login(second, {}, name);
 
         expect(serverIdWarnings(first)).to.have.length(1);
-        expect(serverIdWarnings(second), 'already warned in this process').to.have.length(0);
+        expect(serverIdWarnings(second)).to.have.length(1);
+    });
+
+    it('treats spellings of one Vault URL as the same server', async function () {
+        const logger = createSpyLogger();
+        const name = mount();
+        for (const url of ['https://vault.example.com:8200', 'https://vault.example.com:8200/', 'https://VAULT.example.com:8200//']) {
+            await login(logger, {}, name, loginApi(url, 'ns'));
+        }
+        expect(serverIdWarnings(logger)).to.have.length(1);
     });
 
     it('warns separately for another mount, namespace or Vault server', async function () {
@@ -188,6 +215,43 @@ describe('IAM iam_server_id_header_value warning', function () {
     });
 
     describe('through VaultClient', function () {
+        const iamClient = (name, logger) => {
+            const client = new VaultClient({
+                api: { url: 'https://vault.example.com:8200' },
+                logger,
+                auth: { type: 'iam', mount: name, config: { role: 'r', credentials: CREDENTIALS } },
+            });
+            sinon.stub(client.__auth.__apiClient, 'makeRequest').callsFake(answerLogin);
+            return client;
+        };
+
+        it('is silent with logger: false, and does not use up the warning for other clients', async function () {
+            const warn = sinon.stub(console, 'warn');
+            const name = mount();
+            const silent = iamClient(name, false);
+            await silent.__auth.getAuthToken();
+            silent.close();
+            expect(warn).not.to.have.been.called;
+
+            const logger = createSpyLogger();
+            const client = iamClient(name, logger);
+            await client.__auth.getAuthToken();
+            client.close();
+            expect(serverIdWarnings(logger)).to.have.length(1);
+        });
+
+        it('warns once per process with the default logger, however many clients there are', async function () {
+            const warn = sinon.stub(console, 'warn');
+            sinon.stub(console, 'info');
+            const name = mount();
+            for (let i = 0; i < 3; i++) {
+                const client = iamClient(name, undefined);
+                await client.__auth.getAuthToken();
+                client.close();
+            }
+            expect(warn.getCalls().filter((c) => c.args[0] === WARNING)).to.have.length(1);
+        });
+
         it('does not warn for a client whose construction fails after the backend was built', function () {
             const logger = createSpyLogger();
             expect(() => new VaultClient({

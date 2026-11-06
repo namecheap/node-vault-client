@@ -126,8 +126,10 @@ checks nothing. Vault rejects a login with a missing or wrong value only when th
 value. The header does not stop a replay to the same server while the signature is valid (about 15
 minutes).
 
-When `config.iam_server_id_header_value` is missing or empty, the first login logs one warning,
-once per Vault server, namespace and mount in a process, and logs in as before without the header.
+When `config.iam_server_id_header_value` is missing, empty or only whitespace, the first login
+logs one warning and logs in as before, sending the value it has. Each logger gets the warning once
+per Vault server, namespace and mount: clients on the default console logger share it, so the
+process logs it once, and a client with `logger: false` logs nothing and leaves it to the others.
 
 ### AppRole auth
 

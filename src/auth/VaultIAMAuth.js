@@ -4,14 +4,23 @@ const VaultBaseAuth = require('./VaultBaseAuth');
 const aws4 = require('aws4');
 const { fromNodeProviderChain } = require('@aws-sdk/credential-providers');
 const errors = require('../errors');
+const warnOnce = require('../warnOnce');
 
 /**
- * Logins already warned about for a missing `iam_server_id_header_value`, keyed by Vault URL,
- * namespace and mount, so one process logs the warning once per mount of each Vault server and
- * namespace however many clients it creates.
- * @type {Set<string>}
+ * The Vault server part of the warning key: origin and path of `api.url`, so spellings such as a
+ * trailing slash or an upper-case host name the same server. An unparsable value is used as is.
+ * @param {*} url
+ * @returns {string}
+ * @private
  */
-const warnedMissingServerId = new Set();
+function serverKey(url) {
+    try {
+        const parsed = new URL(url);
+        return parsed.origin + parsed.pathname.replace(/\/+$/, '');
+    } catch {
+        return String(url);
+    }
+}
 
 /**
  * Implementation of AWS Auth Backend :: IAM Authentication Method
@@ -94,33 +103,33 @@ class VaultIAMAuth extends VaultBaseAuth {
      * Without `X-Vault-AWS-IAM-Server-ID` the signed STS request names no Vault server, so a
      * server that receives it (or anyone who captures it) can replay it to another Vault server
      * that trusts the same AWS principal until the signature expires. Warn once per Vault server,
-     * namespace and mount in a process when the header will not be sent. Called on login, not in
-     * the constructor, so a client whose construction fails later (in VaultClient) uses up no
-     * warning. Never throws: a failure here must not fail the login.
+     * namespace and mount for each logger (once per process on the default logger) when the
+     * header will not be sent or holds only whitespace. Called on login, not in the constructor,
+     * so a client whose construction fails later (in VaultClient) logs nothing. Never throws: a
+     * failure here must not fail the login.
      * @returns {void}
      * @private
      */
     __warnOnMissingServerId() {
         try {
-            if (this.__iam_server_id_header_value) {
+            const value = this.__iam_server_id_header_value;
+            // A value of only whitespace is sent, but names no server either.
+            if (typeof value === 'string' ? value.trim() !== '' : value) {
                 return;
             }
             const api = this.__apiClient || {};
-            const key = [api.__config && api.__config.url, api.__namespace, this._mount]
-                .map((part) => String(part)).join('\u0000');
-            if (warnedMissingServerId.has(key)) {
-                return;
-            }
-            this._log.warn(
+            const key = [serverKey(api.__config && api.__config.url), String(api.__namespace), this._mount]
+                .join('\u0000');
+            warnOnce(
+                this._log,
+                key,
                 'IAM login on mount "%s" is not configured with "iam_server_id_header_value", so the signed '
                 + 'STS request names no Vault server and could be replayed to another one that trusts the same '
                 + 'AWS principal. Set it to the same value as iam_server_id_header_value on auth/%s/config/client',
                 this._mount, this._mount
             );
-            // Only once it has been logged, so a throwing logger does not use it up.
-            warnedMissingServerId.add(key);
         } catch {
-            // a throwing logger or an odd api object changes nothing here
+            // an odd api object changes nothing here
         }
     }
 
