@@ -53,6 +53,35 @@ describe('AuthToken', function () {
             const token = build({ renewable: undefined, ttl: 3600 });
             expect(token.isRenewable()).to.equal(false);
         });
+
+        describe('without expire_time and without a usable ttl or creation time (#236)', function () {
+            [
+                ['no ttl', { ttl: undefined }],
+                ['a null ttl', { ttl: null }],
+                ['a non-numeric ttl', { ttl: 'soon' }],
+                ['no creation_time', { creation_time: undefined }],
+                ['no ttl and no creation_time', { ttl: undefined, creation_time: undefined }],
+                ['a ttl that overflows to Infinity', { ttl: '9'.repeat(400) }],
+                ['a ttl that overflows to -Infinity', { ttl: '-' + '9'.repeat(400) }],
+            ].forEach(([label, overrides]) => it(`resolves ${label} to a null expiry, not NaN`, function () {
+                const token = build(overrides);
+
+                expect(token.getExpiresAt()).to.equal(null);
+                expect(token.getExpiresAtMilliseconds()).to.equal(null);
+                expect(token.getUnadjustedExpiresAtMilliseconds()).to.equal(null);
+                expect(token.isExpired()).to.equal(false);
+                expect(token.isRenewable()).to.equal(false);
+            }));
+
+            it('still reads a numeric-string ttl, as before', function () {
+                expect(build({ ttl: '3600' }).getExpiresAt()).to.equal(4540);
+                expect(build({ ttl: '30' }).getExpiresAt()).to.equal(1030);
+            });
+
+            it('still reads a numeric-string creation_time, as before', function () {
+                expect(build({ creation_time: '1000' }).getExpiresAt()).to.equal(4540);
+            });
+        });
     });
 
     describe('.fromResponse() expire_time handling', function () {
