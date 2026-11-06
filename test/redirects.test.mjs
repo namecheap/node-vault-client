@@ -339,6 +339,17 @@ describe('redirects (#232)', function () {
             expect(vault.seen).to.have.lengthOf(1);
         });
 
+        it('null keeps the same-origin policy instead of making fetch() reject', async function () {
+            const { error } = await settle(api({ requestOptions: { redirect: null } })
+                .makeRequest('GET', '/secret/cross', null, { 'X-Vault-Token': 't' }));
+
+            expect(error).to.be.instanceOf(errors.VaultError);
+            expect(error.message).to.match(/^Refusing to follow a redirect from /);
+            expect(capture.seen).to.deep.equal([]);
+            expect(await api({ requestOptions: { redirect: null } }).makeRequest('GET', '/secret/same'))
+                .to.have.nested.property('data.path', '/v1/secret/target');
+        });
+
         it('"error" makes fetch() reject, as before', async function () {
             const { error } = await settle(api({ requestOptions: { redirect: 'error' } }).makeRequest('GET', '/secret/same'));
 
@@ -354,9 +365,11 @@ describe('redirects (#232)', function () {
             await api({ requestOptions: { redirect: undefined } }).makeRequest('GET', '/x');
             // Not an own key, so the merge leaves it out and fetch() would never see it.
             await api({ requestOptions: Object.create({ redirect: 'follow' }) }).makeRequest('GET', '/x');
+            // null reads as not set, as for api.timeout; fetch() would reject it.
+            await api({ requestOptions: { redirect: null } }).makeRequest('GET', '/x');
 
             expect(fetchStub.getCalls().map((call) => call.args[1].redirect))
-                .to.deep.equal(['follow', 'manual', 'manual', 'manual']);
+                .to.deep.equal(['follow', 'manual', 'manual', 'manual', 'manual']);
         });
     });
 });

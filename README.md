@@ -615,7 +615,10 @@ way `fetch()` follows them: up to 20 hops, a 307 or 308 re-sends the method and 
 or a 301 or 302 after a `POST`, becomes a `GET` without a body. A redirect to any other origin
 rejects with a `VaultError` ("Refusing to follow a redirect from … to …") and nothing is sent
 there. That includes a change of scheme on the same host: if a load balancer redirects an
-`http://` `api.url` to `https://`, use the `https://` URL.
+`http://` `api.url` to `https://`, use the `https://` URL. Where `fetch()` itself gives up on a
+redirect (more than 20 hops, or a `Location` that does not parse, is not http(s) or carries
+credentials), the request rejects as it always has, with `TypeError: fetch failed` and the reason
+on `cause`, so catch both if you handle redirect failures.
 
 Earlier versions followed every redirect. Node's `fetch()` strips only `Authorization`,
 `Cookie` and `Proxy-Authorization` when a redirect crosses origins, so `X-Vault-Token` went to the
@@ -626,7 +629,8 @@ that origin's answer was returned as Vault's.
 A Vault HA standby forwards requests to the active node. It answers with a 307 to the active
 node's `api_addr` only when forwarding fails or the client sends `X-Vault-No-Request-Forwarding`.
 If that address is another origin, point `api.url` at a load balancer that routes to the active
-node. A `redirect` in `api.requestOptions` is passed to `fetch()` as it is: `'follow'` restores
+node. A `redirect` in `api.requestOptions` (other than `null`, which reads as not set) is passed
+to `fetch()` as it is: `'follow'` restores
 the old behaviour (then treat `api.url`, its DNS and anything in front of it as trusted with the
 token), `'manual'` returns a redirect as a `VaultHttpError`, and `'error'` fails it.
 

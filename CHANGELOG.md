@@ -52,7 +52,8 @@
       forwarding fails. If that address is another origin, the request now fails instead of
       following it.
     - A `redirect` in `api.requestOptions` is passed to `fetch()` as it is; `'follow'` restores
-      the old behaviour.
+      the old behaviour. `redirect: null`, which `fetch()` rejected on every request, now reads
+      as not set.
     - `fetch()` now receives `redirect: 'manual'` instead of `'follow'`, with `api.timeout: 0`
       too. Code that stubs `fetch()` and checks its options will see this.
   - README: "Redirects and the Vault token" describes the policy and the opt-out.

@@ -200,7 +200,8 @@ class VaultApiClient {
      *      per-request headers winning. Stored by reference (not deep-cloned) so live
      *      objects such as a Dispatcher keep their prototype and remain usable. Without a
      *      `redirect` there, redirects are followed only within the origin of `config.url`;
-     *      a `redirect` there is passed to `fetch()` as it is (`'follow'` follows them to any origin).
+     *      a `redirect` there other than `null` is passed to `fetch()` as it is (`'follow'`
+     *      follows them to any origin).
      * @param {number} [config.timeout=120000] - milliseconds a request may take, response
      *      headers, body and redirects included, before it rejects with
      *      {@link RequestTimeoutError}. `0` turns the limit off; `null` gives the default.
@@ -262,7 +263,8 @@ class VaultApiClient {
         );
         // Read after the merge, which copies only own enumerable keys: a `redirect` it leaves
         // out, or an explicit `redirect: undefined`, must not turn fetch()'s 'follow' back on.
-        const sameOrigin = options.redirect === undefined;
+        // null reads as "not set", as it does for api.timeout (fetch() rejected it).
+        const sameOrigin = options.redirect === undefined || options.redirect === null;
         if (sameOrigin) {
             options.redirect = 'manual';
         }
