@@ -104,6 +104,48 @@ describe('VaultKubernetesAuth', function () {
         });
     });
 
+    describe('log lines of a login (#241)', function () {
+        function recordingLogger() {
+            const lines = [];
+            const log = {};
+            for (const level of ['error', 'warn', 'info', 'debug', 'trace']) {
+                log[level] = (...args) => lines.push([level, ...args]);
+            }
+            return { log, lines };
+        }
+
+        it('logs the attempt, the read and the answer, in that order, and never the JWT or the Vault token', async function () {
+            readFileSync = sinon.stub(fs, 'readFileSync').returns(Buffer.from('super-secret-jwt'));
+            const api = apiStub();
+            api.makeRequest.resolves({ auth: { client_token: 'super-secret-vault-token' } });
+            const { log, lines } = recordingLogger();
+            const auth = new VaultKubernetesAuth(api, log, { role: 'r', tokenPath: '/tmp/tok' }, 'k8s');
+            sinon.stub(auth, '_getTokenEntity').resolves(new AuthToken('id', 'acc', 0, null, 0, 0, false));
+
+            await auth._authenticate();
+
+            expect(lines).to.deep.equal([
+                ['info', 'making authentication request: Vault role: "%s"; K8s token path: "%s"', 'r', '/tmp/tok'],
+                ['debug', 'read K8s service-account JWT from "%s" (%d bytes)', '/tmp/tok', 16],
+                ['debug', 'received Vault client token from Kubernetes login'],
+            ]);
+            expect(JSON.stringify(lines)).not.to.include('super-secret');
+        });
+
+        it('logs the attempt, and nothing else, when the token file is missing', async function () {
+            const fsError = Object.assign(new Error("ENOENT: no such file or directory, open '/tmp/tok'"), { code: 'ENOENT' });
+            readFileSync = sinon.stub(fs, 'readFileSync').throws(fsError);
+            const { log, lines } = recordingLogger();
+            const auth = new VaultKubernetesAuth(apiStub(), log, { role: 'r', tokenPath: '/tmp/tok' }, 'k8s');
+
+            await auth._authenticate().catch(() => {});
+
+            expect(lines).to.deep.equal([
+                ['info', 'making authentication request: Vault role: "%s"; K8s token path: "%s"', 'r', '/tmp/tok'],
+            ]);
+        });
+    });
+
     describe('a missing token file through the public API (#241)', function () {
         let client;
 

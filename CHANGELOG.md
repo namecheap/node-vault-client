@@ -38,9 +38,12 @@
   returning a rejected promise. A caller that only chained `.catch()` got an uncaught
   exception. The file is now read inside the chain, as `jwt` auth already did with `jwtPath`.
   The login also turns a synchronous throw from any auth backend into a rejection.
-  - *Compatibility.* The operation now rejects with the same `fs` error (`code: 'ENOENT'` and
-    the same message) instead of throwing it. Vault is still not contacted, and the next call
-    tries the login again, as before.
+  - *Compatibility.* The operation now rejects with the same `fs` error (for example
+    `code: 'ENOENT'`, with the same message) instead of throwing it, so handle it with `await` or
+    `.catch()`: a `try`/`catch` around a call that is not awaited no longer catches it. As with
+    any other failed operation, it is now logged at `error` (`read secret failed: ENOENT: …`).
+    Vault is still not contacted. Calls made while that login is still pending share its error;
+    the next call after it tries the file again, as before.
 
 # 3.1.0 Release notes (2026-11-05)
 

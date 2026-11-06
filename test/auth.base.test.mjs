@@ -230,7 +230,10 @@ describe('VaultBaseAuth', function () {
 
             let pending;
             expect(() => { pending = auth.getAuthToken(); }).to.not.throw();
+            // A caller in the same tick joins that one failed login, as with any other.
+            expect(auth.getAuthToken()).to.equal(pending);
             expect(await pending.then(() => null, (err) => err)).to.equal(boom);
+            expect(authStub).to.have.been.calledOnce;
             expect(auth.__pendingLogin).to.equal(null);
 
             expect((await auth.getAuthToken()).getId()).to.equal('second');
