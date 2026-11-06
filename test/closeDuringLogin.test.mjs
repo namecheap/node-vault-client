@@ -250,6 +250,45 @@ describe('close() while a login is in flight', function () {
         });
     });
 
+    describe('a subclass that overrides cancelTokenRefresh()', function () {
+        it('without calling super still arms no timer when VaultClient#close() runs mid-login', async function () {
+            const client = new VaultClient({
+                api: { url: 'http://127.0.0.1:1' },
+                logger: createNoopLogger(),
+                auth: { type: 'token', config: { token: 't' } },
+            });
+            const auth = new HeldAuth(sinon.createStubInstance(VaultApiClient));
+            created.push(auth);
+            auth.cancelTokenRefresh = function () { /* the subclass's own cleanup, no super */ };
+            client.__auth = auth;
+
+            const pending = auth.getAuthToken();
+            client.close();
+            auth.logins[0].resolve(renewableToken());
+            await pending;
+
+            expect(auth.__refreshTimeout).to.equal(null);
+        });
+
+        it('still hears about a token dropped after a 403, which does not count as close()', async function () {
+            const api = sinon.createStubInstance(VaultApiClient);
+            api.makeRequest.rejects(new errors.VaultHttpError(403, 'permission denied', {}));
+            const auth = new HeldAuth(api);
+            created.push(auth);
+            const override = sinon.spy(auth, 'cancelTokenRefresh');
+
+            const first = auth.getAuthToken();
+            auth.logins[0].resolve(renewableToken('tok-a'));
+            expect(await auth.checkRejectedToken(await first)).to.equal(true);
+            expect(override, 'the override runs, as before').to.have.been.calledOnce;
+
+            const second = auth.getAuthToken();
+            auth.logins[1].resolve(renewableToken('tok-b'));
+            await second;
+            expect(auth.__refreshTimeout, 'the next token is renewed').to.not.equal(null);
+        });
+    });
+
     describe('VaultClient#close()', function () {
         let server;
         let url;

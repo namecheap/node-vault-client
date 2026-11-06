@@ -64,9 +64,9 @@
   now resolves and caches its token as before, but arms no timer; a `debug` line says so. Calls
   that join that login after `close()` share its token and get no timer either. A login that starts
   after `close()` arms one as before. Dropping a token Vault no longer accepts (#235) does not count
-  as a `close()`: the token from the next login is renewed. That path now stops the dead token's
-  renewal itself rather than through `cancelTokenRefresh()`, so a subclass override of that method
-  is no longer called there.
+  as a `close()`: the token from the next login is renewed. The warnings a login logs when it
+  cannot renew its token are unchanged, and a subclass that overrides `cancelTokenRefresh()`, with
+  or without `super`, keeps both behaviours.
 
 - **Fixed: a token lookup without a usable `ttl` no longer yields a `NaN` expiry (#236).** Without
   `expire_time`, the expiry is `creation_time` (or `last_renewal_time`) plus `ttl`. A

@@ -430,6 +430,10 @@ class VaultClient {
      * @returns {void}
      */
     close() {
+        if (this.__auth && typeof this.__auth.__markClosed === 'function') {
+            // Directly as well: a subclass may override cancelTokenRefresh() without super.
+            this.__auth.__markClosed();
+        }
         if (this.__auth && typeof this.__auth.cancelTokenRefresh === 'function') {
             this.__auth.cancelTokenRefresh();
         }

@@ -384,7 +384,9 @@ describe('E2E generic backends', function () {
                     let lease;
                     try {
                         const read = makeClient().read(SECRET);
-                        await hold.sent;
+                        await Promise.race([hold.sent, delay(5000).then(() => {
+                            throw new Error(`the login request (${backend.loginPath}) was never sent`);
+                        })]);
                         client.close();
                         hold.release();
                         lease = await read;
