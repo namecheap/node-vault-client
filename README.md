@@ -525,7 +525,7 @@ Client constructor function.
 | options.api | <code>Object</code> |  |  |
 | options.api.url | <code>String</code> |  | the url of the vault server |
 | [options.api.apiVersion] | <code>String</code> | `v1` |  |
-| [options.api.requestOptions] | <code>Object</code> |  | extra options merged into every HTTP request (see [Custom transport](#custom-transport-proxy--self-signed-tls)) |
+| [options.api.requestOptions] | <code>Object</code> |  | extra options merged into every HTTP request (see [Custom transport](#custom-transport-proxy--self-signed-tls)); a `redirect` there replaces the same-origin redirect policy (see [Redirects and the Vault token](#redirects-and-the-vault-token)) |
 | [options.api.timeout] | <code>number</code> | `120000` | milliseconds a request may take, response headers, body and redirects included, before it rejects with `RequestTimeoutError`; `0` turns the limit off, `null` gives the default (see [Request timeouts](#request-timeouts)) |
 | [options.api.namespace] | <code>String</code> |  | Optional. Vault namespace, sent as the `X-Vault-Namespace` header on **every** request — login, token lookup/renewal, and all secret operations — for every auth type. This is the canonical location; `auth.config.namespace` is still honored for backward compatibility. |
 | [options.api.kv.autoDetect] | <code>boolean</code> | `false` | auto-detect the KV version of each mount on first use (see [KV v2 & generic backends](#kv-v2--generic-backends)) |
@@ -631,15 +631,29 @@ later ones. Use `api.timeout` instead.
 
 ##### Redirects and the Vault token
 
-Requests follow HTTP redirects, because Vault HA clusters answer standby nodes with a 307 to the
-active node. Node's `fetch()` strips only `Authorization`, `Cookie` and `Proxy-Authorization` when
-a redirect crosses origins — `X-Vault-Token` is **not** on that list and is forwarded. A 307 or 308
-also re-sends the request body, so a login is replayed to the redirect target with its credentials:
-the AppRole `secret_id`, the Kubernetes or JWT token, the signed IAM request and, with
-`distributedClaimAccessToken`, a Microsoft Graph access token that is a credential for systems other
-than Vault. A host that can answer for `api.url` can therefore redirect the client and receive its
-Vault token and its login credentials, so treat `api.url` (and the DNS and any load balancer in
-front of it) as trusted infrastructure.
+Requests follow HTTP redirects only within the origin (scheme, host and port) of `api.url`, the
+way `fetch()` follows them: up to 20 hops, a 307 or 308 re-sends the method and body, and a 303,
+or a 301 or 302 after a `POST`, becomes a `GET` without a body. A redirect to any other origin
+rejects with a `VaultError` ("Refusing to follow a redirect from … to …") and nothing is sent
+there. That includes a change of scheme on the same host: if a load balancer redirects an
+`http://` `api.url` to `https://`, use the `https://` URL. Where `fetch()` itself gives up on a
+redirect (more than 20 hops, or a `Location` that does not parse, is not http(s) or carries
+credentials), the request rejects as it always has, with `TypeError: fetch failed` and the reason
+on `cause`, so catch both if you handle redirect failures.
+
+Earlier versions followed every redirect. Node's `fetch()` strips only `Authorization`,
+`Cookie` and `Proxy-Authorization` when a redirect crosses origins, so `X-Vault-Token` went to the
+new origin, a 307 or 308 replayed a login body with its credentials (the AppRole `secret_id`, the
+Kubernetes or JWT token, the signed IAM request, a `distributedClaimAccessToken` Graph token), and
+that origin's answer was returned as Vault's.
+
+A Vault HA standby forwards requests to the active node. It answers with a 307 to the active
+node's `api_addr` only when forwarding fails or the client sends `X-Vault-No-Request-Forwarding`.
+If that address is another origin, point `api.url` at a load balancer that routes to the active
+node. A `redirect` in `api.requestOptions` (other than `null`, which reads as not set) is passed
+to `fetch()` as it is: `'follow'` restores
+the old behaviour (then treat `api.url`, its DNS and anything in front of it as trusted with the
+token), `'manual'` returns a redirect as a `VaultHttpError`, and `'error'` fails it.
 
 <a name="VaultClient+fillNodeConfig"></a>
 

@@ -198,6 +198,7 @@ class VaultClient {
      * @param {String} [options.api.apiVersion='v1']
      * @param {Object} [options.api.requestOptions] - extra options merged into every HTTP
      *      request (e.g. an undici `dispatcher` for a proxy/SOCKS agent or custom TLS/CA trust).
+     *      Redirects are followed only within the origin of `api.url` unless it sets `redirect`.
      *      See {@link VaultApiClient#constructor}.
      * @param {number} [options.api.timeout=120000] - milliseconds a request may take, response
      *      headers, body and redirects included, before it rejects with RequestTimeoutError.
