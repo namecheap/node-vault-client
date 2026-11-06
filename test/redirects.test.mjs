@@ -31,6 +31,9 @@ function recordingServer(handler) {
                 body,
                 contentType: req.headers['content-type'],
                 token: req.headers['x-vault-token'],
+                namespace: req.headers['x-vault-namespace'],
+                accept: req.headers.accept,
+                custom: req.headers['x-custom'],
             };
             seen.push(request);
             handler(request, res);
@@ -79,6 +82,12 @@ describe('redirects (#232)', function () {
                 const left = Number(match[1]);
                 res.writeHead(left > 0 ? 302 : 200, left > 0 ? { Location: `/v1/chain/${left - 1}` } : {});
                 res.end(left > 0 ? '' : '{"data":{"end":true}}');
+            } else if ((match = /^\/v1\/located\/(\d+)$/.exec(path))) {
+                json(res, Number(match[1]), { data: { located: true } }, { Location: '/v1/echo' });
+            } else if (path === '/v1/raw-utf8') {
+                // 'é' as its two UTF-8 bytes, unescaped, as a non-Go proxy might send it.
+                res.writeHead(302, { Location: '/v1/caf\u00c3\u00a9' });
+                res.end();
             } else if (path === '/v1/relative/a') {
                 res.writeHead(302, { Location: 'b' });
                 res.end();
@@ -172,15 +181,23 @@ describe('redirects (#232)', function () {
             expect(fetchStub).to.have.been.calledOnce;
         });
 
-        it('is refused when the Location is not http(s)', async function () {
-            sinon.stub(globalThis, 'fetch').resolves(
-                new Response(null, { status: 302, headers: { Location: 'file:///etc/passwd' } }));
+        [
+            ['is not http(s)', 'file:///etc/passwd'],
+            ['does not parse', 'http://[::1'],
+            ['carries credentials, even for the same origin', null],
+        ].forEach(([label, location]) => it(`fails as fetch() did when the Location ${label}, and sends nothing`, async function () {
+            const fetchStub = sinon.stub(globalThis, 'fetch').resolves(new Response(null, {
+                status: 302, headers: { Location: location || `${vaultUrl.replace('//', '//user:pass@')}/v1/echo` },
+            }));
 
-            const { error } = await settle(api().makeRequest('GET', '/secret/x'));
+            const { error } = await settle(api().makeRequest('GET', '/secret/x', null, { 'X-Vault-Token': 't' }));
 
-            expect(error).to.be.instanceOf(errors.VaultError);
-            expect(error.message).to.match(/^Refusing to follow a redirect from /);
-        });
+            expect(error).to.be.instanceOf(TypeError);
+            expect(error.message).to.equal('fetch failed');
+            expect(error.cause).to.be.instanceOf(TypeError);
+            expect(error.cause.message).not.to.include('pass');
+            expect(fetchStub).to.have.been.calledOnce;
+        }));
 
         it('is refused after same-origin hops that lead to it', async function () {
             const fetchStub = sinon.stub(globalThis, 'fetch');
@@ -208,12 +225,49 @@ describe('redirects (#232)', function () {
             expect(body.data.path).to.equal('/v1/relative/b');
         });
 
-        it('follows 20 redirects, as fetch() does, and refuses the 21st', async function () {
+        it('follows 20 redirects and fails on the 21st, as fetch() does', async function () {
             expect(await api().makeRequest('GET', '/chain/20')).to.deep.equal({ data: { end: true } });
 
             const { error } = await settle(api().makeRequest('GET', '/chain/21'));
-            expect(error).to.be.instanceOf(errors.VaultError);
-            expect(error.message).to.equal('Refusing to follow more than 20 redirects');
+            expect(error).to.be.instanceOf(TypeError);
+            expect(error.message).to.equal('fetch failed');
+            expect(error.cause.message).to.equal('redirect count exceeded');
+            const followed = await settle(api({ requestOptions: { redirect: 'follow' } }).makeRequest('GET', '/chain/21'));
+            expect(followed.error).to.be.instanceOf(TypeError);
+            expect(followed.error.message).to.equal('fetch failed');
+        });
+
+        [200, 201, 304].forEach((status) => it(`does not follow a Location on a ${status}`, async function () {
+            const { value, error } = await settle(api().makeRequest('GET', `/located/${status}`));
+
+            if (status === 304) {
+                expect(error).to.be.instanceOf(errors.VaultHttpError);
+                expect(error.statusCode).to.equal(304);
+            } else {
+                expect(value).to.deep.equal({ data: { located: true } });
+            }
+            expect(vault.seen.map((r) => r.path)).to.deep.equal([`/v1/located/${status}`]);
+        }));
+
+        it('decodes a Location sent as raw UTF-8 as fetch() does', async function () {
+            const expected = await api({ requestOptions: { redirect: 'follow' } }).makeRequest('GET', '/raw-utf8');
+            const actual = await api().makeRequest('GET', '/raw-utf8');
+
+            expect(actual.data.path).to.equal('/v1/caf%C3%A9');
+            expect(actual).to.deep.equal(expected);
+        });
+
+        it('cancels the body of each redirect it follows', async function () {
+            const cancel = sinon.spy();
+            const fetchStub = sinon.stub(globalThis, 'fetch');
+            fetchStub.onFirstCall().resolves(new Response(new ReadableStream({ cancel }), {
+                status: 302, headers: { Location: '/v1/b' },
+            }));
+            fetchStub.onSecondCall().resolves(new Response('{}'));
+
+            await api().makeRequest('GET', '/a');
+
+            expect(cancel).to.have.been.calledOnce;
         });
 
         it('returns a redirect without a Location as a VaultHttpError, as before', async function () {
@@ -224,10 +278,11 @@ describe('redirects (#232)', function () {
         });
 
         it('sends the same request that fetch()\'s own "follow" sends, for every redirect status and method', async function () {
-            const own = api();
-            const follow = api({ requestOptions: { redirect: 'follow' } });
+            const own = api({ requestOptions: { headers: { 'X-Custom': 'c' } } });
+            const follow = api({ requestOptions: { redirect: 'follow', headers: { 'X-Custom': 'c' } } });
+            // LIST is left out only because Node's HTTP server rejects that method.
             for (const status of [301, 302, 303, 307, 308]) {
-                for (const method of ['GET', 'POST', 'PUT', 'DELETE', 'post']) {
+                for (const method of ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'post']) {
                     const data = method === 'GET' ? null : { a: 1 };
                     const headers = { 'X-Vault-Token': 't', 'X-Vault-Namespace': 'ns' };
                     const label = `${status} ${method}`;
@@ -236,7 +291,7 @@ describe('redirects (#232)', function () {
                     const actual = await own.makeRequest(method, `/redirect/${status}`, data, headers);
 
                     expect(actual, label).to.deep.equal(expected);
-                    expect(actual.data.path, label).to.equal('/v1/echo');
+                    expect(actual.data, label).to.include({ path: '/v1/echo', token: 't', namespace: 'ns', custom: 'c' });
                 }
             }
         });
@@ -297,8 +352,11 @@ describe('redirects (#232)', function () {
             await api({ requestOptions: { redirect: 'follow' } }).makeRequest('GET', '/x');
             await api().makeRequest('GET', '/x');
             await api({ requestOptions: { redirect: undefined } }).makeRequest('GET', '/x');
+            // Not an own key, so the merge leaves it out and fetch() would never see it.
+            await api({ requestOptions: Object.create({ redirect: 'follow' }) }).makeRequest('GET', '/x');
 
-            expect(fetchStub.getCalls().map((call) => call.args[1].redirect)).to.deep.equal(['follow', 'manual', 'manual']);
+            expect(fetchStub.getCalls().map((call) => call.args[1].redirect))
+                .to.deep.equal(['follow', 'manual', 'manual', 'manual']);
         });
     });
 });

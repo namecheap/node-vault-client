@@ -86,6 +86,16 @@ function deadline(ms, signal) {
     };
 }
 
+function isPrintableAscii(value) {
+    for (let i = 0; i < value.length; i++) {
+        const code = value.charCodeAt(i);
+        if (code < 0x20 || code > 0x7e) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /**
  * Follows the redirects of a request sent with `redirect: 'manual'` as fetch()'s 'follow'
  * would, but only within the origin of the URL it was sent to. 'follow' sends every header
@@ -100,7 +110,7 @@ function deadline(ms, signal) {
  * @returns {Response|Promise<Response>} the first answer that is not a redirect
  */
 function followSameOrigin(response, url, options, hops = 0) {
-    const location = REDIRECT_STATUSES.has(response.status) ? response.headers.get('location') : null;
+    let location = REDIRECT_STATUSES.has(response.status) ? response.headers.get('location') : null;
     if (location === null) {
         return response;
     }
@@ -109,16 +119,34 @@ function followSameOrigin(response, url, options, hops = 0) {
         response.body.cancel().catch(() => {});
     }
 
+    // Where fetch() gives up on a redirect, it rejects with this; so does this, except for the
+    // one thing it adds: refusing another origin.
+    const fetchFailed = (cause) => new TypeError('fetch failed', { cause });
+    // As fetch() does: a Location sent as raw UTF-8 bytes instead of percent-encoded.
+    if (!isPrintableAscii(location)) {
+        location = Buffer.from(location, 'latin1').toString('utf8');
+    }
+    let next;
+    try {
+        next = new URL(location, url);
+    } catch (err) {
+        throw fetchFailed(err);
+    }
+    if (next.protocol !== 'http:' && next.protocol !== 'https:') {
+        throw fetchFailed(new TypeError('URL scheme must be a HTTP(S) scheme'));
+    }
+    if (hops === MAX_REDIRECTS) {
+        throw fetchFailed(new TypeError('redirect count exceeded'));
+    }
     const from = new URL(url);
-    const next = new URL(location, from);
     if (next.origin !== from.origin) {
         throw new errors.VaultError(
             `Refusing to follow a redirect from ${from.origin} to ${next.origin}: ` +
             'only redirects within the origin of "api.url" are followed'
         );
     }
-    if (hops === MAX_REDIRECTS) {
-        throw new errors.VaultError(`Refusing to follow more than ${MAX_REDIRECTS} redirects`);
+    if (next.username !== '' || next.password !== '') {
+        throw fetchFailed(new TypeError('redirect location includes credentials'));
     }
 
     let nextOptions = options;
@@ -232,9 +260,9 @@ class VaultApiClient {
                 ),
             }
         );
-        // Set after the merge: an explicit `redirect: undefined` there must not turn
-        // fetch()'s own 'follow' back on.
-        const sameOrigin = requestOptions.redirect === undefined;
+        // Read after the merge, which copies only own enumerable keys: a `redirect` it leaves
+        // out, or an explicit `redirect: undefined`, must not turn fetch()'s 'follow' back on.
+        const sameOrigin = options.redirect === undefined;
         if (sameOrigin) {
             options.redirect = 'manual';
         }

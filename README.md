@@ -612,9 +612,10 @@ later ones. Use `api.timeout` instead.
 
 Requests follow HTTP redirects only within the origin (scheme, host and port) of `api.url`, the
 way `fetch()` follows them: up to 20 hops, a 307 or 308 re-sends the method and body, and a 303,
-or a 301 or 302 after a `POST`, becomes a `GET` without a body. A redirect to any other origin,
-`https:` to `http:` on the same host included, rejects with a `VaultError` ("Refusing to follow a
-redirect from … to …") and nothing is sent there.
+or a 301 or 302 after a `POST`, becomes a `GET` without a body. A redirect to any other origin
+rejects with a `VaultError` ("Refusing to follow a redirect from … to …") and nothing is sent
+there. That includes a change of scheme on the same host: if a load balancer redirects an
+`http://` `api.url` to `https://`, use the `https://` URL.
 
 Earlier versions followed every redirect. Node's `fetch()` strips only `Authorization`,
 `Cookie` and `Proxy-Authorization` when a redirect crosses origins, so `X-Vault-Token` went to the
