@@ -276,8 +276,15 @@ class VaultBaseAuth {
 
         this._log.info('getting auth token (mount=%s)', this._mount);
 
+        // Read before _authenticate() runs: a close() from then on, even from inside it, means
+        // this login arms no refresh timer.
         const cancelCountAtStart = this.__cancelCount;
-        const pendingLogin = this._authenticate().then(authToken => {
+        // A backend that throws instead of rejecting, or returns something that is not a
+        // promise, must not throw out of every operation. The executor still calls
+        // _authenticate() synchronously, as before.
+        const authentication = new Promise((resolve) => resolve(this._authenticate()));
+
+        const pendingLogin = authentication.then(authToken => {
             this.__pendingLogin = null;
             this.__authToken = authToken;
             this.__renewalEpoch++;

@@ -112,6 +112,50 @@
     symbol-named instances registered, as the old `for...in` loop did. `clear('toString')` and
     the like, which threw a `TypeError`, now do nothing when no such instance was booted.
 
+- **A warning when `VaultClient.clear()` gets a name that is not a string (#239).** Only a
+  string clears one named instance; anything else, such as `clear(42)`, `clear(null)` or `clear`
+  used as a callback that receives an exit code or a resolved value, closes and removes every
+  instance except symbol-named ones. That was silent and rarely meant. The behaviour is unchanged,
+  but the first such call in a process now emits a `DeprecationWarning` (code
+  `NVC_DEP_CLEAR_NON_STRING`) that names the argument's type, never its value. Call `clear()` with
+  no argument to clear every instance. Node delivers warnings on the next tick, so inside a
+  `process.on('exit')` listener it is not shown; `--no-deprecation` silences it.
+
+- **Fixed: `Lease.getValue()` returned inherited members as secret values (#240).** It threw
+  only when `data[key]` was `undefined`, so `getValue('constructor')` returned `Object` and
+  `getValue('__proto__')` returned `Object.prototype`. It now returns only the response data's
+  own fields and throws `Requested key does not exist` for anything else.
+  - *Compatibility.* Own fields are returned as before, `null`, `false`, `0` and `''` included,
+    and so is a field Vault sent under a name such as `constructor`. Numeric keys and array
+    indexes work as before. When a response's `data` is JSON `null`, a string or a number, the
+    call now throws `Requested key does not exist`, where `null` gave a `TypeError` and a string
+    gave one of its characters or its length.
+
+- **Fixed: a missing Kubernetes service-account token file threw out of `read()` (#241).**
+  `kubernetes` auth read the token file before its promise chain, so a missing or unreadable
+  file made `read()`, `write()` and every other operation throw synchronously instead of
+  returning a rejected promise. A caller that only chained `.catch()` got an uncaught
+  exception. The file is now read inside the chain, as `jwt` auth already did with `jwtPath`.
+  The login also turns a synchronous throw from any auth backend into a rejection.
+  - *Compatibility.* The operation now rejects with the same `fs` error (for example
+    `code: 'ENOENT'`, with the same message) instead of throwing it, so handle it with `await` or
+    `.catch()`: a `try`/`catch` around a call that is not awaited no longer catches it. As with
+    any other failed operation, it is now logged at `error` (`read secret failed: ENOENT: …`).
+    Vault is still not contacted. Calls made while that login is still pending share its error;
+    the next call after it tries the file again, as before.
+
+- **Fixed: each caller gets its own mount-detection error (part of #202).** With
+  `api.kv.autoDetect`, requests whose paths share a first segment wait for one in-flight
+  detection. When it failed, every one of them got the same `VaultError`, whose message named
+  the first caller's path. Each caller now gets its own `VaultError`, naming its own path. The
+  underlying error stays on `cause`, shared by all.
+  - *Compatibility.* The failure is still shared: one detection request, whatever it answered
+    (a 403, a rate limit, a failed login), so the request count is unchanged. The message
+    format, the first caller's message and the error class (`VaultError`, not `VaultHttpError`)
+    are unchanged. The status is still only on `err.cause.statusCode`. Copying it onto the error
+    would let a "403 means use a default" handler swallow a mistyped mount, because Vault answers
+    403 for a mount that does not exist.
+
 # 3.1.0 Release notes (2026-11-05)
 
 Upgrading from 3.0.x needs no code change. Two things behave differently; both are covered

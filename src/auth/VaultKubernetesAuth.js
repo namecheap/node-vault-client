@@ -33,20 +33,27 @@ class VaultKubernetesAuth extends VaultBaseAuth {
             this.__role, this.__tokenPath
         );
 
-        const k8sJwtToken = fs.readFileSync(this.__tokenPath).toString();
-        this._log.debug(
-            'read K8s service-account JWT from "%s" (%d bytes)',
-            this.__tokenPath, k8sJwtToken.length
-        );
+        // Inside the chain, as in VaultJwtAuth and VaultIAMAuth: a missing or unreadable token
+        // file rejects the login instead of throwing. getAuthToken() turns any backend throw
+        // into a rejection too; this keeps the backend's own _authenticate() contract async.
+        return Promise.resolve()
+            .then(() => {
+                const k8sJwtToken = fs.readFileSync(this.__tokenPath).toString();
+                this._log.debug(
+                    'read K8s service-account JWT from "%s" (%d bytes)',
+                    this.__tokenPath, k8sJwtToken.length
+                );
 
-        return this.__apiClient.makeRequest('POST', `/auth/${this._mount}/login`, {
-            role: this.__role,
-            jwt: k8sJwtToken,
-        }).then((res) => {
-            this._log.debug('received Vault client token from Kubernetes login');
+                return this.__apiClient.makeRequest('POST', `/auth/${this._mount}/login`, {
+                    role: this.__role,
+                    jwt: k8sJwtToken,
+                });
+            })
+            .then((res) => {
+                this._log.debug('received Vault client token from Kubernetes login');
 
-            return this._getTokenEntity(res.auth.client_token);
-        });
+                return this._getTokenEntity(res.auth.client_token);
+            });
     }
 }
 

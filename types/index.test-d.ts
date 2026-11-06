@@ -60,6 +60,7 @@ async function surface(): Promise<void> {
     const lease: VaultClient.Lease = await client.read('secret/app');
     const str: string = lease.getValue('key');
     const num: number = lease.getValue<number>('port');
+    const first: string = lease.getValue<string>(0); // a list() index
     const data: Record<string, any> = lease.getData();
     const renewable: boolean = lease.isRenewable();
     const meta: Record<string, any> | undefined = lease.getMetadata();
