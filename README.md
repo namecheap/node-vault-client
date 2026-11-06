@@ -822,7 +822,7 @@ token cannot overwrite the newer one or cancel its timer.
 The object returned by `read()` and `list()` (they resolve to `Promise<Lease>`). Use its
 accessors to extract the secret data:
 
-* `getValue(key)` ⇒ <code>String</code> — value for a single key. Throws `Requested key does not exist` when the key is not a field of the response data; an inherited name such as `constructor` or `toString` does not count.
+* `getValue(key)` ⇒ <code>String</code> — value for a single key. Throws `Requested key does not exist` when the key is not a field of the response data. A name such as `constructor` or `toString` counts only when Vault sent a field by that name, never as an inherited member.
 * `getData()` ⇒ <code>Object</code> — a deep-cloned copy of the whole secret data object.
 * `isRenewable()` ⇒ <code>boolean</code> — whether the underlying lease is renewable.
 * `getMetadata()` ⇒ <code>Object</code> | <code>undefined</code> — KV v2 version metadata

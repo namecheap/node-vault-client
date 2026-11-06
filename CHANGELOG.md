@@ -38,9 +38,9 @@
   own fields and throws `Requested key does not exist` for anything else.
   - *Compatibility.* Own fields are returned as before, `null`, `false`, `0` and `''` included,
     and so is a field Vault sent under a name such as `constructor`. Numeric keys and array
-    indexes work as before. When the data is `null` or not an object (a plain-text body), the
-    call now throws `Requested key does not exist` instead of a `TypeError` for `null`, or a
-    character or the length of the text for a string.
+    indexes work as before. When a response's `data` is JSON `null`, a string or a number, the
+    call now throws `Requested key does not exist`, where `null` gave a `TypeError` and a string
+    gave one of its characters or its length.
 
 # 3.1.0 Release notes (2026-11-05)
 

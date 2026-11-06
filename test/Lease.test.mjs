@@ -81,16 +81,12 @@ describe('Lease', function () {
                 expect(list.getValue('length')).to.equal(2);
             });
 
-            [['null', null], ['a string', 'plain text body'], ['a number', 42]].forEach(([label, data]) => {
-                it(`throws the same error, not a TypeError, when the data is ${label}`, function () {
-                    const lease = new Lease('r', 'l', 10, false, data);
+            [['JSON null', null], ['a JSON string', 'text'], ['a JSON number', 42]].forEach(([label, data]) => {
+                it(`throws the standard error when the response data is ${label}`, function () {
+                    const lease = Lease.fromResponse({ data });
                     expect(() => lease.getValue('length')).to.throw(Error, 'Requested key does not exist');
+                    expect(() => lease.getValue(0)).to.throw(Error, 'Requested key does not exist');
                     expect(() => lease.getValue('x')).to.throw(Error, 'Requested key does not exist');
-                    try {
-                        lease.getValue('x');
-                    } catch (err) {
-                        expect(err).not.to.be.instanceOf(TypeError);
-                    }
                 });
             });
         });
