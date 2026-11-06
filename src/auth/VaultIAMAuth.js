@@ -4,6 +4,23 @@ const VaultBaseAuth = require('./VaultBaseAuth');
 const aws4 = require('aws4');
 const { fromNodeProviderChain } = require('@aws-sdk/credential-providers');
 const errors = require('../errors');
+const warnOnce = require('../warnOnce');
+
+/**
+ * The Vault server part of the warning key: origin and path of `api.url`, so spellings such as a
+ * trailing slash or an upper-case host name the same server. An unparsable value is used as is.
+ * @param {*} url
+ * @returns {string}
+ * @private
+ */
+function serverKey(url) {
+    try {
+        const parsed = new URL(url);
+        return parsed.origin + parsed.pathname.replace(/\/+$/, '');
+    } catch {
+        return String(url);
+    }
+}
 
 /**
  * Implementation of AWS Auth Backend :: IAM Authentication Method
@@ -51,6 +68,8 @@ class VaultIAMAuth extends VaultBaseAuth {
      * @property {String} [namespace] - Optional. Vault namespace. Applied as the X-Vault-Namespace
      *   header to every request by {@link VaultApiClient}; see {@link VaultClient#constructor}.
      * @property {String} [iam_server_id_header_value] - Optional. Header's value X-Vault-AWS-IAM-Server-ID.
+     *   Without it the signed request names no Vault server, and the first login logs a warning,
+     *   once per Vault server, namespace and mount in a process.
      * @property {String} [region] - Optional. AWS region used to sign the STS GetCallerIdentity
      *   request. When set, the request is signed against the regional STS endpoint
      *   (`sts.<region>.amazonaws.com`) and the SigV4 credential scope is bound to that region.
@@ -81,9 +100,44 @@ class VaultIAMAuth extends VaultBaseAuth {
     }
 
     /**
+     * Without `X-Vault-AWS-IAM-Server-ID` the signed STS request names no Vault server, so a
+     * server that receives it (or anyone who captures it) can replay it to another Vault server
+     * that trusts the same AWS principal until the signature expires. Warn once per Vault server,
+     * namespace and mount for each logger (once per process on the default logger) when the
+     * header will not be sent or holds only whitespace. Called on login, not in the constructor,
+     * so a client whose construction fails later (in VaultClient) logs nothing. Never throws: a
+     * failure here must not fail the login.
+     * @returns {void}
+     * @private
+     */
+    __warnOnMissingServerId() {
+        try {
+            const value = this.__iam_server_id_header_value;
+            // A value of only whitespace is sent, but names no server either.
+            if (typeof value === 'string' ? value.trim() !== '' : value) {
+                return;
+            }
+            const api = this.__apiClient || {};
+            const key = [serverKey(api.__config && api.__config.url), String(api.__namespace), this._mount]
+                .join('\u0000');
+            warnOnce(
+                this._log,
+                key,
+                'IAM login on mount "%s" is not configured with "iam_server_id_header_value", so the signed '
+                + 'STS request names no Vault server and could be replayed to another one that trusts the same '
+                + 'AWS principal. Set it to the same value as iam_server_id_header_value on auth/%s/config/client',
+                this._mount, this._mount
+            );
+        } catch {
+            // an odd api object changes nothing here
+        }
+    }
+
+    /**
      * @inheritDoc
      */
     _authenticate() {
+        this.__warnOnMissingServerId();
         this._log.info(
             'making authentication request: role=%s',
             this.__role

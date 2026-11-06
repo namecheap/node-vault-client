@@ -3,6 +3,7 @@
 const { defaultMaxListeners, getMaxListeners, setMaxListeners } = require('events');
 const errors = require('./errors');
 const { trimTrailingSlashes } = require('./slashes');
+const warnOnce = require('./warnOnce');
 
 // Above Vault's own default max_request_duration (90 s), so no request a default-configured
 // Vault would still answer is cut short, and below the 300 s headers/body timeouts of the
@@ -187,16 +188,6 @@ function joinUrl(...parts) {
         .join('/');
 }
 
-/**
- * Host:port pairs already warned about for plain http://, kept per `logger.warn` function: the
- * default console logger of every client shares `console.warn`, so a process logs the warning
- * once per Vault host and port however many clients it creates, while a client with a logger of
- * its own still gets it, and the no-op logger of `logger: false` uses up nobody else's. Each set
- * holds one short string per distinct configured Vault address.
- * @type {WeakMap<Function, Set<string>>}
- */
-const warnedPlainHttpHosts = new WeakMap();
-
 /** `::ffff:127.x.y.z` as WHATWG URL prints it: `[::ffff:7fXX:XXXX]`. */
 const IPV4_MAPPED_LOOPBACK = /^\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\]$/;
 const IPV4_LOOPBACK = /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
@@ -248,28 +239,13 @@ function plainHttpHost(url) {
  * @private
  */
 function warnOnPlainHttp(host, logger) {
-    try {
-        const warn = logger.warn;
-        let warned = warnedPlainHttpHosts.get(warn);
-        if (warned && warned.has(host)) {
-            return true;
-        }
-        logger.warn(
-            '"api.url" uses plain http:// for %s, which is not a loopback address; the Vault token and '
-            + 'secrets travel unencrypted. Use https:// unless the network path is protected otherwise',
-            host
-        );
-        // Only once it has been logged, so a throwing logger does not use it up.
-        if (!warned) {
-            warned = new Set();
-            warnedPlainHttpHosts.set(warn, warned);
-        }
-        warned.add(host);
-        return true;
-    } catch {
-        // a throwing logger must not fail the request
-        return false;
-    }
+    return warnOnce(
+        logger,
+        host,
+        '"api.url" uses plain http:// for %s, which is not a loopback address; the Vault token and '
+        + 'secrets travel unencrypted. Use https:// unless the network path is protected otherwise',
+        host
+    );
 }
 
 class VaultApiClient {
