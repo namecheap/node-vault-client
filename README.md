@@ -119,13 +119,15 @@ preserves the previous (global-endpoint) behavior.
 #### `iam_server_id_header_value`
 
 Set it to the same value as `iam_server_id_header_value` in the mount's `auth/<mount>/config/client`.
-The client then sends it in the signed request as `X-Vault-AWS-IAM-Server-ID`. That binds the
-signature to your Vault server, so anyone who sees the request (a server it reached by mistake, or
-a log) cannot replay it to another Vault server that trusts the same AWS principal. Vault rejects
-a login with a missing or wrong value only when the mount sets the value.
+The client then sends it in the signed request as `X-Vault-AWS-IAM-Server-ID`, so the signature
+names your Vault server. A Vault server that enforces its own `iam_server_id_header_value` then
+rejects a request captured from, or meant for, a different server; one that does not set the value
+checks nothing. Vault rejects a login with a missing or wrong value only when the mount sets the
+value. The header does not stop a replay to the same server while the signature is valid (about 15
+minutes).
 
-When `config.iam_server_id_header_value` is not set (or is empty), the client logs one warning,
-once per mount per process, and logs in as before without the header.
+When `config.iam_server_id_header_value` is missing or empty, the client logs one warning, once per
+Vault server, namespace and mount in a process, and logs in as before without the header.
 
 ### AppRole auth
 

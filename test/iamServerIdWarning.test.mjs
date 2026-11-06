@@ -16,7 +16,7 @@ use(sinonChai);
 
 const WARNING = 'IAM login on mount "%s" is not configured with "iam_server_id_header_value", so the signed '
     + 'STS request names no Vault server and could be replayed to another one that trusts the same '
-    + 'AWS principal. Set it, and the same value as iam_server_id_header_value on auth/%s/config/client';
+    + 'AWS principal. Set it to the same value as iam_server_id_header_value on auth/%s/config/client';
 
 const CREDENTIALS = { accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY' };
 
@@ -83,6 +83,36 @@ describe('IAM iam_server_id_header_value warning', function () {
         expect(serverIdWarnings(logger).map((c) => c.args[1])).to.deep.equal([a, b]);
     });
 
+    it('sends a truthy non-string value as before, without a warning', function () {
+        const logger = createSpyLogger();
+        iamAuth(logger, { iam_server_id_header_value: 42 }, mount());
+        expect(logger.warn).not.to.have.been.called;
+    });
+
+    it('logs nothing, and uses up no warning, when the constructor rejects the credentials', function () {
+        const logger = createSpyLogger();
+        const name = mount();
+        expect(() => iamAuth(logger, { credentials: { accessKeyId: 'AKIDEXAMPLE' } }, name)).to.throw();
+        expect(logger.warn).not.to.have.been.called;
+
+        iamAuth(logger, {}, name);
+        expect(serverIdWarnings(logger), 'the corrected client still warns').to.have.length(1);
+    });
+
+    it('warns separately for the same mount under another namespace or Vault server', function () {
+        const logger = createSpyLogger();
+        const name = mount();
+        const make = (url, namespace) => new VaultIAMAuth(new VaultApiClient({ url }, createNoopLogger(), namespace),
+            logger, { role: 'r', credentials: CREDENTIALS }, name);
+        make('https://a.example:8200', 'ns1');
+        make('https://a.example:8200', 'ns1');
+        make('https://a.example:8200', 'ns2');
+        make('https://b.example:8200', 'ns1');
+        make('https://a.example:8200', undefined);
+
+        expect(serverIdWarnings(logger)).to.have.length(4);
+    });
+
     it('does not let a throwing logger fail construction', function () {
         const logger = createNoopLogger();
         logger.warn = () => {
@@ -111,7 +141,15 @@ describe('IAM iam_server_id_header_value warning', function () {
         const [method, path, body] = api.makeRequest.firstCall.args;
         expect(method).to.equal('POST');
         expect(path).to.equal(`/auth/${name}/login`);
-        const headers = JSON.parse(Buffer.from(body.iam_request_headers, 'base64').toString());
+        const decode = (b64) => Buffer.from(b64, 'base64').toString();
+        expect(Object.keys(body).sort()).to.deep.equal([
+            'iam_http_request_method', 'iam_request_body', 'iam_request_headers', 'iam_request_url', 'role',
+        ]);
+        expect(body.role).to.equal('r');
+        expect(body.iam_http_request_method).to.equal('POST');
+        expect(decode(body.iam_request_url)).to.equal('https://sts.amazonaws.com/');
+        expect(decode(body.iam_request_body)).to.equal('Action=GetCallerIdentity&Version=2011-06-15');
+        const headers = JSON.parse(decode(body.iam_request_headers));
         expect(Object.keys(headers).map((h) => h.toLowerCase())).not.to.include('x-vault-aws-iam-server-id');
     });
 
