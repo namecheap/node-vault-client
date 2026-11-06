@@ -187,6 +187,91 @@ function joinUrl(...parts) {
         .join('/');
 }
 
+/**
+ * Host:port pairs already warned about for plain http://, kept per `logger.warn` function: the
+ * default console logger of every client shares `console.warn`, so a process logs the warning
+ * once per Vault host and port however many clients it creates, while a client with a logger of
+ * its own still gets it, and the no-op logger of `logger: false` uses up nobody else's. Each set
+ * holds one short string per distinct configured Vault address.
+ * @type {WeakMap<Function, Set<string>>}
+ */
+const warnedPlainHttpHosts = new WeakMap();
+
+/** `::ffff:127.x.y.z` as WHATWG URL prints it: `[::ffff:7fXX:XXXX]`. */
+const IPV4_MAPPED_LOOPBACK = /^\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\]$/;
+const IPV4_LOOPBACK = /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+
+/**
+ * True for a host that never leaves the machine: `localhost`, 127.0.0.0/8, its IPv4-mapped IPv6
+ * form `::ffff:127.0.0.0/104`, `::1`, and the unspecified addresses `0.0.0.0` and `::`, which
+ * connect to this machine. Subdomains of `localhost` are not included: Node resolves them through
+ * the system resolver, which can send them anywhere. `hostname` is WHATWG-normalised, so IPv4
+ * shorthands such as `127.1` already read `127.0.0.1` and IPv6 is bracketed and compressed.
+ * @param {string} hostname - `URL#hostname`
+ * @returns {boolean}
+ * @private
+ */
+function isLoopbackHost(hostname) {
+    const host = hostname.endsWith('.') ? hostname.slice(0, -1) : hostname;
+    return host === 'localhost'
+        || host === '[::1]'
+        || host === '[::]'
+        || host === '0.0.0.0'
+        || IPV4_MAPPED_LOOPBACK.test(host)
+        || IPV4_LOOPBACK.test(host);
+}
+
+/**
+ * The host:port to warn about when `api.url` is plain http:// to a host off this machine (the
+ * token and every secret would cross the network unencrypted), or null. An unparsable URL gives
+ * null and is left to fail where it is used, as before.
+ * @param {*} url - `api.url`
+ * @returns {string|null}
+ * @private
+ */
+function plainHttpHost(url) {
+    try {
+        const parsed = new URL(url);
+        return parsed.protocol === 'http:' && !isLoopbackHost(parsed.hostname) ? parsed.host : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Log the plain http:// warning for `host` unless this `logger.warn` has logged it already.
+ * Only the host and port are named, never credentials or a path from the URL.
+ * @param {string} host
+ * @param {Object} logger
+ * @returns {boolean} true once the warning is logged or was logged before; false when the
+ *      logger threw, so the caller can try again on its next request
+ * @private
+ */
+function warnOnPlainHttp(host, logger) {
+    try {
+        const warn = logger.warn;
+        let warned = warnedPlainHttpHosts.get(warn);
+        if (warned && warned.has(host)) {
+            return true;
+        }
+        logger.warn(
+            '"api.url" uses plain http:// for %s, which is not a loopback address; the Vault token and '
+            + 'secrets travel unencrypted. Use https:// unless the network path is protected otherwise',
+            host
+        );
+        // Only once it has been logged, so a throwing logger does not use it up.
+        if (!warned) {
+            warned = new Set();
+            warnedPlainHttpHosts.set(warn, warned);
+        }
+        warned.add(host);
+        return true;
+    } catch {
+        // a throwing logger must not fail the request
+        return false;
+    }
+}
+
 class VaultApiClient {
 
     /**
@@ -231,11 +316,18 @@ class VaultApiClient {
             logger.warn('"api.timeout" is %d ms; it is in milliseconds, not seconds', this.__timeout);
         }
 
+        // Logged on the first request rather than here, so a VaultClient whose construction
+        // fails after building this client logs nothing.
+        this.__plainHttpHost = plainHttpHost(this.__config.url);
+
         this.__namespace = namespace !== undefined ? namespace : this.__config.namespace;
         this._logger = logger;
     }
 
     makeRequest(method, path, data, headers) {
+        if (this.__plainHttpHost !== null && warnOnPlainHttp(this.__plainHttpHost, this._logger)) {
+            this.__plainHttpHost = null;
+        }
         data = data === undefined ? null : data;
         headers = headers === undefined ? {} : headers;
 
