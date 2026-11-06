@@ -365,6 +365,73 @@ describe('MountResolver', function () {
             }
         });
 
+        describe('the error each caller gets (#202)', function () {
+            function heldDetection() {
+                let fail;
+                const detectFn = sinon.stub().returns(new Promise((resolve, reject) => { fail = reject; }));
+                return { detectFn, fail: (err) => fail(err) };
+            }
+
+            it('names each concurrent caller\'s own path, over one shared detection', async function () {
+                const { detectFn, fail } = heldDetection();
+                const resolver = new MountResolver(detectFn, {}, logger);
+                const cause = new errors.VaultHttpError(403, '{"errors":["permission denied"]}', { errors: ['permission denied'] });
+
+                const first = resolver.resolve('secret/app/one').then(() => null, (err) => err);
+                const second = resolver.resolve('secret/app/two').then(() => null, (err) => err);
+                fail(cause);
+                const [a, b] = await Promise.all([first, second]);
+
+                expect(detectFn).to.have.been.calledOnce;
+                expect(a.message).to.equal('Failed to detect KV engine version for mount "secret" (path: secret/app/one): ' +
+                    '403 - {"errors":["permission denied"]}. Set api.engines or disable autoDetect to bypass detection.');
+                expect(b.message).to.equal('Failed to detect KV engine version for mount "secret" (path: secret/app/two): ' +
+                    '403 - {"errors":["permission denied"]}. Set api.engines or disable autoDetect to bypass detection.');
+                expect(a).not.to.equal(b);
+                expect(a.cause).to.equal(cause);
+                expect(b.cause).to.equal(cause);
+            });
+
+            it('carries the HTTP status as statusCode, and stays a VaultError', async function () {
+                const detectFn = sinon.stub().rejects(new errors.VaultHttpError(403, 'denied', undefined));
+                const resolver = new MountResolver(detectFn, {}, logger);
+
+                const err = await resolver.resolve('secret/foo').then(() => null, (e) => e);
+
+                expect(err).to.be.instanceOf(errors.VaultError);
+                expect(err).not.to.be.instanceOf(errors.VaultHttpError);
+                expect(err.statusCode).to.equal(403);
+            });
+
+            it('has no statusCode when the failure was not an HTTP answer', async function () {
+                const detectFn = sinon.stub().rejects(new Error('socket hang up'));
+                const resolver = new MountResolver(detectFn, {}, logger);
+
+                const err = await resolver.resolve('secret/foo').then(() => null, (e) => e);
+
+                expect(err).to.be.instanceOf(errors.VaultError);
+                expect(err).not.to.have.property('statusCode');
+            });
+
+            it('gives a caller that joined and then started its own detection only that detection\'s error', async function () {
+                const detectFn = sinon.stub();
+                detectFn.onFirstCall().returns(mkDetect('team/kvA', 2));
+                detectFn.onSecondCall().rejects(new errors.VaultHttpError(403, 'denied', undefined));
+                const resolver = new MountResolver(detectFn, {}, logger);
+
+                const [a, b] = await Promise.all([
+                    resolver.resolve('team/kvA/x'),
+                    resolver.resolve('team/kvB/y').then(() => null, (err) => err),
+                ]);
+
+                expect(a.version).to.equal(2);
+                expect(b.message).to.match(/^Failed to detect KV engine version for mount "team\/kvB\/y" \(path: team\/kvB\/y\): 403 /);
+                expect(b.message.match(/Failed to detect/g)).to.have.lengthOf(1);
+                expect(b.cause).to.be.instanceOf(errors.VaultHttpError);
+                expect(b.statusCode).to.equal(403);
+            });
+        });
+
         it('clears the in-flight entry on failure so future calls retry', async function () {
             let callCount = 0;
             const detectFn = sinon.stub().callsFake(() => {

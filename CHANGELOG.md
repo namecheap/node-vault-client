@@ -32,6 +32,16 @@
   used, and cancels the timer so the run exits even without `--exit`. `--exit` stays in the
   scripts. Test-only; no library change.
 
+- **Fixed: each caller gets its own mount-detection error, with the HTTP status (part of
+  #202).** With `api.kv.autoDetect`, requests that arrive while a mount's detection is in flight
+  share that one detection. When it failed, every one of them got the same `VaultError`, whose
+  message named the first caller's path. The error also had no `statusCode`, even when Vault
+  had answered with one. Now each caller gets its own `VaultError`, naming its own path, with
+  the HTTP status copied to `statusCode`. The underlying error stays on `cause`, shared by all.
+  - *Compatibility.* The message format is unchanged, and so is the first caller's message. The
+    error is still a `VaultError`, not a `VaultHttpError`. Code that branches on `err.statusCode`
+    now sees a failed detection's status, such as 403, where before it found `undefined`.
+
 # 3.1.0 Release notes (2026-11-05)
 
 Upgrading from 3.0.x needs no code change. Two things behave differently; both are covered
