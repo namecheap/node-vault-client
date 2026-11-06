@@ -33,12 +33,14 @@
   scripts. Test-only; no library change.
 
 - **A warning for a plain `http://` `api.url` off this machine (part of #202).** When `api.url` is
-  `http://` and its host is not this machine (`localhost`, `*.localhost`, `127.0.0.0/8` also as
+  `http://` and its host is not this machine (`localhost`, `127.0.0.0/8` also as
   `::ffff:127.x.y.z`, `::1`, `0.0.0.0`, `::`), the client now logs one `warn` line on its first
   request, because the token and secrets would cross the network unencrypted. It names only the
-  host and port, is logged once per host and port per process, and changes nothing else: the
-  client connects and works as before, and a logger that throws does not fail the request. With
-  the default logger it goes to `console.warn`; `logger: false` silences it. README: "Plain
+  host and port, is logged once per host and port for each logger (clients on the default logger
+  share one, so once per process), and changes nothing else: the client connects and works as
+  before, and a logger that throws does not fail the request (the client tries again on its next
+  one). With the default logger it goes to `console.warn`; `logger: false` silences it without
+  using it up for other clients. README: "Plain
   `http://` api.url".
 
 - **Security: redirects are followed only within the origin of `api.url` (#232).** Requests

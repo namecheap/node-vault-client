@@ -1,8 +1,8 @@
 /**
  * A warning when `api.url` is plain http:// to a host off this machine (part of #202): the
  * token and secrets would cross the network unencrypted. The warning names the host only, is
- * logged on a client's first request, once per host and port per process, and changes nothing
- * else.
+ * logged on a client's first request, once per host and port for each logger (the default
+ * console logger is shared, so once per process), and changes nothing else.
  */
 import sinon from 'sinon';
 import { expect, use } from 'chai';
@@ -73,7 +73,6 @@ describe('plain http:// warning for api.url', function () {
     for (const url of [
         'http://localhost:8200',
         'http://LOCALHOST.:8200',
-        'http://vault.localhost:8200',
         'http://127.0.0.1:8200',
         'http://127.1:8200',
         'http://127.255.0.9',
@@ -100,7 +99,9 @@ describe('plain http:// warning for api.url', function () {
 
     it('does not treat a host that only starts with 127 or localhost as loopback', async function () {
         const logger = createSpyLogger();
-        const lookalikes = [`127.0.0.1.${host('nip')}`, `localhost.${host('evil')}`, `${host('localhost')}`];
+        // A localhost subdomain goes through the system resolver, which can send it anywhere.
+        const lookalikes = [`127.0.0.1.${host('nip')}`, `localhost.${host('evil')}`, `${host('localhost')}`,
+            `${host('vault')}.localhost`];
         for (const name of lookalikes) {
             await firstRequest(`http://${name}:8200`, logger);
         }
@@ -130,30 +131,35 @@ describe('plain http:// warning for api.url', function () {
         expect(plainHttpWarnings(logger).map((c) => c.args[1])).to.deep.equal([name]);
     });
 
-    it('warns once per client and per host for the whole process', async function () {
+    it('warns once per host for a logger, however many clients share it', async function () {
+        const shared = createSpyLogger();
+        const name = host();
+        const api = await firstRequest(`http://${name}:8200`, shared);
+        await api.makeRequest('GET', 'sys/health', null, {});
+        await firstRequest(`http://${name}:8200/`, shared);
+
+        expect(plainHttpWarnings(shared)).to.have.length(1);
+    });
+
+    it('warns a logger of its own even when another logger was warned for that host', async function () {
         const first = createSpyLogger();
         const second = createSpyLogger();
         const name = host();
-        const api = await firstRequest(`http://${name}:8200`, first);
-        await api.makeRequest('GET', 'sys/health', null, {});
-        await firstRequest(`http://${name}:8200/`, first);
+        await firstRequest(`http://${name}:8200`, first);
         await firstRequest(`http://${name}:8200`, second);
 
         expect(plainHttpWarnings(first)).to.have.length(1);
-        expect(plainHttpWarnings(second), 'already warned in this process').to.have.length(0);
+        expect(plainHttpWarnings(second)).to.have.length(1);
     });
 
-    it('warns again for another host or port, past any number of hosts', async function () {
+    it('warns again for another host or port', async function () {
         const logger = createSpyLogger();
-        const names = Array.from({ length: 1100 }, () => host('many'));
-        for (const name of names) {
-            await firstRequest(`http://${name}:8200`, logger);
-        }
         const a = host();
         await firstRequest(`http://${a}:8200`, logger);
         await firstRequest(`http://${a}:8201`, logger);
+        await firstRequest(`http://${host()}:8200`, logger);
 
-        expect(plainHttpWarnings(logger)).to.have.length(names.length + 2);
+        expect(plainHttpWarnings(logger)).to.have.length(3);
     });
 
     it('does not fail the request when the logger throws, and warns once a logger works', async function () {
@@ -168,6 +174,25 @@ describe('plain http:// warning for api.url', function () {
         const logger = createSpyLogger();
         await firstRequest(`http://${name}:8200`, logger);
         expect(plainHttpWarnings(logger), 'the throwing logger did not use it up').to.have.length(1);
+    });
+
+    it('tries again on the same client\'s next request after its logger threw', async function () {
+        const logger = createSpyLogger();
+        const warn = logger.warn;
+        let calls = 0;
+        logger.warn = function (...args) {
+            calls++;
+            if (calls === 1) {
+                throw new Error('logger down');
+            }
+            return warn.apply(this, args);
+        };
+        const api = await firstRequest(`http://${host()}:8200`, logger);
+        await api.makeRequest('GET', 'sys/health', null, {});
+        await api.makeRequest('GET', 'sys/health', null, {});
+
+        expect(calls, 'one failed attempt, one logged warning, then nothing').to.equal(2);
+        expect(plainHttpWarnings({ warn })).to.have.length(1);
     });
 
     it('leaves an unparsable or missing url to fail where it is used, as before', async function () {
@@ -225,11 +250,29 @@ describe('plain http:// warning for api.url', function () {
             expect(warn.getCalls().filter((c) => c.args[0] === WARNING).map((c) => c.args[1])).to.deep.equal([`${name}:8200`]);
         });
 
-        it('is silent with logger: false', async function () {
+        it('warns once per process with the default logger, however many clients there are', async function () {
             const warn = sinon.stub(console, 'warn');
-            const client = new VaultClient({ api: { url: `http://${host()}:8200`, timeout: 0 }, logger: false, auth: tokenAuth });
-            await client.request('GET', 'sys/health').catch(() => {});
+            sinon.stub(console, 'info');
+            sinon.stub(console, 'debug');
+            const url = `http://${host()}:8200`;
+            for (let i = 0; i < 3; i++) {
+                const client = new VaultClient({ api: { url, timeout: 0 }, auth: tokenAuth });
+                await client.request('GET', 'sys/health').catch(() => {});
+            }
+            expect(warn.getCalls().filter((c) => c.args[0] === WARNING)).to.have.length(1);
+        });
+
+        it('is silent with logger: false, and does not use up the warning for other clients', async function () {
+            const warn = sinon.stub(console, 'warn');
+            const url = `http://${host()}:8200`;
+            const silent = new VaultClient({ api: { url, timeout: 0 }, logger: false, auth: tokenAuth });
+            await silent.request('GET', 'sys/health').catch(() => {});
             expect(warn).not.to.have.been.called;
+
+            const logger = createSpyLogger();
+            const client = new VaultClient({ api: { url, timeout: 0 }, logger, auth: tokenAuth });
+            await client.request('GET', 'sys/health').catch(() => {});
+            expect(plainHttpWarnings(logger)).to.have.length(1);
         });
     });
 });

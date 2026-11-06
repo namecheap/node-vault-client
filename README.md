@@ -633,12 +633,15 @@ later ones. Use `api.timeout` instead.
 
 When `api.url` is `http://` and its host is not this machine, the client logs one warning on its
 first request: `"api.url" uses plain http:// for <host:port>, which is not a loopback address; the
-Vault token and secrets travel unencrypted. …` (on port 80 the message names the bare host). Nothing else changes: the client connects and works
-as before. `localhost` and `*.localhost`, `127.0.0.0/8` (also as `::ffff:127.x.y.z`), `::1`, and
-the unspecified addresses `0.0.0.0` and `::` count as this machine. The warning names only the host
-and port, never credentials or a path from the URL. A process logs it once per host and port,
-however many clients it creates, so when several components share a process only the logger of the
-first client to use that host and port sees it.
+Vault token and secrets travel unencrypted. …` (on port 80 the message names the bare host).
+Nothing else changes: the client connects and works as before. `localhost`, `127.0.0.0/8` (also
+as `::ffff:127.x.y.z`), `::1`, and the unspecified addresses `0.0.0.0` and `::` count as this
+machine; subdomains of `localhost` do not, since the system resolver can send them anywhere. The
+warning names only the host and port, never credentials or a path from the URL. Each logger gets
+it once per host and port: clients on the default console logger share it, so the process logs it
+once, and a client with `logger: false` logs nothing and leaves the warning to the others. If the
+logger throws, the client tries again on its next request. Only `api.url` is checked, not where a
+proxy `dispatcher` or `requestOptions.redirect: 'follow'` sends the request.
 
 If the connection is protected another way (a service mesh with mTLS, a TLS-terminating sidecar on
 another host), filter that message in your `logger`, or switch to `https://`.
