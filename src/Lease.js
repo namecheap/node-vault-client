@@ -29,9 +29,11 @@ class Lease {
     }
 
     /**
-     * @param {String} key
-     * @returns {String}
-     * @throws {Error} 'Requested key does not exist' unless `key` is a field of the response data
+     * @param {String|number} key - a field name, or an index when the data is an array (a list)
+     * @returns {*} the field's value as Vault returned it: a string for most secrets, but
+     *      `null`, `false`, `0`, an object or an array are returned as they are
+     * @throws {Error} 'Requested key does not exist' unless `key` is an own property of the
+     *      response data whose value is not `undefined`
      */
     getValue(key) {
         const data = this.__data;
