@@ -12,6 +12,11 @@ const DEFAULT_TIMEOUT_MS = 120000;
 const MAX_TIMEOUT_MS = 2147483647;
 // The listener limit fetch() gives a signal it is passed (see deadline()).
 const FETCH_MAX_LISTENERS = 1500;
+// The statuses fetch() follows, its limit on hops, and the headers it drops when a redirect
+// turns the request into a GET without a body (Fetch Standard, "HTTP-redirect fetch").
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const MAX_REDIRECTS = 20;
+const BODY_HEADERS = new Set(['content-encoding', 'content-language', 'content-location', 'content-type']);
 
 function validateTimeout(timeout) {
     // null reads as "not set", as it does in a config file.
@@ -81,6 +86,87 @@ function deadline(ms, signal) {
     };
 }
 
+function isPrintableAscii(value) {
+    for (let i = 0; i < value.length; i++) {
+        const code = value.charCodeAt(i);
+        if (code < 0x20 || code > 0x7e) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * Follows the redirects of a request sent with `redirect: 'manual'` as fetch()'s 'follow'
+ * would, but only within the origin of the URL it was sent to. 'follow' sends every header
+ * but Authorization, Cookie and Proxy-Authorization to any origin a Location names, so
+ * X-Vault-Token, and on a 307/308 a login body, would reach that origin, and its answer would
+ * be read as Vault's.
+ *
+ * @param {Response} response - the answer to the request
+ * @param {string} url - the URL the request was sent to
+ * @param {Object} options - the fetch() options it was sent with
+ * @param {number} [hops=0] - redirects followed so far
+ * @returns {Response|Promise<Response>} the first answer that is not a redirect
+ */
+function followSameOrigin(response, url, options, hops = 0) {
+    let location = REDIRECT_STATUSES.has(response.status) ? response.headers.get('location') : null;
+    if (location === null) {
+        return response;
+    }
+    // A redirect's own body is never read.
+    if (response.body) {
+        response.body.cancel().catch(() => {});
+    }
+
+    // Where fetch() gives up on a redirect, it rejects with this; so does this, except for the
+    // one thing it adds: refusing another origin.
+    const fetchFailed = (cause) => new TypeError('fetch failed', { cause });
+    // As fetch() does: a Location sent as raw UTF-8 bytes instead of percent-encoded.
+    if (!isPrintableAscii(location)) {
+        location = Buffer.from(location, 'latin1').toString('utf8');
+    }
+    let next;
+    try {
+        next = new URL(location, url);
+    } catch (err) {
+        throw fetchFailed(err);
+    }
+    if (next.protocol !== 'http:' && next.protocol !== 'https:') {
+        throw fetchFailed(new TypeError('URL scheme must be a HTTP(S) scheme'));
+    }
+    if (hops === MAX_REDIRECTS) {
+        throw fetchFailed(new TypeError('redirect count exceeded'));
+    }
+    const from = new URL(url);
+    if (next.origin !== from.origin) {
+        throw new errors.VaultError(
+            `Refusing to follow a redirect from ${from.origin} to ${next.origin}: ` +
+            'only redirects within the origin of "api.url" are followed'
+        );
+    }
+    if (next.username !== '' || next.password !== '') {
+        throw fetchFailed(new TypeError('redirect location includes credentials'));
+    }
+
+    let nextOptions = options;
+    const method = options.method.toUpperCase();
+    if ((response.status === 303 && method !== 'GET' && method !== 'HEAD')
+        || ((response.status === 301 || response.status === 302) && method === 'POST')) {
+        const headers = {};
+        for (const [name, value] of Object.entries(options.headers)) {
+            if (!BODY_HEADERS.has(name.toLowerCase())) {
+                headers[name] = value;
+            }
+        }
+        nextOptions = Object.assign({}, options, { method: 'GET', headers });
+        delete nextOptions.body;
+    }
+
+    return fetch(next.href, nextOptions)
+        .then((nextResponse) => followSameOrigin(nextResponse, next.href, nextOptions, hops + 1));
+}
+
 /**
  * Joins URL segments with single slashes while preserving the leading
  * protocol (e.g. "https://"). Replaces the former `url-join` dependency.
@@ -112,7 +198,10 @@ class VaultApiClient {
      *      or for custom TLS trust (self-signed / internal CA). Request-specific fields
      *      (`method`, `body`) always take precedence; `headers` are merged with the
      *      per-request headers winning. Stored by reference (not deep-cloned) so live
-     *      objects such as a Dispatcher keep their prototype and remain usable.
+     *      objects such as a Dispatcher keep their prototype and remain usable. Without a
+     *      `redirect` there, redirects are followed only within the origin of `config.url`;
+     *      a `redirect` there other than `null` is passed to `fetch()` as it is (`'follow'`
+     *      follows them to any origin).
      * @param {number} [config.timeout=120000] - milliseconds a request may take, response
      *      headers, body and redirects included, before it rejects with
      *      {@link RequestTimeoutError}. `0` turns the limit off; `null` gives the default.
@@ -160,7 +249,7 @@ class VaultApiClient {
         const namespaceHeader = this.__namespace ? { 'X-Vault-Namespace': this.__namespace } : {};
 
         const options = Object.assign(
-            { redirect: 'follow' },
+            {},
             requestOptions,
             {
                 method: method,
@@ -172,6 +261,13 @@ class VaultApiClient {
                 ),
             }
         );
+        // Read after the merge, which copies only own enumerable keys: a `redirect` it leaves
+        // out, or an explicit `redirect: undefined`, must not turn fetch()'s 'follow' back on.
+        // null reads as "not set", as it does for api.timeout (fetch() rejected it).
+        const sameOrigin = options.redirect === undefined || options.redirect === null;
+        if (sameOrigin) {
+            options.redirect = 'manual';
+        }
         if (data !== null) {
             options.body = JSON.stringify(data);
             // Only set the default content-type if the caller did not already supply one.
@@ -208,6 +304,10 @@ class VaultApiClient {
                 limit.clear();
                 throw err;
             }
+        }
+
+        if (sameOrigin) {
+            pending = pending.then((response) => followSameOrigin(response, uri, options));
         }
 
         const request = pending.then((response) => {
