@@ -71,6 +71,25 @@
     to fit in a number used to give a deadline in the past, so every call logged in again. Real
     Vault always sends a numeric `ttl`, so this only affects proxies, mocks and test doubles.
 
+- **Fixed: a token revoked on the Vault side is replaced on the next request (#235).** The client
+  logged in again only once its own clock said the token had expired. After a server-side
+  revocation, every request failed with `VaultHttpError` 403 until then, even when the auth backend
+  could log in again at once. Now a 403 on a secret request (the KV methods, `request()`, and the
+  `autoDetect` mount detection) is checked with `auth/token/lookup-self`. If Vault no longer accepts
+  the token, the client drops it with its renewal timer, logs in again and sends the request once
+  more.
+  - *Compatibility.* A policy denial is returned as before and costs no login, so an AppRole
+    `secret_id` with limited uses is not spent on it. It does cost one extra `lookup-self` request
+    (with `autoDetect`, also for a mount the token may not see), which counts against a token with
+    limited uses. Each request is sent again at most once, and one login serves every request
+    rejected with the same token. When that attempt fails, the call rejects with its error (a
+    failed login, a 404, a timeout) rather than the dead token's 403. A 403 on the login itself
+    and any 403 under `token` auth are returned as before, without a lookup. Other statuses are
+    untouched.
+  - Revoking a client's token no longer locks it out: it logs straight back in. To cut a client
+    off, also revoke or rotate its login credential.
+  - README: "Tokens revoked on the Vault side".
+
 - **Fixed: `Lease.getValue()` returned inherited members as secret values (#240).** It threw
   only when `data[key]` was `undefined`, so `getValue('constructor')` returned `Object` and
   `getValue('__proto__')` returned `Object.prototype`. It now returns only the response data's
