@@ -43,6 +43,57 @@ describe('Lease', function () {
             const lease = Lease.fromResponse(response);
             expect(() => lease.getValue('missing')).to.throw('Requested key does not exist');
         });
+
+        describe('returns own fields of the response data only (#240)', function () {
+            ['constructor', 'valueOf', 'toString', 'hasOwnProperty', '__proto__', 'isPrototypeOf'].forEach((key) => {
+                it(`throws for the inherited "${key}"`, function () {
+                    const lease = Lease.fromResponse(response);
+                    expect(() => lease.getValue(key)).to.throw(Error, 'Requested key does not exist');
+                });
+            });
+
+            it('returns a field Vault sent under a prototype-member name', function () {
+                const lease = Lease.fromResponse(JSON.parse(
+                    '{"data":{"constructor":"c","toString":"t","__proto__":"p","hasOwnProperty":"h"}}'));
+                expect(lease.getValue('constructor')).to.equal('c');
+                expect(lease.getValue('toString')).to.equal('t');
+                expect(lease.getValue('__proto__')).to.equal('p');
+                expect(lease.getValue('hasOwnProperty')).to.equal('h');
+            });
+
+            it('still returns null, false, 0 and empty-string values', function () {
+                const lease = Lease.fromResponse({ data: { n: null, f: false, z: 0, e: '' } });
+                expect(lease.getValue('n')).to.equal(null);
+                expect(lease.getValue('f')).to.equal(false);
+                expect(lease.getValue('z')).to.equal(0);
+                expect(lease.getValue('e')).to.equal('');
+            });
+
+            it('still throws for an own field whose value is undefined', function () {
+                const lease = new Lease('r', 'l', 10, false, { u: undefined });
+                expect(() => lease.getValue('u')).to.throw('Requested key does not exist');
+            });
+
+            it('still reads a numeric key and an array index, as before', function () {
+                expect(Lease.fromResponse({ data: { 0: 'zero' } }).getValue(0)).to.equal('zero');
+                const list = new Lease('r', 'l', 10, false, ['a', 'b']);
+                expect(list.getValue(1)).to.equal('b');
+                expect(list.getValue('length')).to.equal(2);
+            });
+
+            [['null', null], ['a string', 'plain text body'], ['a number', 42]].forEach(([label, data]) => {
+                it(`throws the same error, not a TypeError, when the data is ${label}`, function () {
+                    const lease = new Lease('r', 'l', 10, false, data);
+                    expect(() => lease.getValue('length')).to.throw(Error, 'Requested key does not exist');
+                    expect(() => lease.getValue('x')).to.throw(Error, 'Requested key does not exist');
+                    try {
+                        lease.getValue('x');
+                    } catch (err) {
+                        expect(err).not.to.be.instanceOf(TypeError);
+                    }
+                });
+            });
+        });
     });
 
     describe('#getData()', function () {

@@ -31,13 +31,17 @@ class Lease {
     /**
      * @param {String} key
      * @returns {String}
+     * @throws {Error} 'Requested key does not exist' unless `key` is a field of the response data
      */
     getValue(key) {
-        if (this.__data[key] === undefined) {
+        const data = this.__data;
+        // Own fields only: an inherited member such as `constructor` or `__proto__` is not
+        // something Vault returned.
+        if (data === null || typeof data !== 'object' || !Object.hasOwn(data, key) || data[key] === undefined) {
             throw new Error('Requested key does not exist');
         }
 
-        return this.__data[key];
+        return data[key];
     }
 
     /**

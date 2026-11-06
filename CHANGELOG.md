@@ -32,6 +32,16 @@
   used, and cancels the timer so the run exits even without `--exit`. `--exit` stays in the
   scripts. Test-only; no library change.
 
+- **Fixed: `Lease.getValue()` returned inherited members as secret values (#240).** It threw
+  only when `data[key]` was `undefined`, so `getValue('constructor')` returned `Object` and
+  `getValue('__proto__')` returned `Object.prototype`. It now returns only the response data's
+  own fields and throws `Requested key does not exist` for anything else.
+  - *Compatibility.* Own fields are returned as before, `null`, `false`, `0` and `''` included,
+    and so is a field Vault sent under a name such as `constructor`. Numeric keys and array
+    indexes work as before. When the data is `null` or not an object (a plain-text body), the
+    call now throws `Requested key does not exist` instead of a `TypeError` for `null`, or a
+    character or the length of the text for a string.
+
 # 3.1.0 Release notes (2026-11-05)
 
 Upgrading from 3.0.x needs no code change. Two things behave differently; both are covered
