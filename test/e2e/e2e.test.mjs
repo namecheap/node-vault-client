@@ -6,6 +6,7 @@ import { expect } from 'chai';
 import VaultClient from '../../src/VaultClient.js';
 import errors from '../../src/errors.js';
 import { describeKvPathValidation } from './kv-path-validation.mjs';
+import { createSpyLogger } from '../helpers/logger.mjs';
 
 const _require = createRequire(import.meta.url);
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -364,6 +365,48 @@ describe('E2E', function () {
 
                 const res = await vaultClient.read('secret/tst-val');
                 expect(res.getData()).is.deep.equal(testData);
+            });
+
+            describe('a 403 on a secret request (#235)', function () {
+                let logger;
+                const root = { 'X-Vault-Token': '8274d2a1-c80c-ff56-c6ed-1b99f7bcea78' };
+                const logins = () => logger.info.getCalls()
+                    .filter((call) => call.args[0] === 'getting auth token (mount=%s)').length;
+
+                beforeEach(async function () {
+                    const url = this.bootOpts.api.url;
+                    await rp({method: 'PUT', uri: `${url}v1/sys/policy/tst-narrow`, body: {
+                        policy: `path "secret/${appRoleMount}/allowed/*" { capabilities = ["create", "update", "read"] }`,
+                    }, json: true, headers: root});
+                    await rp({method: 'POST', uri: `${url}v1/auth/${appRoleMount}/role/narrow`, body: {
+                        token_policies: 'tst-narrow',
+                    }, json: true, headers: root});
+                    const roleId = (await rp({uri: `${url}v1/auth/${appRoleMount}/role/narrow/role-id`, headers: root})).data.role_id;
+                    const secretId = (await rp({method: 'POST', uri: `${url}v1/auth/${appRoleMount}/role/narrow/secret-id`, headers: root})).data.secret_id;
+
+                    logger = createSpyLogger();
+                    vaultClient = new VaultClient(_.merge({}, this.bootOpts, {
+                        auth: {type: 'appRole', mount: appRoleMount, config: {role_id: roleId, secret_id: secretId}},
+                    }, {logger}));
+                    await vaultClient.write(`secret/${appRoleMount}/allowed/k`, {v: 1});
+                });
+
+                it('logs in again once after Vault revokes the token server-side', async function () {
+                    await rp({method: 'PUT', uri: `${this.bootOpts.api.url}v1/sys/leases/revoke-prefix/auth/${appRoleMount}/login`, headers: root});
+
+                    const lease = await vaultClient.read(`secret/${appRoleMount}/allowed/k`);
+
+                    expect(lease.getData()).to.deep.equal({v: 1});
+                    expect(logins()).to.equal(2);
+                });
+
+                it('surfaces a policy denial without logging in again', async function () {
+                    const error = await vaultClient.read(`secret/${appRoleMount}/denied`).then(() => null, (err) => err);
+
+                    expect(error).to.be.instanceOf(errors.VaultHttpError);
+                    expect(error.statusCode).to.equal(403);
+                    expect(logins()).to.equal(1);
+                });
             });
         });
     });
