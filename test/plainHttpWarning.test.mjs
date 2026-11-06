@@ -61,6 +61,9 @@ describe('plain http:// warning for api.url', function () {
         'http://[::1]:8200',
         'http://[0:0:0:0:0:0:0:1]:8200',
         'http://[::ffff:127.0.0.1]:8200',
+        'http://[::ffff:127.200.3.4]:8200',
+        'http://0.0.0.0:8200',
+        'http://[::]:8200',
     ]) {
         it(`does not warn for the loopback address ${url}`, function () {
             const logger = createSpyLogger();
@@ -82,6 +85,43 @@ describe('plain http:// warning for api.url', function () {
             new VaultApiClient({ url: `http://${name}:8200` }, logger);
         }
         expect(plainHttpWarnings(logger).map((c) => c.args[1])).to.deep.equal(lookalikes.map((n) => `${n}:8200`));
+    });
+
+    it('warns for IPv6 hosts that only look like the IPv4-mapped loopback range', function () {
+        // Each is a remote address; a port of their own keeps them apart from other test runs.
+        const port = 40000 + (process.pid % 20000) + 1;
+        const urls = [
+            `http://[::ffff:7f]:${port}`,
+            `http://[0:0:0:ffff:7f00::1]:${port}`,
+            `http://[::ffff:7fab:cdef:1234]:${port}`,
+            `http://[::ffff:8000:1]:${port}`,
+        ];
+        const logger = createSpyLogger();
+        for (const url of urls) {
+            new VaultApiClient({ url }, logger);
+        }
+        expect(plainHttpWarnings(logger)).to.have.length(urls.length);
+    });
+
+    it('names the bare host for the default port 80', function () {
+        const logger = createSpyLogger();
+        const name = host();
+        new VaultApiClient({ url: `http://${name}/` }, logger);
+        new VaultApiClient({ url: `http://${name}:80/` }, logger);
+        expect(plainHttpWarnings(logger).map((c) => c.args[1])).to.deep.equal([name]);
+    });
+
+    it('does not fail construction when the logger throws, and builds the same client', function () {
+        const logger = createSpyLogger();
+        logger.warn = () => {
+            throw new Error('logger down');
+        };
+        const name = host();
+        let api;
+        expect(() => {
+            api = new VaultApiClient({ url: `http://${name}:8200` }, logger);
+        }).not.to.throw();
+        expect(api.__config.url).to.equal(`http://${name}:8200`);
     });
 
     it('logs once per host for the whole process, however many clients use it', function () {
@@ -118,15 +158,19 @@ describe('plain http:// warning for api.url', function () {
     it('changes nothing about the request: same URL and options as without the warning', async function () {
         const logger = createSpyLogger();
         const name = host();
-        const fetch = sinon.stub(globalThis, 'fetch').resolves(new Response('{"data":{}}', {
+        const fetch = sinon.stub(globalThis, 'fetch').callsFake(async () => new Response('{"data":{}}', {
             status: 200, headers: { 'Content-Type': 'application/json' },
         }));
         const api = new VaultApiClient({ url: `http://${name}:8200`, timeout: 0 }, logger);
 
         await api.makeRequest('GET', 'secret/a', null, { 'X-Vault-Token': 't' });
+        // The same call against a loopback URL, which never warns, for comparison.
+        const loopback = new VaultApiClient({ url: 'http://127.0.0.1:8200', timeout: 0 }, createSpyLogger());
+        await loopback.makeRequest('GET', 'secret/a', null, { 'X-Vault-Token': 't' });
 
-        expect(fetch).to.have.been.calledOnce;
+        expect(fetch).to.have.been.calledTwice;
         expect(String(fetch.firstCall.args[0])).to.equal(`http://${name}:8200/v1/secret/a`);
+        expect(fetch.firstCall.args[1]).to.deep.equal(fetch.secondCall.args[1]);
     });
 
     describe('through VaultClient', function () {

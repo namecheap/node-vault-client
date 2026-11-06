@@ -188,16 +188,23 @@ function joinUrl(...parts) {
 }
 
 /**
- * Hosts already warned about for plain http://, so one process logs the warning once per Vault
- * host however many clients it creates.
+ * Host:port pairs already warned about for plain http://, so one process logs the warning once
+ * per Vault host and port however many clients it creates. Capped so that a process building
+ * clients for many distinct hosts cannot grow it without bound; past the cap it stays silent.
  * @type {Set<string>}
  */
 const warnedPlainHttpHosts = new Set();
+const WARNED_PLAIN_HTTP_HOSTS_MAX = 1000;
+
+/** `::ffff:127.x.y.z` as WHATWG URL prints it: `[::ffff:7fXX:XXXX]`. */
+const IPV4_MAPPED_LOOPBACK = /^\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\]$/;
+const IPV4_LOOPBACK = /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 
 /**
- * True for a host that never leaves the machine: `localhost` and its subdomains, 127.0.0.0/8
- * and `::1` (including its IPv4-mapped form). `hostname` is WHATWG-normalised, so IPv4
- * shorthands such as `127.1` already read `127.0.0.1` and IPv6 is bracketed.
+ * True for a host that never leaves the machine: `localhost` and its subdomains, 127.0.0.0/8,
+ * its IPv4-mapped IPv6 form `::ffff:127.0.0.0/104`, `::1`, and the unspecified addresses
+ * `0.0.0.0` and `::`, which connect to this machine. `hostname` is WHATWG-normalised, so IPv4
+ * shorthands such as `127.1` already read `127.0.0.1` and IPv6 is bracketed and compressed.
  * @param {string} hostname - `URL#hostname`
  * @returns {boolean}
  * @private
@@ -207,15 +214,17 @@ function isLoopbackHost(hostname) {
     return host === 'localhost'
         || host.endsWith('.localhost')
         || host === '[::1]'
-        || host.startsWith('[::ffff:7f')
-        || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+        || host === '[::]'
+        || host === '0.0.0.0'
+        || IPV4_MAPPED_LOOPBACK.test(host)
+        || IPV4_LOOPBACK.test(host);
 }
 
 /**
- * Warn, once per host and process, when `api.url` is plain http:// to a host off this machine:
- * the token and every secret would cross the network unencrypted. Only the host and port are
- * named, never credentials or a path from the URL. An unparsable URL is left to fail where it
- * is used, as before.
+ * Warn, once per host:port and process, when `api.url` is plain http:// to a host off this
+ * machine: the token and every secret would cross the network unencrypted. Only the host and
+ * port are named, never credentials or a path from the URL. An unparsable URL is left to fail
+ * where it is used, as before, and a throwing logger does not fail construction.
  * @param {*} url - `api.url`
  * @param {Object} logger
  * @returns {void}
@@ -228,15 +237,20 @@ function warnOnPlainHttp(url, logger) {
     } catch {
         return;
     }
-    if (parsed.protocol !== 'http:' || isLoopbackHost(parsed.hostname) || warnedPlainHttpHosts.has(parsed.host)) {
+    if (parsed.protocol !== 'http:' || isLoopbackHost(parsed.hostname)
+        || warnedPlainHttpHosts.has(parsed.host) || warnedPlainHttpHosts.size >= WARNED_PLAIN_HTTP_HOSTS_MAX) {
         return;
     }
     warnedPlainHttpHosts.add(parsed.host);
-    logger.warn(
-        '"api.url" uses plain http:// for %s, which is not a loopback address; the Vault token and '
-        + 'secrets travel unencrypted. Use https:// unless the network path is protected otherwise',
-        parsed.host
-    );
+    try {
+        logger.warn(
+            '"api.url" uses plain http:// for %s, which is not a loopback address; the Vault token and '
+            + 'secrets travel unencrypted. Use https:// unless the network path is protected otherwise',
+            parsed.host
+        );
+    } catch {
+        // a throwing logger must not make a working config fail to construct
+    }
 }
 
 class VaultApiClient {
