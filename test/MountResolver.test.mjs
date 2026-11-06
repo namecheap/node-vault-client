@@ -366,16 +366,20 @@ describe('MountResolver', function () {
         });
 
         describe('the error each caller gets (#202)', function () {
+            const DENIED = () => new errors.VaultHttpError(403, '{"errors":["permission denied"]}', { errors: ['permission denied'] });
+            const message = (path, reason) => `Failed to detect KV engine version for mount "secret" (path: ${path}): ${reason}. ` +
+                'Set api.engines or disable autoDetect to bypass detection.';
+
             function heldDetection() {
                 let fail;
                 const detectFn = sinon.stub().returns(new Promise((resolve, reject) => { fail = reject; }));
                 return { detectFn, fail: (err) => fail(err) };
             }
 
-            it('names each concurrent caller\'s own path, over one shared detection', async function () {
+            it('shares a server failure, naming each concurrent caller\'s own path', async function () {
                 const { detectFn, fail } = heldDetection();
                 const resolver = new MountResolver(detectFn, {}, logger);
-                const cause = new errors.VaultHttpError(403, '{"errors":["permission denied"]}', { errors: ['permission denied'] });
+                const cause = new errors.VaultHttpError(503, '{"errors":["Vault is sealed"]}', { errors: ['Vault is sealed'] });
 
                 const first = resolver.resolve('secret/app/one').then(() => null, (err) => err);
                 const second = resolver.resolve('secret/app/two').then(() => null, (err) => err);
@@ -383,34 +387,56 @@ describe('MountResolver', function () {
                 const [a, b] = await Promise.all([first, second]);
 
                 expect(detectFn).to.have.been.calledOnce;
-                expect(a.message).to.equal('Failed to detect KV engine version for mount "secret" (path: secret/app/one): ' +
-                    '403 - {"errors":["permission denied"]}. Set api.engines or disable autoDetect to bypass detection.');
-                expect(b.message).to.equal('Failed to detect KV engine version for mount "secret" (path: secret/app/two): ' +
-                    '403 - {"errors":["permission denied"]}. Set api.engines or disable autoDetect to bypass detection.');
+                expect(a.message).to.equal(message('secret/app/one', '503 - {"errors":["Vault is sealed"]}'));
+                expect(b.message).to.equal(message('secret/app/two', '503 - {"errors":["Vault is sealed"]}'));
                 expect(a).not.to.equal(b);
                 expect(a.cause).to.equal(cause);
                 expect(b.cause).to.equal(cause);
             });
 
-            it('carries the HTTP status as statusCode, and stays a VaultError', async function () {
-                const detectFn = sinon.stub().rejects(new errors.VaultHttpError(403, 'denied', undefined));
+            it('shares a refusal between callers with the same path, each with its own error object', async function () {
+                const { detectFn, fail } = heldDetection();
+                const resolver = new MountResolver(detectFn, {}, logger);
+                const cause = DENIED();
+
+                const first = resolver.resolve('secret/app').then(() => null, (err) => err);
+                const second = resolver.resolve('secret/app').then(() => null, (err) => err);
+                fail(cause);
+                const [a, b] = await Promise.all([first, second]);
+
+                expect(detectFn).to.have.been.calledOnce;
+                expect(a.message).to.equal(message('secret/app', '403 - {"errors":["permission denied"]}'));
+                expect(b.message).to.equal(a.message);
+                expect(a).not.to.equal(b);
+            });
+
+            it('lets a caller on a sibling mount ask for its own path when the shared detection was refused', async function () {
+                const detectFn = sinon.stub();
+                detectFn.withArgs('team/kvA/x').rejects(DENIED());
+                detectFn.withArgs('team/kvB/y').returns(mkDetect('team/kvB', 2));
+                const resolver = new MountResolver(detectFn, {}, logger);
+
+                const [a, b] = await Promise.all([
+                    resolver.resolve('team/kvA/x').then(() => null, (err) => err),
+                    resolver.resolve('team/kvB/y'),
+                ]);
+
+                expect(a).to.be.instanceOf(errors.VaultError);
+                expect(a.message).to.include('(path: team/kvA/x)');
+                expect(b).to.deep.include({ mount: 'team/kvB', version: 2 });
+                expect(detectFn).to.have.been.calledTwice;
+            });
+
+            it('keeps the status on cause only, as before: the error has no statusCode of its own', async function () {
+                const detectFn = sinon.stub().rejects(DENIED());
                 const resolver = new MountResolver(detectFn, {}, logger);
 
                 const err = await resolver.resolve('secret/foo').then(() => null, (e) => e);
 
                 expect(err).to.be.instanceOf(errors.VaultError);
                 expect(err).not.to.be.instanceOf(errors.VaultHttpError);
-                expect(err.statusCode).to.equal(403);
-            });
-
-            it('has no statusCode when the failure was not an HTTP answer', async function () {
-                const detectFn = sinon.stub().rejects(new Error('socket hang up'));
-                const resolver = new MountResolver(detectFn, {}, logger);
-
-                const err = await resolver.resolve('secret/foo').then(() => null, (e) => e);
-
-                expect(err).to.be.instanceOf(errors.VaultError);
                 expect(err).not.to.have.property('statusCode');
+                expect(err.cause.statusCode).to.equal(403);
             });
 
             it('gives a caller that joined and then started its own detection only that detection\'s error', async function () {
@@ -428,7 +454,22 @@ describe('MountResolver', function () {
                 expect(b.message).to.match(/^Failed to detect KV engine version for mount "team\/kvB\/y" \(path: team\/kvB\/y\): 403 /);
                 expect(b.message.match(/Failed to detect/g)).to.have.lengthOf(1);
                 expect(b.cause).to.be.instanceOf(errors.VaultHttpError);
-                expect(b.statusCode).to.equal(403);
+            });
+
+            it('leaves no unhandled rejection when a failed detection had no other caller', async function () {
+                const unhandled = [];
+                const onUnhandled = (reason) => unhandled.push(reason);
+                process.on('unhandledRejection', onUnhandled);
+                try {
+                    const resolver = new MountResolver(sinon.stub().rejects(DENIED()), {}, logger);
+                    await resolver.resolve('secret/foo').catch(() => {});
+                    await new Promise((resolve) => setImmediate(resolve));
+                    await new Promise((resolve) => setImmediate(resolve));
+                } finally {
+                    process.off('unhandledRejection', onUnhandled);
+                }
+
+                expect(unhandled).to.deep.equal([]);
             });
         });
 

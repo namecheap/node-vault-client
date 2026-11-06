@@ -32,15 +32,22 @@
   used, and cancels the timer so the run exits even without `--exit`. `--exit` stays in the
   scripts. Test-only; no library change.
 
-- **Fixed: each caller gets its own mount-detection error, with the HTTP status (part of
-  #202).** With `api.kv.autoDetect`, requests that arrive while a mount's detection is in flight
-  share that one detection. When it failed, every one of them got the same `VaultError`, whose
-  message named the first caller's path. The error also had no `statusCode`, even when Vault
-  had answered with one. Now each caller gets its own `VaultError`, naming its own path, with
-  the HTTP status copied to `statusCode`. The underlying error stays on `cause`, shared by all.
-  - *Compatibility.* The message format is unchanged, and so is the first caller's message. The
-    error is still a `VaultError`, not a `VaultHttpError`. Code that branches on `err.statusCode`
-    now sees a failed detection's status, such as 403, where before it found `undefined`.
+- **Fixed: each caller gets its own mount-detection error (part of #202).** With
+  `api.kv.autoDetect`, requests whose paths share a first segment wait for one in-flight
+  detection. When it failed, every one of them got the same `VaultError`, whose message named
+  the first caller's path. Two changes:
+  - Each caller now gets its own `VaultError`, naming its own path. The underlying error stays
+    on `cause`, shared by all.
+  - When Vault refused the detection with a 4xx, a caller with a different path now asks Vault
+    for its own path instead of taking that answer. Callers are grouped by first segment, not by
+    mount, so a caller on a sibling mount (`team/kvB` while `team/kvA` was refused) used to fail
+    with another mount's 403. A server or network failure is still shared.
+  - *Compatibility.* The message format, the first caller's message and the error class
+    (`VaultError`, not `VaultHttpError`) are unchanged. The status is still only on
+    `err.cause.statusCode`. Copying it onto the error would let a "403 means use a default"
+    handler swallow a mistyped mount, because Vault answers 403 for a mount that does not
+    exist. Concurrent requests to different paths of a mount whose detection is refused now
+    each send a detection request.
 
 # 3.1.0 Release notes (2026-11-05)
 

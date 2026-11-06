@@ -1,6 +1,6 @@
 'use strict';
 
-const { VaultError, InvalidArgumentsError } = require('./errors');
+const { VaultError, VaultHttpError, InvalidArgumentsError } = require('./errors');
 const safeMessage = require('./safeMessage');
 const { trimTrailingSlashes, trimSlashes } = require('./slashes');
 
@@ -37,6 +37,26 @@ function decodePath(path) {
 }
 
 /**
+ * The error a caller gets when the detection it started or joined failed. It is built for each
+ * caller, so its message names that caller's own path rather than the first caller's. The
+ * failure stays on `cause`.
+ * safeMessage: this message is logged by the operation's catch handler, so it must not embed a
+ * raw response body.
+ *
+ * @param {Error} err - why the detection failed
+ * @param {string} interimKey - the mount the detection was keyed on
+ * @param {string} path - the caller's path
+ * @returns {VaultError}
+ */
+function detectionError(err, interimKey, path) {
+    return new VaultError(
+        `Failed to detect KV engine version for mount "${interimKey}" (path: ${path}): ${safeMessage(err)}. ` +
+        'Set api.engines or disable autoDetect to bypass detection.',
+        { cause: err }
+    );
+}
+
+/**
  * Resolves the KV engine version for a given secret path.
  *
  * Responsibilities:
@@ -53,30 +73,6 @@ function decodePath(path) {
  * @param {number}   [opts.maxCacheSize] - LRU cap for the mount cache (default 500)
  * @param {string}   [opts.namespace]    - the client's Vault namespace (X-Vault-Namespace)
  */
-/**
- * The error a caller gets when the detection it started or joined failed. It is built for each
- * caller, so its message names that caller's own path rather than the first caller's. The
- * failure stays on `cause`; an HTTP status is also copied to `statusCode`.
- * safeMessage: this message is logged by the operation's catch handler, so it must not embed a
- * raw response body.
- *
- * @param {Error} err - why the detection failed
- * @param {string} interimKey - the mount the detection was keyed on
- * @param {string} path - the caller's path
- * @returns {VaultError}
- */
-function detectionError(err, interimKey, path) {
-    const error = new VaultError(
-        `Failed to detect KV engine version for mount "${interimKey}" (path: ${path}): ${safeMessage(err)}. ` +
-        'Set api.engines or disable autoDetect to bypass detection.',
-        { cause: err }
-    );
-    if (err !== null && typeof err === 'object' && typeof err.statusCode === 'number') {
-        error.statusCode = err.statusCode;
-    }
-    return error;
-}
-
 class MountResolver {
     constructor(detectFn, enginesOverride, logger, opts) {
         this.__detectFn = detectFn;
@@ -232,7 +228,8 @@ class MountResolver {
         if (this.__inflight.has(interimKey)) {
             // Join the existing in-flight promise but verify the result matches our path.
             // If the detection was for a different sub-mount, start a fresh detection.
-            return this.__inflight.get(interimKey).then((entry) => {
+            const inflight = this.__inflight.get(interimKey);
+            return inflight.promise.then((entry) => {
                 if (containsPath(entry.mount, path)) {
                     return entry;
                 }
@@ -240,6 +237,13 @@ class MountResolver {
                 // Use the full path as key so it won't collide with the first-segment key.
                 return this.__detectWithCache(path, path);
             }, (err) => {
+                // A 4xx is Vault's answer for the path it was asked about, and callers are grouped
+                // by first segment, not by mount: a caller with another path asks for its own, as
+                // above. A server or network failure is shared.
+                if (path !== inflight.path && err instanceof VaultHttpError
+                        && err.statusCode >= 400 && err.statusCode < 500) {
+                    return this.__detectWithCache(path, path);
+                }
                 throw detectionError(err, interimKey, path);
             });
         }
@@ -284,8 +288,8 @@ class MountResolver {
                 throw err;
             });
 
-        // Callers that join keep the raw failure and wrap it with their own path.
-        this.__inflight.set(interimKey, promise);
+        // Callers that join get the raw failure and the path it was for (see above).
+        this.__inflight.set(interimKey, { promise, path });
         return promise.catch((err) => {
             throw detectionError(err, interimKey, path);
         });
