@@ -423,11 +423,17 @@ class VaultClient {
      * alive for renewable tokens. Call this once you are done with the client so a
      * short-lived script can exit on its own. Safe to call when no timer is armed and
      * safe to call multiple times. After calling `close()` the client may still be used;
-     * the next operation that fetches a renewable token will arm a new refresh timer.
+     * the next operation that fetches a renewable token will arm a new refresh timer. A
+     * login already in flight when `close()` runs still resolves, but arms no timer, and
+     * neither does a call that joins that login after `close()`.
      *
      * @returns {void}
      */
     close() {
+        if (this.__auth && typeof this.__auth.__markClosed === 'function') {
+            // Directly as well: a subclass may override cancelTokenRefresh() without super.
+            this.__auth.__markClosed();
+        }
         if (this.__auth && typeof this.__auth.cancelTokenRefresh === 'function') {
             this.__auth.cancelTokenRefresh();
         }
