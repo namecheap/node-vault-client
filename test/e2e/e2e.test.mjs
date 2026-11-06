@@ -293,15 +293,22 @@ describe('E2E', function () {
             // An AppRole login yields a renewable token, whose renewal timer would keep the
             // process alive after the suite (#220).
             let vaultClient;
-            afterEach(function () {
+            afterEach(async function () {
                 if (vaultClient) {
                     vaultClient.close();
                     vaultClient = undefined;
                 }
+                // Unmounted after each test, and named per run: a random number from 0 to 999
+                // collided with a mount another test (or an earlier run on the same Vault) left.
+                if (appRoleMount) {
+                    await rp({method: 'DELETE', uri: `${this.bootOpts.api.url}v1/sys/auth/${appRoleMount}`,
+                        headers: {'X-Vault-Token': this.bootOpts.auth.config.token}});
+                    appRoleMount = undefined;
+                }
             });
 
             beforeEach(async function () {
-                appRoleMount = `approle` + Math.floor(Math.random() * 1000);
+                appRoleMount = `approle-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
                 await rp({method: 'POST', uri: `${this.bootOpts.api.url}v1/sys/auth/${appRoleMount}`, body: {
                     type: 'approle',
                 }, json: true, headers: {'X-Vault-Token': this.bootOpts.auth.config.token}});
