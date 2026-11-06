@@ -852,7 +852,11 @@ token cannot overwrite the newer one or cancel its timer.
 
 The same goes for a login that is in flight when `close()` runs, such as the first `read` of a
 client closed before it settles: the read still resolves and the token is cached for later calls,
-but no refresh timer is armed for it. A login that starts after `close()` arms one as before.
+but no refresh timer is armed for it. A call made after `close()` that joins that same login
+shares its token and gets no timer either, just as if `close()` had run right after the login. A
+login that starts after `close()` arms one as before. As after any `close()`, the token is then
+used until it expires; under `token` auth, which cannot log in again, later calls reject with
+`AuthTokenExpiredError`, so close a client only once nothing will use it any more.
 
 <a name="Lease"></a>
 

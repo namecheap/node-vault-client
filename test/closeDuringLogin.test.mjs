@@ -166,6 +166,49 @@ describe('close() while a login is in flight', function () {
             expect(closedLine).to.have.length(0);
         });
 
+        it('keeps the "renewal disabled" debug line when renewal: false', async function () {
+            const logger = createSpyLogger();
+            const auth = makeAuth(logger, { renewal: false });
+            const pending = auth.getAuthToken();
+            auth.cancelTokenRefresh();
+            auth.logins[0].resolve(renewableToken());
+            await pending;
+
+            expect(logger.debug).to.have.been.calledWith(
+                'renewal disabled by config; not arming a refresh timer (accessor=%s)', 'acc-renewable-id');
+            const closedLine = logger.debug.getCalls()
+                .filter((c) => String(c.args[0]).startsWith('client closed during login'));
+            expect(closedLine).to.have.length(0);
+            expect(auth.__refreshTimeout).to.equal(null);
+        });
+
+        it('keeps the "renewal stopped" warning for a renewable token with no usable expiry (#236)', async function () {
+            const logger = createSpyLogger();
+            const auth = makeAuth(logger);
+            const pending = auth.getAuthToken();
+            auth.cancelTokenRefresh();
+            const token = new AuthToken('no-expiry', 'acc-no-expiry', 0, null, 0, 0, true);
+            token.__renewableWithoutExpiry = true;
+            auth.logins[0].resolve(token);
+            await pending;
+
+            expect(logger.warn).to.have.been.calledOnce;
+            expect(logger.warn.firstCall.args[0]).to.match(/^token renewal stopped \(accessor=%s\)/);
+            expect(auth.__refreshTimeout).to.equal(null);
+        });
+
+        it('gives a call that joins the closed login after close() its token, without a timer', async function () {
+            const auth = makeAuth();
+            const before = auth.getAuthToken();
+            auth.cancelTokenRefresh();
+            const joined = auth.getAuthToken();
+            auth.logins[0].resolve(renewableToken());
+
+            expect(await joined).to.equal(await before);
+            expect(auth.logins, 'the joined call starts no login of its own').to.have.length(1);
+            expect(auth.__refreshTimeout).to.equal(null);
+        });
+
         it('does not fail the login when the logger throws', async function () {
             const logger = createNoopLogger();
             logger.debug = () => {

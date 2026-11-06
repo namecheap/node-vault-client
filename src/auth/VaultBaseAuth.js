@@ -150,9 +150,9 @@ class VaultBaseAuth {
         this.__refreshTimeout = null;
         this.__renewalEpoch = 0;
         /**
-         * Bumped by each public {@link VaultBaseAuth#cancelTokenRefresh} call (that is, by
-         * `VaultClient#close()`), and by nothing else. A login compares it before and after, so a
-         * login that was in flight when the client was closed does not arm a refresh timer.
+         * Bumped by every {@link VaultBaseAuth#cancelTokenRefresh} call (`VaultClient#close()`
+         * makes one) and by nothing else. A login compares it before and after, so a login that
+         * was in flight when the client was closed does not arm a refresh timer.
          * @type {number}
          */
         this.__cancelCount = 0;
@@ -283,7 +283,9 @@ class VaultBaseAuth {
             this.__renewalEpoch++;
 
             if (authToken.isRenewable() || renewableWithoutExpiry(authToken)) {
-                if (this.__cancelCount !== cancelCountAtStart) {
+                // Only the case that would arm a timer changes; the others keep their log lines.
+                if (this.__cancelCount !== cancelCountAtStart
+                    && this.__renewalEnabled && authToken.isRenewable() && !authToken.isExpired()) {
                     // close() ran while this login was in flight. The token is cached and
                     // returned as after any close(), but no timer is armed to hold the event loop.
                     try {
@@ -293,6 +295,10 @@ class VaultBaseAuth {
                         );
                     } catch {
                         // a throwing logger must not fail a login that succeeded
+                    }
+                    if (this.__refreshTimeout !== null) {
+                        lt.clearTimeout(this.__refreshTimeout);
+                        this.__refreshTimeout = null;
                     }
                     return authToken;
                 }

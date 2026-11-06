@@ -380,7 +380,8 @@ class VaultClient {
      * short-lived script can exit on its own. Safe to call when no timer is armed and
      * safe to call multiple times. After calling `close()` the client may still be used;
      * the next operation that fetches a renewable token will arm a new refresh timer. A
-     * login already in flight when `close()` runs still resolves, but arms no timer.
+     * login already in flight when `close()` runs still resolves, but arms no timer, and
+     * neither does a call that joins that login after `close()`.
      *
      * @returns {void}
      */
