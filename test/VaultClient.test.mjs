@@ -66,6 +66,91 @@ describe('VaultClient', function () {
         });
     });
 
+    describe('the instance registry holds only registered instances (#238)', function () {
+        const PROTOTYPE_NAMES = ['toString', 'valueOf', 'constructor', 'hasOwnProperty', '__proto__', 'isPrototypeOf'];
+
+        PROTOTYPE_NAMES.forEach((name) => it(`get("${name}") throws when nothing was booted under that name`, function () {
+            expect(() => VaultClient.get(name)).to.throw(errors.InvalidArgumentsError, 'Invalid instance name');
+        }));
+
+        PROTOTYPE_NAMES.forEach((name) => it(`boot("${name}") creates, caches and clears an instance like any other name`, function () {
+            const logger = createSpyLogger();
+            const instance = VaultClient.boot(name, bootOpts({ logger }));
+
+            expect(instance).to.be.instanceOf(VaultClient);
+            expect(VaultClient.boot(name, bootOpts({ logger }))).to.equal(instance);
+            expect(VaultClient.get(name)).to.equal(instance);
+            expect(logger.warn).not.to.have.been.called;
+
+            VaultClient.clear(name);
+            expect(() => VaultClient.get(name)).to.throw(errors.InvalidArgumentsError, 'Invalid instance name');
+        }));
+
+        [
+            ['1', 1, '1'],
+            ['"1" before 1', '1', 1],
+            ['true', true, 'true'],
+            ['null', null, 'null'],
+            ['undefined', undefined, 'undefined'],
+            ['-0', -0, '0'],
+            ['an object with its own toString', { toString: () => 'custom' }, 'custom'],
+        ].forEach(([label, name, sameAs]) => it(`keys ${label} as an object property would be`, function () {
+            const instance = VaultClient.boot(name, bootOpts());
+
+            expect(VaultClient.boot(name, bootOpts())).to.equal(instance);
+            expect(VaultClient.get(name)).to.equal(instance);
+            expect(VaultClient.get(sameAs)).to.equal(instance);
+            expect(VaultClient.boot(sameAs, bootOpts())).to.equal(instance);
+        }));
+
+        it('keeps a symbol name distinct from its description, and keys an object by the symbol it converts to', function () {
+            const key = Symbol('main');
+            const bySymbol = VaultClient.boot(key, bootOpts());
+            const byString = VaultClient.boot('Symbol(main)', bootOpts());
+
+            expect(bySymbol).not.to.equal(byString);
+            expect(VaultClient.get(key)).to.equal(bySymbol);
+            expect(VaultClient.get(Object(key))).to.equal(bySymbol);
+            expect(VaultClient.boot({ [Symbol.toPrimitive]: () => key }, bootOpts())).to.equal(bySymbol);
+        });
+
+        it('leaves symbol-named instances out of clear() with no name, as before', function () {
+            const key = Symbol('kept');
+            const kept = VaultClient.boot(key, bootOpts());
+            const closeKept = sinon.spy(kept, 'close');
+            VaultClient.boot('gone', bootOpts());
+
+            try {
+                VaultClient.clear();
+
+                expect(VaultClient.get(key)).to.equal(kept);
+                expect(closeKept).not.to.have.been.called;
+                expect(() => VaultClient.get('gone')).to.throw(errors.InvalidArgumentsError);
+            } finally {
+                kept.close();
+            }
+        });
+
+        it('clear("toString") on an empty registry does nothing', function () {
+            expect(() => VaultClient.clear('toString')).not.to.throw();
+            expect(() => VaultClient.clear('__proto__')).not.to.throw();
+        });
+
+        it('clear() with no name closes and removes every instance, prototype-member names included', function () {
+            const a = VaultClient.boot('constructor', bootOpts());
+            const b = VaultClient.boot('b', bootOpts());
+            const closeA = sinon.spy(a, 'close');
+            const closeB = sinon.spy(b, 'close');
+
+            VaultClient.clear();
+
+            expect(closeA).to.have.been.calledOnce;
+            expect(closeB).to.have.been.calledOnce;
+            expect(() => VaultClient.get('constructor')).to.throw(errors.InvalidArgumentsError);
+            expect(() => VaultClient.get('b')).to.throw(errors.InvalidArgumentsError);
+        });
+    });
+
     describe('#close()', function () {
         it('delegates to the auth provider\'s cancelTokenRefresh', function () {
             const client = new VaultClient(bootOpts());

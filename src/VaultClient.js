@@ -16,7 +16,11 @@ const safeMessage = require('./safeMessage');
 const { trimTrailingSlashes } = require('./slashes');
 
 const noop = () => {};
-const vaultInstances = {};
+// Named instances. A Map, so a name such as "toString" or "constructor" is not found on
+// Object.prototype; keyed exactly as an object property would be, so boot(1) and get('1') still
+// meet and an object that converts to a symbol is keyed by that symbol.
+const vaultInstances = new Map();
+const instanceKey = (name) => Reflect.ownKeys({ [name]: undefined })[0];
 
 // Functions, and objects that are not plain data (an undici dispatcher, a logger class
 // instance), compare by identity. Their own enumerable keys say nothing about what they do:
@@ -305,9 +309,10 @@ class VaultClient {
             throw new errors.InvalidArgumentsError('Options should be provided');
         }
 
-        let instance = vaultInstances[name];
+        let instance = vaultInstances.get(instanceKey(name));
         if (instance === undefined) {
-            vaultInstances[name] = instance = new VaultClient(options);
+            instance = new VaultClient(options);
+            vaultInstances.set(instanceKey(name), instance);
             instance.__bootDigests = optionsDigests(options);
             instance.__bootWarned = new Set();
             return instance;
@@ -339,7 +344,7 @@ class VaultClient {
      * @return {VaultClient}
      */
     static get(name) {
-        let instance = vaultInstances[name];
+        let instance = vaultInstances.get(instanceKey(name));
 
         if (instance === undefined) {
             throw new errors.InvalidArgumentsError('Invalid instance name');
@@ -357,17 +362,21 @@ class VaultClient {
      */
     static clear(name) {
         if (typeof name === 'string') {
-            const instance = vaultInstances[name];
+            const instance = vaultInstances.get(name);
             if (instance !== undefined) {
                 instance.close();
-                delete vaultInstances[name];
+                vaultInstances.delete(name);
             }
         } else {
-            for (let k in vaultInstances) {
-                if (Object.hasOwn(vaultInstances, k)) {
-                    vaultInstances[k].close();
-                    delete vaultInstances[k];
+            for (const [key, instance] of vaultInstances) {
+                // Kept for compatibility: the object this replaced was walked with for...in,
+                // which skips symbol keys, so a symbol-named instance has always stayed
+                // registered, with its renewal timer, through clear(), and callers may rely on it.
+                if (typeof key === 'symbol') {
+                    continue;
                 }
+                instance.close();
+                vaultInstances.delete(key);
             }
         }
     }
