@@ -58,6 +58,19 @@
       too. Code that stubs `fetch()` and checks its options will see this.
   - README: "Redirects and the Vault token" describes the policy and the opt-out.
 
+- **Fixed: a token lookup without a usable `ttl` no longer yields a `NaN` expiry (#236).** Without
+  `expire_time`, the expiry is `creation_time` (or `last_renewal_time`) plus `ttl`. A
+  `lookup-self` answer where either was missing or not a number made that `NaN`, so
+  `getExpiresAt()` returned `NaN` and the token counted as renewable. Such a token now has a
+  `null` expiry, as one with `ttl: 0` and no `expire_time` already had, and is not renewable.
+  - *Compatibility.* The token is still used until it is replaced: a `NaN` deadline never passed,
+    and a `null` one means none. No timer is armed for it, as before. The log output is the same:
+    the renewal timer still logs `token renewal stopped (accessor=…): token has no usable expiry;
+    …` once, after a login or a renewal, when Vault marked the token renewable. A numeric-string
+    `ttl` or `creation_time` is read as before. One more case changes: a numeric string too long
+    to fit in a number used to give a deadline in the past, so every call logged in again. Real
+    Vault always sends a numeric `ttl`, so this only affects proxies, mocks and test doubles.
+
 - **Fixed: a token revoked on the Vault side is replaced on the next request (#235).** The client
   logged in again only once its own clock said the token had expired. After a server-side
   revocation, every request failed with `VaultHttpError` 403 until then, even when the auth backend
