@@ -111,6 +111,16 @@
   no argument to clear every instance. Node delivers warnings on the next tick, so inside a
   `process.on('exit')` listener it is not shown; `--no-deprecation` silences it.
 
+- **Fixed: `Lease.getValue()` returned inherited members as secret values (#240).** It threw
+  only when `data[key]` was `undefined`, so `getValue('constructor')` returned `Object` and
+  `getValue('__proto__')` returned `Object.prototype`. It now returns only the response data's
+  own fields and throws `Requested key does not exist` for anything else.
+  - *Compatibility.* Own fields are returned as before, `null`, `false`, `0` and `''` included,
+    and so is a field Vault sent under a name such as `constructor`. Numeric keys and array
+    indexes work as before. When a response's `data` is JSON `null`, a string or a number, the
+    call now throws `Requested key does not exist`, where `null` gave a `TypeError` and a string
+    gave one of its characters or its length.
+
 # 3.1.0 Release notes (2026-11-05)
 
 Upgrading from 3.0.x needs no code change. Two things behave differently; both are covered
