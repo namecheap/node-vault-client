@@ -102,6 +102,25 @@
     symbol-named instances registered, as the old `for...in` loop did. `clear('toString')` and
     the like, which threw a `TypeError`, now do nothing when no such instance was booted.
 
+- **A warning when `VaultClient.clear()` gets a name that is not a string (#239).** Only a
+  string clears one named instance; anything else, such as `clear(42)`, `clear(null)` or `clear`
+  used as a callback that receives an exit code or a resolved value, closes and removes every
+  instance except symbol-named ones. That was silent and rarely meant. The behaviour is unchanged,
+  but the first such call in a process now emits a `DeprecationWarning` (code
+  `NVC_DEP_CLEAR_NON_STRING`) that names the argument's type, never its value. Call `clear()` with
+  no argument to clear every instance. Node delivers warnings on the next tick, so inside a
+  `process.on('exit')` listener it is not shown; `--no-deprecation` silences it.
+
+- **Fixed: `Lease.getValue()` returned inherited members as secret values (#240).** It threw
+  only when `data[key]` was `undefined`, so `getValue('constructor')` returned `Object` and
+  `getValue('__proto__')` returned `Object.prototype`. It now returns only the response data's
+  own fields and throws `Requested key does not exist` for anything else.
+  - *Compatibility.* Own fields are returned as before, `null`, `false`, `0` and `''` included,
+    and so is a field Vault sent under a name such as `constructor`. Numeric keys and array
+    indexes work as before. When a response's `data` is JSON `null`, a string or a number, the
+    call now throws `Requested key does not exist`, where `null` gave a `TypeError` and a string
+    gave one of its characters or its length.
+
 - **Fixed: a missing Kubernetes service-account token file threw out of `read()` (#241).**
   `kubernetes` auth read the token file before its promise chain, so a missing or unreadable
   file made `read()`, `write()` and every other operation throw synchronously instead of

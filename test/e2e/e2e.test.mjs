@@ -200,7 +200,7 @@ describe('E2E', function () {
             this.timeout(30000);
             const vault = this.bootOpts.api.url;
             const headers = {'X-Vault-Token': this.bootOpts.auth.config.token};
-            const mount = `approle-period-${Math.floor(Math.random() * 1e6)}`;
+            const mount = `approle-period-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
             await rp({method: 'PUT', uri: `${vault}v1/sys/policy/tst-renew-period`, headers,
                 body: {policy: 'path "secret/*" { capabilities = ["create", "read", "update"] }'}});
             await rp({method: 'POST', uri: `${vault}v1/sys/auth/${mount}`, headers, body: {type: 'approle'}});
@@ -293,15 +293,24 @@ describe('E2E', function () {
             // An AppRole login yields a renewable token, whose renewal timer would keep the
             // process alive after the suite (#220).
             let vaultClient;
-            afterEach(function () {
+            afterEach(async function () {
                 if (vaultClient) {
                     vaultClient.close();
                     vaultClient = undefined;
                 }
+                // Unmounted after each test, and named per run: a random number from 0 to 999
+                // collided with a mount another test (or an earlier run on the same Vault) left.
+                if (appRoleMount) {
+                    const headers = {'X-Vault-Token': this.bootOpts.auth.config.token};
+                    // The #235 tests write here; Vault answers 204 when the key is not there.
+                    await rp({method: 'DELETE', uri: `${this.bootOpts.api.url}v1/secret/${appRoleMount}/allowed/k`, headers});
+                    await rp({method: 'DELETE', uri: `${this.bootOpts.api.url}v1/sys/auth/${appRoleMount}`, headers});
+                    appRoleMount = undefined;
+                }
             });
 
             beforeEach(async function () {
-                appRoleMount = `approle` + Math.floor(Math.random() * 1000);
+                appRoleMount = `approle-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
                 await rp({method: 'POST', uri: `${this.bootOpts.api.url}v1/sys/auth/${appRoleMount}`, body: {
                     type: 'approle',
                 }, json: true, headers: {'X-Vault-Token': this.bootOpts.auth.config.token}});
