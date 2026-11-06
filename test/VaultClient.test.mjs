@@ -1,4 +1,5 @@
 import vm from 'node:vm';
+import { fileURLToPath } from 'node:url';
 import _ from 'lodash';
 import sinon from 'sinon';
 import { expect, use } from 'chai';
@@ -231,8 +232,12 @@ describe('VaultClient', function () {
         });
 
         describe('the deprecation warning (in a child process, so the once-per-process state is fresh)', function () {
+            // Each case starts a node process that loads the client; a busy CI runner needs more
+            // than mocha's default 2 s for that.
+            this.timeout(20000);
+
             const script = (body) => `
-                const VaultClient = require(${JSON.stringify(new URL('../src/VaultClient.js', import.meta.url).pathname)});
+                const VaultClient = require(${JSON.stringify(fileURLToPath(new URL('../src/VaultClient.js', import.meta.url)))});
                 const warnings = [];
                 process.on('warning', (w) => warnings.push({ name: w.name, code: w.code, message: w.message }));
                 const boot = (name) => VaultClient.boot(name, {
@@ -263,9 +268,9 @@ describe('VaultClient', function () {
                 expect(warnings[0]).to.deep.equal({
                     name: 'DeprecationWarning',
                     code: 'NVC_DEP_CLEAR_NON_STRING',
-                    message: 'VaultClient.clear() was called with a number instead of a string name, so it closed '
-                        + 'every instance, as it always has. Call clear() with no argument to clear every '
-                        + 'instance, or pass the string name of one instance.',
+                    message: 'VaultClient.clear() was called with a number instead of a string name, which clears '
+                        + 'every instance not named by a symbol, as it always has. Call clear() with no argument '
+                        + 'to clear them all, or pass the string name of one instance.',
                 });
             });
 
@@ -288,6 +293,25 @@ describe('VaultClient', function () {
             it('is not emitted for clear(), clear(undefined) or a string name', async function () {
                 const { warnings } = await run(`boot('a'); VaultClient.clear('a'); VaultClient.clear(); VaultClient.clear(undefined);`);
                 expect(warnings).to.deep.equal([]);
+            });
+
+            it('still clears every instance from an exit listener, where Node shows no warning', async function () {
+                const { execFile } = await import('node:child_process');
+                const body = `
+                    const VaultClient = require(${JSON.stringify(fileURLToPath(new URL('../src/VaultClient.js', import.meta.url)))});
+                    const client = VaultClient.boot('a', {
+                        api: { url: 'https://example.com/' }, logger: false,
+                        auth: { type: 'token', config: { token: 'tok-123' } },
+                    });
+                    client.close = () => process.stdout.write('closed');
+                    process.on('exit', VaultClient.clear);
+                `;
+                const { stdout, stderr } = await new Promise((resolve, reject) => {
+                    execFile(process.execPath, ['-e', body], (err, out, errOut) => (err
+                        ? reject(err) : resolve({ stdout: out, stderr: errOut })));
+                });
+                expect(stdout).to.equal('closed');
+                expect(stderr).not.to.include('NVC_DEP_CLEAR_NON_STRING');
             });
 
             it('follows --no-deprecation like any other deprecation', async function () {

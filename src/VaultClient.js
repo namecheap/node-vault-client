@@ -198,7 +198,8 @@ function assertSafeKvPath(path, allowTrailingSlash) {
  * caller meant (#239): `clear(42)`, or `clear` passed as a callback that receives an exit code
  * or a resolved value. The behaviour stays as it was; this makes it visible, once per process.
  * It names only the argument's type, never its value, which could be anything (#239).
- * Node's --no-deprecation and --throw-deprecation flags apply, as for any DeprecationWarning.
+ * Node delivers warnings on the next tick, so one emitted from an 'exit' listener is never shown;
+ * --no-deprecation silences it, as for any DeprecationWarning.
  * @param {*} name
  * @returns {void}
  * @private
@@ -212,8 +213,8 @@ function warnClearNonString(name) {
     const what = name === null ? 'null' : (type === 'object' ? 'an object' : `a ${type}`);
     process.emitWarning(
         `VaultClient.clear() was called with ${what} ` +
-        'instead of a string name, so it closed every instance, as it always has. Call clear() with ' +
-        'no argument to clear every instance, or pass the string name of one instance.',
+        'instead of a string name, which clears every instance not named by a symbol, as it always ' +
+        'has. Call clear() with no argument to clear them all, or pass the string name of one instance.',
         { type: 'DeprecationWarning', code: 'NVC_DEP_CLEAR_NON_STRING' }
     );
 }

@@ -108,8 +108,8 @@
   instance except symbol-named ones. That was silent and rarely meant. The behaviour is unchanged,
   but the first such call in a process now emits a `DeprecationWarning` (code
   `NVC_DEP_CLEAR_NON_STRING`) that names the argument's type, never its value. Call `clear()` with
-  no argument to clear every instance. Node's `--no-deprecation` silences it, and
-  `--throw-deprecation` turns it into an exception, as for any deprecation.
+  no argument to clear every instance. Node delivers warnings on the next tick, so inside a
+  `process.on('exit')` listener it is not shown; `--no-deprecation` silences it.
 
 # 3.1.0 Release notes (2026-11-05)
 
