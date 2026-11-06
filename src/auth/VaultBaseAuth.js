@@ -35,6 +35,17 @@ function humanizeMs(ms) {
  * @returns {number|null}
  * @private
  */
+/**
+ * True for a token Vault marked renewable whose lookup gave nothing to schedule a renewal from
+ * (see {@link AuthToken.fromResponse}). It is not renewable, but the renewal timer still reports
+ * it, as it did while such a lookup resolved to a NaN deadline.
+ * @param {AuthToken} authToken
+ * @returns {boolean}
+ */
+function renewableWithoutExpiry(authToken) {
+    return authToken.__renewableWithoutExpiry === true;
+}
+
 function tokenExpiryMilliseconds(authToken) {
     if (typeof authToken.getExpiresAtMilliseconds === 'function') {
         const expiry = authToken.getExpiresAtMilliseconds();
@@ -257,7 +268,7 @@ class VaultBaseAuth {
             this.__authToken = authToken;
             this.__renewalEpoch++;
 
-            if (authToken.isRenewable()) {
+            if (authToken.isRenewable() || renewableWithoutExpiry(authToken)) {
                 // __setupTokenRefreshTimer logs once it has actually armed a timer, and warns
                 // when it cannot; this covers the remaining case, the one diagnostic an operator
                 // reads when a `renewal: false` process still hangs.
@@ -307,15 +318,7 @@ class VaultBaseAuth {
     _getTokenEntity(tokenId) {
         return this.__apiClient.makeRequest('GET', '/auth/token/lookup-self', null, {'X-Vault-Token': tokenId})
             .then(res => {
-                const authToken = AuthToken.fromResponse(res);
-                // A token with no expiry is not renewable, so the renewal timer never sees it.
-                // Report a renewable one that came without anything to schedule from, as the
-                // timer did while such a lookup still resolved to a NaN deadline.
-                if (this.__renewalEnabled && res.data.renewable === true && res.data.ttl !== 0
-                        && authToken.getExpiresAtMilliseconds() === null) {
-                    warnRenewalStopped(this, authToken, 'token has no usable expiry');
-                }
-                return authToken;
+                return AuthToken.fromResponse(res);
             });
     }
 
@@ -341,11 +344,13 @@ class VaultBaseAuth {
             return;
         }
         if (!authToken.isRenewable() || authToken.isExpired()) {
-            warnRenewalStopped(
-                this,
-                authToken,
-                authToken.isExpired() ? 'token already expired' : 'token is not renewable'
-            );
+            let reason = 'token is not renewable';
+            if (authToken.isExpired()) {
+                reason = 'token already expired';
+            } else if (renewableWithoutExpiry(authToken)) {
+                reason = 'token has no usable expiry';
+            }
+            warnRenewalStopped(this, authToken, reason);
             return;
         }
 

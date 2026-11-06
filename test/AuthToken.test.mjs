@@ -61,6 +61,8 @@ describe('AuthToken', function () {
                 ['a non-numeric ttl', { ttl: 'soon' }],
                 ['no creation_time', { creation_time: undefined }],
                 ['no ttl and no creation_time', { ttl: undefined, creation_time: undefined }],
+                ['a ttl that overflows to Infinity', { ttl: '9'.repeat(400) }],
+                ['a ttl that overflows to -Infinity', { ttl: '-' + '9'.repeat(400) }],
             ].forEach(([label, overrides]) => it(`resolves ${label} to a null expiry, not NaN`, function () {
                 const token = build(overrides);
 

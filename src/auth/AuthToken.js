@@ -56,19 +56,25 @@ class AuthToken {
         const hasPreciseExpiry = unadjustedExpiresAtMilliseconds !== null;
         const expiresAtMilliseconds = AuthToken.__resolveExpiresAtMilliseconds(data, unadjustedExpiresAtMilliseconds);
 
-        return new AuthToken(
+        const renewable = data.renewable !== undefined ? data.renewable : false;
+        const authToken = new AuthToken(
             data.id,
             data.accessor,
             data.creation_time,
             null,
             data.explicit_max_ttl,
             data.num_uses,
-            data.renewable !== undefined ? data.renewable : false,
+            renewable,
             expiresAtMilliseconds,
             data.ttl,
             hasPreciseExpiry,
             unadjustedExpiresAtMilliseconds
         );
+        // Without an expiry the token is not renewable. Remember that Vault said it was, so the
+        // renewal timer can say why it stops (VaultBaseAuth); a ttl of 0 means it never expires.
+        authToken.__renewableWithoutExpiry = Boolean(renewable) && data.ttl !== 0
+            && expiresAtMilliseconds === null;
+        return authToken;
     }
 
     /**
