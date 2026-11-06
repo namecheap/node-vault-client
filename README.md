@@ -536,7 +536,7 @@ Client constructor function.
 | --- | --- | --- | --- |
 | options | `Object` |  |  |
 | options.api | <code>Object</code> |  |  |
-| options.api.url | <code>String</code> |  | the url of the vault server |
+| options.api.url | <code>String</code> |  | the url of the vault server. Plain `http://` to a host other than this machine logs a warning; see "Plain `http://` api.url" |
 | [options.api.apiVersion] | <code>String</code> | `v1` |  |
 | [options.api.requestOptions] | <code>Object</code> |  | extra options merged into every HTTP request (see [Custom transport](#custom-transport-proxy--self-signed-tls)); a `redirect` there replaces the same-origin redirect policy (see [Redirects and the Vault token](#redirects-and-the-vault-token)) |
 | [options.api.timeout] | <code>number</code> | `120000` | milliseconds a request may take, response headers, body and redirects included, before it rejects with `RequestTimeoutError`; `0` turns the limit off, `null` gives the default (see [Request timeouts](#request-timeouts)) |
@@ -641,6 +641,23 @@ signal's own reason, not `RequestTimeoutError`), so an `AbortController` can can
 on shutdown. `fetch()` then receives the client's own per-request signal, which follows it. Do **not** use `signal: AbortSignal.timeout(ms)` there: it is created once and
 shared by every request the client makes, so it works for the first calls and then aborts all
 later ones. Use `api.timeout` instead.
+
+##### Plain `http://` api.url
+
+When `api.url` is `http://` and its host is not this machine, the client logs one warning on its
+first request: `"api.url" uses plain http:// for <host:port>, which is not a loopback address; the
+Vault token and secrets travel unencrypted. …` (on port 80 the message names the bare host).
+Nothing else changes: the client connects and works as before. `localhost`, `127.0.0.0/8` (also
+as `::ffff:127.x.y.z`), `::1`, and the unspecified addresses `0.0.0.0` and `::` count as this
+machine; subdomains of `localhost` do not, since the system resolver can send them anywhere. The
+warning names only the host and port, never credentials or a path from the URL. Each logger gets
+it once per host and port: clients on the default console logger share it, so the process logs it
+once, and a client with `logger: false` logs nothing and leaves the warning to the others. If the
+logger throws, the client tries again on its next request. Only `api.url` is checked, not where a
+proxy `dispatcher` or `requestOptions.redirect: 'follow'` sends the request.
+
+If the connection is protected another way (a service mesh with mTLS, a TLS-terminating sidecar on
+another host), filter that message in your `logger`, or switch to `https://`.
 
 ##### Redirects and the Vault token
 
@@ -863,6 +880,14 @@ discarded rather than arming a fresh timer, so the client stops holding the even
 same applies when a token is replaced by a new login — a renewal still running against the previous
 token cannot overwrite the newer one or cancel its timer.
 
+The same goes for a login that is in flight when `close()` runs, such as the first `read` of a
+client closed before it settles: the read still resolves and the token is cached for later calls,
+but no refresh timer is armed for it. A call made after `close()` that joins that same login
+shares its token and gets no timer either, just as if `close()` had run right after the login. A
+login that starts after `close()` arms one as before. As after any `close()`, the token is then
+used until it expires; under `token` auth, which cannot log in again, later calls reject with
+`AuthTokenExpiredError`, so close a client only once nothing will use it any more.
+
 <a name="Lease"></a>
 
 ### Lease
@@ -870,7 +895,7 @@ token cannot overwrite the newer one or cancel its timer.
 The object returned by `read()` and `list()` (they resolve to `Promise<Lease>`). Use its
 accessors to extract the secret data:
 
-* `getValue(key)` ⇒ <code>String</code> — value for a single key. Throws `Requested key does not exist` when the key is absent.
+* `getValue(key)` ⇒ <code>\*</code> — value for a single key, as Vault returned it: usually a string, but `null`, `false`, `0`, objects and arrays come back as they are. Throws `Requested key does not exist` when the key is not an own property of the response data (for an array, such as a `list()` result, that means an index or `length`). A name such as `constructor` or `toString` counts only when Vault sent a field by that name, never as an inherited member.
 * `getData()` ⇒ <code>Object</code> — a deep-cloned copy of the whole secret data object.
 * `isRenewable()` ⇒ <code>boolean</code> — whether the underlying lease is renewable.
 * `getMetadata()` ⇒ <code>Object</code> | <code>undefined</code> — KV v2 version metadata
@@ -928,6 +953,18 @@ times with the same name will return the same instance.
 Clear named Vault instance
 
 If no name passed all named instances will be cleared.
+
+Only a string names one instance. Any other argument (a number, `null`, an object, a symbol)
+clears every instance not named by a symbol, as it always has. That is rarely what was meant:
+`clear(42)`, or `clear` passed as a callback that receives a code or a resolved value
+(`promise.then(VaultClient.clear)`). So the first such call in a process also emits a
+`DeprecationWarning` with code `NVC_DEP_CLEAR_NON_STRING`, naming the argument's type but not its
+value. Call `clear()` with no argument to clear every instance.
+
+Node delivers warnings on the next tick, so the warning is not shown when `clear` runs inside a
+`process.on('exit')` listener, which still clears every instance. `--no-deprecation` silences the
+warning. Under `--throw-deprecation` it becomes an uncaught exception on the next tick, not an
+error thrown by `clear()`.
 
 **Kind**: static method of [<code>VaultClient</code>](#VaultClient)  
 
@@ -1142,7 +1179,7 @@ try {
 
 | Class | Extends | When thrown |
 |---|---|---|
-| `VaultError` | `Error` | Base class for every error below. Raised directly when mount detection fails (e.g. permission denied) and no `api.engines` override was provided. |
+| `VaultError` | `Error` | Base class for every error below. Raised directly when mount detection fails (e.g. permission denied) and no `api.engines` override was provided; the failure is on `cause`, so Vault's HTTP status is `err.cause.statusCode`. Vault answers 403 both for a mount the token may not use and for one that does not exist. |
 | `VaultHttpError` | `VaultError` | Vault answered with a non-2xx status. Carries the status as `statusCode` and the parsed body as `error`. `message` (`"<status> - <raw body text>"`) and `error` hold the full response body, which can include secret material (e.g. a partially failed transit batch), so log `statusCode` and `error.errors` rather than the error object itself. |
 | `InvalidArgumentsError` | `VaultError` | Bad arguments or configuration: `boot()` called without options, an unknown instance name passed to `get()`, an unsupported `auth.type`, invalid renewal options or `api.timeout`, an invalid node-config substitution map, or a KV method path that fails [path validation](#path-validation). |
 | `InvalidAWSCredentialsError` | `InvalidArgumentsError` | `auth.config.credentials` was supplied but is not a usable `accessKeyId` / `secretAccessKey` pair. |

@@ -37,6 +37,26 @@ function decodePath(path) {
 }
 
 /**
+ * The error a caller gets when the detection it started or joined failed. It is built for each
+ * caller, so its message names that caller's own path rather than the first caller's. The
+ * failure stays on `cause`.
+ * safeMessage: this message is logged by the operation's catch handler, so it must not embed a
+ * raw response body.
+ *
+ * @param {Error} err - why the detection failed
+ * @param {string} interimKey - the mount the detection was keyed on
+ * @param {string} path - the caller's path
+ * @returns {VaultError}
+ */
+function detectionError(err, interimKey, path) {
+    return new VaultError(
+        `Failed to detect KV engine version for mount "${interimKey}" (path: ${path}): ${safeMessage(err)}. ` +
+        'Set api.engines or disable autoDetect to bypass detection.',
+        { cause: err }
+    );
+}
+
+/**
  * Resolves the KV engine version for a given secret path.
  *
  * Responsibilities:
@@ -215,6 +235,11 @@ class MountResolver {
                 // The shared detection resolved to a different mount — start our own.
                 // Use the full path as key so it won't collide with the first-segment key.
                 return this.__detectWithCache(path, path);
+            }, (err) => {
+                // A failed detection is shared, as it always was: one request, whatever it
+                // answered, so a rate limit or a failed login is not repeated per caller. Only
+                // the error is built per caller, so it names that caller's own path.
+                throw detectionError(err, interimKey, path);
             });
         }
 
@@ -255,17 +280,14 @@ class MountResolver {
             .catch((err) => {
                 // Clear in-flight so callers can retry
                 this.__inflight.delete(interimKey);
-                // safeMessage: this message is logged by the operation's catch handler, so it
-                // must not embed a raw response body; the original error stays on `cause`.
-                throw new VaultError(
-                    `Failed to detect KV engine version for mount "${interimKey}" (path: ${path}): ${safeMessage(err)}. ` +
-                    'Set api.engines or disable autoDetect to bypass detection.',
-                    { cause: err }
-                );
+                throw err;
             });
 
+        // Callers that join get the raw failure and build their own error (see above).
         this.__inflight.set(interimKey, promise);
-        return promise;
+        return promise.catch((err) => {
+            throw detectionError(err, interimKey, path);
+        });
     }
 
     /**
