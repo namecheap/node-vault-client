@@ -73,7 +73,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci && npm install config
+        run: npm ci
 
       - name: Run coverage
         # `npm run coverage` enforces the c8 thresholds in package.json (check-coverage),
@@ -106,7 +106,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci && npm install config
+        run: npm ci
 
       - name: Run unit tests
         run: npm run test:unit
@@ -152,7 +152,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci && npm install config
+        run: npm ci
 
       - name: Run e2e tests
         run: npm run test:e2e

@@ -1,3 +1,27 @@
+# Unreleased
+
+- **CI / release tooling (#229).** The publish job holds the npm trusted-publishing credential
+  (`id-token: write`). It no longer fetches and runs tooling from outside the lockfile, and what
+  it must fetch is kept away from that credential.
+  - The job no longer runs `npm install -g npm@latest` (npm `latest` had moved to 12.x). It uses
+    the npm bundled with Node 24 and fails if that is older than 11.5.1, which trusted publishing
+    needs.
+  - `npm ci --ignore-scripts` in the publish job. No locked package has an install script today;
+    this keeps a future one from running there.
+  - `test/verify-package.mjs` still installs the packed tarball's runtime dependencies from the
+    registry, as a consumer would, but with `--ignore-scripts` and without the OIDC request,
+    Actions runtime and npm/GitHub token variables, both for the install and for the checks that
+    load the package.
+  - `config` is locked as a devDependency (`^4.4.2`, inside the unchanged `>=1 <5` peer range)
+    instead of `npm install config` in three CI jobs.
+  - `test/workflows.test.mjs` fails if a workflow `run:` command fetches packages at run time
+    (`npm install`/`add`/`update`/`exec`, `npx`, `yarn add`, `pnpm`, `@latest`), if a publish
+    `npm ci` loses `--ignore-scripts`, if the npm check goes, or if verify-package stops
+    scrubbing the environment.
+
+  Library code and runtime dependencies are unchanged; the packed `package.json` now also lists
+  `config` under `devDependencies`, which consumers do not install.
+
 # 3.1.0 Release notes (2026-11-05)
 
 Upgrading from 3.0.x needs no code change. Two things behave differently; both are covered

@@ -25,12 +25,25 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
 
-      # Trusted publishing (OIDC) requires npm CLI >= 11.5.1
-      - name: Ensure recent npm
-        run: npm install -g npm@latest
+      # Trusted publishing (OIDC) requires npm CLI >= 11.5.1. Node 24 bundles npm 11.x, so the
+      # job uses that rather than installing `npm@latest`: an unreviewed npm release would run
+      # here with id-token: write (#229). This fails the job if the bundled npm is too old.
+      - name: Check npm supports trusted publishing
+        run: |
+          node -e '
+            const v = process.argv[1].split(".").map(Number);
+            const min = [11, 5, 1];
+            const cmp = v[0] - min[0] || v[1] - min[1] || v[2] - min[2];
+            if (cmp < 0) {
+              console.error(`::error::npm ${process.argv[1]} is older than 11.5.1, which trusted publishing needs`);
+              process.exit(1);
+            }
+          ' "$(npm --version)"
 
+      # No dependency lifecycle scripts while the OIDC credential is in scope (#229). None of
+      # the locked packages has one today; this keeps it that way for future versions.
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       # Release-time guard (issue #111): publishing x.y.z requires a matching "# x.y.z ..."
       # release-notes heading in CHANGELOG.md, so the changelog cannot silently fall out of
