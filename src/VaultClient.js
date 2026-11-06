@@ -478,11 +478,39 @@ class VaultClient {
      * @private
      */
     __detectMount(path) {
-        return this.__auth.getAuthToken()
-            .then((token) => {
-                const detectPath = `sys/internal/ui/mounts/${path}`;
-                return this.__api.makeRequest('GET', detectPath, null, this.getHeaders(token));
+        return this.__withAuthToken((token) => {
+            const detectPath = `sys/internal/ui/mounts/${path}`;
+            return this.__api.makeRequest('GET', detectPath, null, this.getHeaders(token));
+        });
+    }
+
+    /**
+     * Calls `send` with the current auth token. When Vault answers 403 and the token turns out
+     * to be one Vault no longer accepts (revoked server-side), logs in again and calls `send`
+     * once more; see {@link VaultBaseAuth#checkRejectedToken}. A policy denial and a 403 under
+     * `token` auth surface that 403; otherwise the retry's own result or error is returned.
+     *
+     * @param {function(AuthToken): Promise<*>} send
+     * @returns {Promise<*>}
+     * @private
+     */
+    __withAuthToken(send) {
+        return this.__auth.getAuthToken().then((token) => send(token).catch((err) => {
+            if (!(err instanceof errors.VaultHttpError) || err.statusCode !== 403
+                    || typeof this.__auth.checkRejectedToken !== 'function') {
+                throw err;
+            }
+            return this.__auth.checkRejectedToken(token).then((retry) => {
+                if (!retry) {
+                    throw err;
+                }
+                // What the retry got, success or failure, is the request's outcome now: a login
+                // that fails, a 404 or a timeout says more than the 403 of a token already gone.
+                return this.__auth.getAuthToken().then(send);
+            }, () => {
+                throw err;
             });
+        }));
     }
 
     // -------------------------------------------------------------------------
@@ -527,50 +555,49 @@ class VaultClient {
             }
         }
 
-        return this.__auth.getAuthToken()
-            .then((token) => {
-                const headers = Object.assign({}, this.getHeaders(token), extraHeaders || {});
+        return this.__withAuthToken((token) => {
+            const headers = Object.assign({}, this.getHeaders(token), extraHeaders || {});
 
-                if (raw) {
-                    return this.__api.makeRequest(method, path, data, headers)
-                        .then((body) => ({ body, version: undefined, mount: undefined, apiPath: path }));
-                }
+            if (raw) {
+                return this.__api.makeRequest(method, path, data, headers)
+                    .then((body) => ({ body, version: undefined, mount: undefined, apiPath: path }));
+            }
 
-                return this.__resolver.resolve(path)
-                    .then(({ mount, version }) => {
-                        if (v2Only && version !== 2) {
-                            throw new errors.UnsupportedOperationError(
-                                `Operation "${op}" is only supported on KV v2 mounts. ` +
-                                `Mount "${mount}" is not a KV v2 engine.`
-                            );
-                        }
+            return this.__resolver.resolve(path)
+                .then(({ mount, version }) => {
+                    if (v2Only && version !== 2) {
+                        throw new errors.UnsupportedOperationError(
+                            `Operation "${op}" is only supported on KV v2 mounts. ` +
+                            `Mount "${mount}" is not a KV v2 engine.`
+                        );
+                    }
 
-                        let apiPath;
-                        if (version === 2) {
-                            // Split the path into mount + logical sub-path and rewrite for KV v2
-                            const logicalPath = this.__logicalPath(path, mount);
-                            apiPath = rewritePath(version, op, mount, logicalPath);
-                        } else {
-                            // v1 / disabled: preserve the caller's literal path byte-for-byte,
-                            // including any trailing slash, to maintain the old wire behavior.
-                            apiPath = path;
-                        }
+                    let apiPath;
+                    if (version === 2) {
+                        // Split the path into mount + logical sub-path and rewrite for KV v2
+                        const logicalPath = this.__logicalPath(path, mount);
+                        apiPath = rewritePath(version, op, mount, logicalPath);
+                    } else {
+                        // v1 / disabled: preserve the caller's literal path byte-for-byte,
+                        // including any trailing slash, to maintain the old wire behavior.
+                        apiPath = path;
+                    }
 
-                        // Data envelope: wrapData forces { data } on every engine version
-                        // (merge-patch update() semantics — v1 mounts reject PATCH anyway);
-                        // otherwise only v2 write/update wrap non-null data.
-                        let requestData = data;
-                        if (wrapData) {
-                            requestData = { data };
-                        } else if (version === 2 && (op === 'write' || op === 'update')
-                                && data !== null && data !== undefined) {
-                            requestData = { data };
-                        }
+                    // Data envelope: wrapData forces { data } on every engine version
+                    // (merge-patch update() semantics — v1 mounts reject PATCH anyway);
+                    // otherwise only v2 write/update wrap non-null data.
+                    let requestData = data;
+                    if (wrapData) {
+                        requestData = { data };
+                    } else if (version === 2 && (op === 'write' || op === 'update')
+                            && data !== null && data !== undefined) {
+                        requestData = { data };
+                    }
 
-                        return this.__api.makeRequest(method, apiPath, requestData, headers)
-                            .then((body) => ({ body, version, mount, apiPath }));
-                    });
-            });
+                    return this.__api.makeRequest(method, apiPath, requestData, headers)
+                        .then((body) => ({ body, version, mount, apiPath }));
+                });
+        });
     }
 
     /**
