@@ -194,7 +194,8 @@ class VaultClient {
      *
      * @param {Object} options
      * @param {Object} options.api
-     * @param {String} options.api.url - the url of the vault server
+     * @param {String} options.api.url - the url of the vault server. Plain `http://` to a host
+     *      other than this machine logs a warning; see "Plain `http://` api.url" in the README
      * @param {String} [options.api.apiVersion='v1']
      * @param {Object} [options.api.requestOptions] - extra options merged into every HTTP
      *      request (e.g. an undici `dispatcher` for a proxy/SOCKS agent or custom TLS/CA trust).

@@ -523,7 +523,7 @@ Client constructor function.
 | --- | --- | --- | --- |
 | options | `Object` |  |  |
 | options.api | <code>Object</code> |  |  |
-| options.api.url | <code>String</code> |  | the url of the vault server |
+| options.api.url | <code>String</code> |  | the url of the vault server. Plain `http://` to a host other than this machine logs a warning; see "Plain `http://` api.url" |
 | [options.api.apiVersion] | <code>String</code> | `v1` |  |
 | [options.api.requestOptions] | <code>Object</code> |  | extra options merged into every HTTP request (see [Custom transport](#custom-transport-proxy--self-signed-tls)); a `redirect` there replaces the same-origin redirect policy (see [Redirects and the Vault token](#redirects-and-the-vault-token)) |
 | [options.api.timeout] | <code>number</code> | `120000` | milliseconds a request may take, response headers, body and redirects included, before it rejects with `RequestTimeoutError`; `0` turns the limit off, `null` gives the default (see [Request timeouts](#request-timeouts)) |
@@ -628,6 +628,18 @@ signal's own reason, not `RequestTimeoutError`), so an `AbortController` can can
 on shutdown. `fetch()` then receives the client's own per-request signal, which follows it. Do **not** use `signal: AbortSignal.timeout(ms)` there: it is created once and
 shared by every request the client makes, so it works for the first calls and then aborts all
 later ones. Use `api.timeout` instead.
+
+##### Plain `http://` api.url
+
+When `api.url` is `http://` and its host is not this machine, the client logs one warning when it
+is created: `"api.url" uses plain http:// for <host:port>, which is not a loopback address; the
+Vault token and secrets travel unencrypted. …`. Nothing else changes: the client connects and works
+as before. `localhost` and `*.localhost`, `127.0.0.0/8` and `::1` count as this machine. The
+warning names only the host and port, never credentials or a path from the URL, and a process logs
+it once per host, however many clients it creates.
+
+If the connection is protected another way (a service mesh with mTLS, a TLS-terminating sidecar on
+another host), filter that message in your `logger`, or switch to `https://`.
 
 ##### Redirects and the Vault token
 

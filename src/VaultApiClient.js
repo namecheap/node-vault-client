@@ -187,6 +187,58 @@ function joinUrl(...parts) {
         .join('/');
 }
 
+/**
+ * Hosts already warned about for plain http://, so one process logs the warning once per Vault
+ * host however many clients it creates.
+ * @type {Set<string>}
+ */
+const warnedPlainHttpHosts = new Set();
+
+/**
+ * True for a host that never leaves the machine: `localhost` and its subdomains, 127.0.0.0/8
+ * and `::1` (including its IPv4-mapped form). `hostname` is WHATWG-normalised, so IPv4
+ * shorthands such as `127.1` already read `127.0.0.1` and IPv6 is bracketed.
+ * @param {string} hostname - `URL#hostname`
+ * @returns {boolean}
+ * @private
+ */
+function isLoopbackHost(hostname) {
+    const host = hostname.endsWith('.') ? hostname.slice(0, -1) : hostname;
+    return host === 'localhost'
+        || host.endsWith('.localhost')
+        || host === '[::1]'
+        || host.startsWith('[::ffff:7f')
+        || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+}
+
+/**
+ * Warn, once per host and process, when `api.url` is plain http:// to a host off this machine:
+ * the token and every secret would cross the network unencrypted. Only the host and port are
+ * named, never credentials or a path from the URL. An unparsable URL is left to fail where it
+ * is used, as before.
+ * @param {*} url - `api.url`
+ * @param {Object} logger
+ * @returns {void}
+ * @private
+ */
+function warnOnPlainHttp(url, logger) {
+    let parsed;
+    try {
+        parsed = new URL(url);
+    } catch {
+        return;
+    }
+    if (parsed.protocol !== 'http:' || isLoopbackHost(parsed.hostname) || warnedPlainHttpHosts.has(parsed.host)) {
+        return;
+    }
+    warnedPlainHttpHosts.add(parsed.host);
+    logger.warn(
+        '"api.url" uses plain http:// for %s, which is not a loopback address; the Vault token and '
+        + 'secrets travel unencrypted. Use https:// unless the network path is protected otherwise',
+        parsed.host
+    );
+}
+
 class VaultApiClient {
 
     /**
@@ -230,6 +282,8 @@ class VaultApiClient {
         if (this.__timeout > 0 && this.__timeout < 1000) {
             logger.warn('"api.timeout" is %d ms; it is in milliseconds, not seconds', this.__timeout);
         }
+
+        warnOnPlainHttp(this.__config.url, logger);
 
         this.__namespace = namespace !== undefined ? namespace : this.__config.namespace;
         this._logger = logger;

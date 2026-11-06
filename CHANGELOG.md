@@ -32,6 +32,13 @@
   used, and cancels the timer so the run exits even without `--exit`. `--exit` stays in the
   scripts. Test-only; no library change.
 
+- **A warning for a plain `http://` `api.url` off this machine (part of #202).** When `api.url` is
+  `http://` and its host is not loopback (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`), the
+  client now logs one `warn` line when it is created, because the token and secrets would cross the
+  network unencrypted. It names only the host and port, is logged once per host per process, and
+  changes nothing else: the client connects and works as before. With the default logger it goes to
+  `console.warn`; `logger: false` silences it. README: "Plain `http://` api.url".
+
 - **Security: redirects are followed only within the origin of `api.url` (#232).** Requests
   used `fetch()`'s `redirect: 'follow'`, which sends every header but `Authorization`, `Cookie`
   and `Proxy-Authorization` to whatever origin a `Location` names. `X-Vault-Token` went with it, a
