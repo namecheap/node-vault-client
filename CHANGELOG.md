@@ -22,6 +22,12 @@
   Library code and runtime dependencies are unchanged; the packed `package.json` now also lists
   `config` under `devDependencies`, which consumers do not install.
 
+- **A warning for an IAM login without `iam_server_id_header_value` (part of #202).** The signed
+  STS `GetCallerIdentity` request then names no Vault server, so it could be replayed to another
+  Vault server that trusts the same AWS principal. The `iam` backend now logs one `warn` line when it
+  is created without the value (or with an empty one), once per mount per process, and logs in as
+  before, still without the header. README: "`iam_server_id_header_value`".
+
 - **Tests: the e2e suites exit without `--exit` (#220).** Plain `mocha` on `e2e.test.mjs` or
   `e2e.kv2.test.mjs` hung after the summary. Two clients holding renewable tokens were never
   closed, so their renewal timers kept the event loop alive: the AppRole "with secret ID" test,

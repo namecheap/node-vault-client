@@ -6,6 +6,13 @@ const { fromNodeProviderChain } = require('@aws-sdk/credential-providers');
 const errors = require('../errors');
 
 /**
+ * Mounts already warned about for a missing `iam_server_id_header_value`, so one process logs
+ * the warning once per mount however many clients it creates.
+ * @type {Set<string>}
+ */
+const warnedMissingServerId = new Set();
+
+/**
  * Implementation of AWS Auth Backend :: IAM Authentication Method
  * @link https://www.vaultproject.io/docs/auth/aws.html#iam-authentication-method
  *
@@ -51,6 +58,8 @@ class VaultIAMAuth extends VaultBaseAuth {
      * @property {String} [namespace] - Optional. Vault namespace. Applied as the X-Vault-Namespace
      *   header to every request by {@link VaultApiClient}; see {@link VaultClient#constructor}.
      * @property {String} [iam_server_id_header_value] - Optional. Header's value X-Vault-AWS-IAM-Server-ID.
+     *   Without it the signed request names no Vault server, and a warning is logged once per
+     *   mount and process.
      * @property {String} [region] - Optional. AWS region used to sign the STS GetCallerIdentity
      *   request. When set, the request is signed against the regional STS endpoint
      *   (`sts.<region>.amazonaws.com`) and the SigV4 credential scope is bound to that region.
@@ -72,12 +81,38 @@ class VaultIAMAuth extends VaultBaseAuth {
         this.__role = config.role;
         this.__iam_server_id_header_value = config.iam_server_id_header_value;
         this.__region = config.region;
+        this.__warnOnMissingServerId();
 
 
         const { credentials } = config;
         this._validateCredentialsConfig(credentials);
 
         this.__credentialChain = credentials ? () => Promise.resolve(credentials) : fromNodeProviderChain();
+    }
+
+    /**
+     * Without `X-Vault-AWS-IAM-Server-ID` the signed STS request names no Vault server, so a
+     * server that receives it (or anyone who captures it) can replay it to another Vault server
+     * that trusts the same AWS principal until the signature expires. Warn once per mount and
+     * process when the header will not be sent. A throwing logger must not fail construction.
+     * @returns {void}
+     * @private
+     */
+    __warnOnMissingServerId() {
+        if (this.__iam_server_id_header_value || warnedMissingServerId.has(this._mount)) {
+            return;
+        }
+        warnedMissingServerId.add(this._mount);
+        try {
+            this._log.warn(
+                'IAM login on mount "%s" is not configured with "iam_server_id_header_value", so the signed '
+                + 'STS request names no Vault server and could be replayed to another one that trusts the same '
+                + 'AWS principal. Set it, and the same value as iam_server_id_header_value on auth/%s/config/client',
+                this._mount, this._mount
+            );
+        } catch {
+            // a throwing logger changes nothing here
+        }
     }
 
     /**

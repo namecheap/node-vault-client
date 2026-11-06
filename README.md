@@ -116,6 +116,17 @@ when Vault's `sts_region` / `sts_endpoint` is configured for a non-`us-east-1` r
 `SignatureDoesNotMatch — Credential should be scoped to a valid region`. Omitting `region`
 preserves the previous (global-endpoint) behavior.
 
+#### `iam_server_id_header_value`
+
+Set it to the same value as `iam_server_id_header_value` in the mount's `auth/<mount>/config/client`.
+The client then sends it in the signed request as `X-Vault-AWS-IAM-Server-ID`. That binds the
+signature to your Vault server, so anyone who sees the request (a server it reached by mistake, or
+a log) cannot replay it to another Vault server that trusts the same AWS principal. Vault rejects
+a login with a missing or wrong value only when the mount sets the value.
+
+When `config.iam_server_id_header_value` is not set (or is empty), the client logs one warning,
+once per mount per process, and logs in as before without the header.
+
 ### AppRole auth
 
 ```javascript
