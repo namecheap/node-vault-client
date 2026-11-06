@@ -121,6 +121,19 @@
     call now throws `Requested key does not exist`, where `null` gave a `TypeError` and a string
     gave one of its characters or its length.
 
+- **Fixed: a missing Kubernetes service-account token file threw out of `read()` (#241).**
+  `kubernetes` auth read the token file before its promise chain, so a missing or unreadable
+  file made `read()`, `write()` and every other operation throw synchronously instead of
+  returning a rejected promise. A caller that only chained `.catch()` got an uncaught
+  exception. The file is now read inside the chain, as `jwt` auth already did with `jwtPath`.
+  The login also turns a synchronous throw from any auth backend into a rejection.
+  - *Compatibility.* The operation now rejects with the same `fs` error (for example
+    `code: 'ENOENT'`, with the same message) instead of throwing it, so handle it with `await` or
+    `.catch()`: a `try`/`catch` around a call that is not awaited no longer catches it. As with
+    any other failed operation, it is now logged at `error` (`read secret failed: ENOENT: …`).
+    Vault is still not contacted. Calls made while that login is still pending share its error;
+    the next call after it tries the file again, as before.
+
 # 3.1.0 Release notes (2026-11-05)
 
 Upgrading from 3.0.x needs no code change. Two things behave differently; both are covered
