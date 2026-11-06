@@ -32,6 +32,20 @@
   used, and cancels the timer so the run exits even without `--exit`. `--exit` stays in the
   scripts. Test-only; no library change.
 
+- **Fixed: a token revoked on the Vault side is replaced on the next request (#235).** The client
+  logged in again only once its own clock said the token had expired. After a server-side
+  revocation, every request failed with `VaultHttpError` 403 until then, even when the auth backend
+  could log in again at once. Now a 403 on a secret request (the KV methods, `request()`, and the
+  `autoDetect` mount detection) is checked with `auth/token/lookup-self`. If Vault no longer accepts
+  the token, the client drops it with its renewal timer, logs in again and sends the request once
+  more.
+  - *Compatibility.* A policy denial is returned as before, after one extra `lookup-self` request,
+    and costs no login, so an AppRole `secret_id` with limited uses is not spent on it. There is at
+    most one retry per call; if it fails, the call rejects with the first 403, as before, and the
+    reason is logged at `warn`. A 403 on the login itself and any 403 under `token` auth are
+    returned as before, without a lookup. Other statuses are untouched.
+  - README: "Tokens revoked on the Vault side".
+
 # 3.1.0 Release notes (2026-11-05)
 
 Upgrading from 3.0.x needs no code change. Two things behave differently; both are covered

@@ -138,6 +138,12 @@ class VaultBaseAuth {
         this.__pendingLogin = null;
         this.__refreshTimeout = null;
         this.__renewalEpoch = 0;
+        /**
+         * The in-flight {@link VaultBaseAuth#checkRejectedToken} lookup, shared by every
+         * request that was rejected with the same token.
+         * @type {{id: string, promise: Promise<boolean>}|null}
+         */
+        this.__rejectionCheck = null;
     }
 
     /**
@@ -298,6 +304,53 @@ class VaultBaseAuth {
             lt.clearTimeout(this.__refreshTimeout);
             this.__refreshTimeout = null;
         }
+    }
+
+    /**
+     * Called by VaultClient after Vault answered 403 to a request made with `authToken`.
+     * Vault answers 403 both to a token it no longer accepts (revoked, or expired before the
+     * local clock says so) and to a policy that denies the request. `lookup-self`, which every
+     * login here already makes, tells the two apart, so a policy denial costs no login. A dead
+     * token is dropped, and its renewal timer cancelled, so the next getAuthToken() logs in.
+     *
+     * @param {AuthToken} authToken - the token the rejected request carried
+     * @returns {Promise<boolean>} true when the request may succeed if sent once more with
+     *      the token getAuthToken() now gives: the token was dead and has been dropped, or it
+     *      had been replaced already
+     */
+    checkRejectedToken(authToken) {
+        if (!this._reauthenticationAllowed()) {
+            return Promise.resolve(false);
+        }
+        const id = authToken.getId();
+        if (this.__authToken === null || this.__authToken.getId() !== id) {
+            return Promise.resolve(true);
+        }
+        if (this.__rejectionCheck !== null && this.__rejectionCheck.id === id) {
+            return this.__rejectionCheck.promise;
+        }
+
+        const check = {
+            id,
+            promise: this.__apiClient.makeRequest('GET', '/auth/token/lookup-self', null, {'X-Vault-Token': id})
+                .then(() => false, err => err instanceof errors.VaultHttpError && err.statusCode === 403)
+                .then(dead => {
+                    if (this.__rejectionCheck === check) {
+                        this.__rejectionCheck = null;
+                    }
+                    if (dead && this.__authToken !== null && this.__authToken.getId() === id) {
+                        this._log.warn(
+                            'Vault no longer accepts the token (accessor=%s); logging in again',
+                            authToken.getAccessor()
+                        );
+                        this.__authToken = null;
+                        this.cancelTokenRefresh();
+                    }
+                    return dead;
+                }),
+        };
+        this.__rejectionCheck = check;
+        return check.promise;
     }
 
     /**

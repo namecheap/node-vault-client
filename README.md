@@ -423,6 +423,23 @@ that token expires, and this client does not renew secret leases — only the au
 dynamic credentials (`database/creds/*`, cloud credentials) whose lease outlives the auth token,
 leaving renewal on is what currently keeps them alive. KV reads are unaffected.
 
+#### Tokens revoked on the Vault side
+
+A token can stop working before its expiry, for example when an operator revokes it
+(`vault token revoke`, `sys/leases/revoke-prefix`). Vault then answers 403 to every request that
+carries it. When a secret request or a mount detection gets a 403, the client asks
+`auth/token/lookup-self`, which every login already calls, whether Vault still accepts the token:
+
+* If it does, the 403 was a policy denial. The call rejects with it as before, and no login is made.
+* If it does not, the client drops the token and its renewal timer, logs `Vault no longer accepts
+  the token (accessor=…); logging in again` at `warn`, logs in, and sends the request once more. If
+  that fails too, the call rejects with the first 403 and the reason is logged at `warn`. Like any
+  re-login, it replays the configured credential (see the table above).
+
+Concurrent requests rejected with the same token share one lookup and one login. A 403 on the login
+itself is returned as before. Under `token` auth there is no credential to log in with, so the 403
+is returned as before, without a lookup.
+
 #### Tuning renewal instead of disabling it
 
 Two further keys, also on `auth`, shape *how* renewal happens. Both are optional, and leaving them
