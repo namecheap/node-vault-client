@@ -1,6 +1,6 @@
 'use strict';
 
-const { VaultError, VaultHttpError, InvalidArgumentsError } = require('./errors');
+const { VaultError, InvalidArgumentsError } = require('./errors');
 const safeMessage = require('./safeMessage');
 const { trimTrailingSlashes, trimSlashes } = require('./slashes');
 
@@ -228,8 +228,7 @@ class MountResolver {
         if (this.__inflight.has(interimKey)) {
             // Join the existing in-flight promise but verify the result matches our path.
             // If the detection was for a different sub-mount, start a fresh detection.
-            const inflight = this.__inflight.get(interimKey);
-            return inflight.promise.then((entry) => {
+            return this.__inflight.get(interimKey).then((entry) => {
                 if (containsPath(entry.mount, path)) {
                     return entry;
                 }
@@ -237,13 +236,9 @@ class MountResolver {
                 // Use the full path as key so it won't collide with the first-segment key.
                 return this.__detectWithCache(path, path);
             }, (err) => {
-                // A 4xx is Vault's answer for the path it was asked about, and callers are grouped
-                // by first segment, not by mount: a caller with another path asks for its own, as
-                // above. A server or network failure is shared.
-                if (path !== inflight.path && err instanceof VaultHttpError
-                        && err.statusCode >= 400 && err.statusCode < 500) {
-                    return this.__detectWithCache(path, path);
-                }
+                // A failed detection is shared, as it always was: one request, whatever it
+                // answered, so a rate limit or a failed login is not repeated per caller. Only
+                // the error is built per caller, so it names that caller's own path.
                 throw detectionError(err, interimKey, path);
             });
         }
@@ -288,8 +283,8 @@ class MountResolver {
                 throw err;
             });
 
-        // Callers that join get the raw failure and the path it was for (see above).
-        this.__inflight.set(interimKey, { promise, path });
+        // Callers that join get the raw failure and build their own error (see above).
+        this.__inflight.set(interimKey, promise);
         return promise.catch((err) => {
             throw detectionError(err, interimKey, path);
         });

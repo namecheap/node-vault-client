@@ -410,22 +410,45 @@ describe('MountResolver', function () {
                 expect(a).not.to.equal(b);
             });
 
-            it('lets a caller on a sibling mount ask for its own path when the shared detection was refused', async function () {
-                const detectFn = sinon.stub();
-                detectFn.withArgs('team/kvA/x').rejects(DENIED());
-                detectFn.withArgs('team/kvB/y').returns(mkDetect('team/kvB', 2));
+            it('shares a refusal with a caller on a sibling mount, as before: one request, its own path in the message', async function () {
+                const { detectFn, fail } = heldDetection();
                 const resolver = new MountResolver(detectFn, {}, logger);
+                const cause = DENIED();
 
-                const [a, b] = await Promise.all([
-                    resolver.resolve('team/kvA/x').then(() => null, (err) => err),
-                    resolver.resolve('team/kvB/y'),
-                ]);
+                const first = resolver.resolve('team/kvA/x').then(() => null, (err) => err);
+                const second = resolver.resolve('team/kvB/y').then(() => null, (err) => err);
+                fail(cause);
+                const [a, b] = await Promise.all([first, second]);
 
-                expect(a).to.be.instanceOf(errors.VaultError);
-                expect(a.message).to.include('(path: team/kvA/x)');
-                expect(b).to.deep.include({ mount: 'team/kvB', version: 2 });
-                expect(detectFn).to.have.been.calledTwice;
+                expect(detectFn).to.have.been.calledOnce;
+                expect(a.message).to.include('mount "team" (path: team/kvA/x)');
+                expect(b.message).to.include('mount "team" (path: team/kvB/y)');
+                expect(b.cause).to.equal(cause);
             });
+
+            for (const [label, status, body] of [
+                ['a rate limit (429)', 429, '{"errors":["request path \\"secret/x\\": rate limit quota exceeded"]}'],
+                ['a refusal (403)', 403, '{"errors":["permission denied"]}'],
+                ['a failed login (400)', 400, '{"errors":["invalid role or secret ID"]}'],
+            ]) {
+                it(`sends one detection for 50 concurrent paths when it fails with ${label}`, async function () {
+                    const { detectFn, fail } = heldDetection();
+                    const resolver = new MountResolver(detectFn, {}, logger);
+                    const cause = new errors.VaultHttpError(status, body, undefined);
+
+                    const pending = Array.from({ length: 50 }, (_, i) =>
+                        resolver.resolve(`secret/app/${i}`).then(() => null, (err) => err));
+                    fail(cause);
+                    const failures = await Promise.all(pending);
+
+                    expect(detectFn, 'no request per caller').to.have.been.calledOnce;
+                    failures.forEach((err, i) => {
+                        expect(err).to.be.instanceOf(errors.VaultError);
+                        expect(err.message).to.include(`(path: secret/app/${i})`);
+                        expect(err.cause).to.equal(cause);
+                    });
+                });
+            }
 
             it('keeps the status on cause only, as before: the error has no statusCode of its own', async function () {
                 const detectFn = sinon.stub().rejects(DENIED());
