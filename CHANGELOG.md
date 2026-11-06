@@ -1,4 +1,19 @@
-# Unreleased
+# 3.2.0 Release notes (2026-11-06)
+
+Upgrading from 3.1.x needs no code change for most setups. What behaves differently is covered
+below:
+
+- Redirects are followed only within the origin of `api.url` (#232). An `http://` `api.url` that
+  a load balancer redirects to `https://`, or a Vault HA standby that redirects to an active node
+  on another origin, now fails. Use the final URL, or set `api.requestOptions.redirect: 'follow'`
+  for the 3.1.x behaviour.
+- A 403 on a secret request is checked with `auth/token/lookup-self`, and a token Vault no
+  longer accepts is replaced by one new login (#235). A policy denial is returned as before.
+- New `warn` lines: a plain `http://` `api.url` off this machine, and an IAM login without
+  `iam_server_id_header_value` (part of #202). `VaultClient.clear()` with a name that is not a
+  string emits a `DeprecationWarning` (#239). None of them changes what the client does.
+
+Changes in this release:
 
 - **CI / release tooling (#229).** The publish job holds the npm trusted-publishing credential
   (`id-token: write`). It no longer fetches and runs tooling from outside the lockfile, and what
