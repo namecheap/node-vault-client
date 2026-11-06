@@ -21,8 +21,8 @@ const noop = () => {};
 // meet and an object that converts to a symbol is keyed by that symbol.
 const vaultInstances = new Map();
 const instanceKey = (name) => Reflect.ownKeys({ [name]: undefined })[0];
-// What clear(name) accepts as a single name.
-const CLEARABLE_NAME_TYPES = new Set(['string', 'number', 'bigint', 'symbol']);
+// clear(name) with a non-string name warns once per process (#239); see VaultClient.clear().
+let warnedClearNonString = false;
 
 // Functions, and objects that are not plain data (an undici dispatcher, a logger class
 // instance), compare by identity. Their own enumerable keys say nothing about what they do:
@@ -193,6 +193,31 @@ function assertSafeKvPath(path, allowTrailingSlash) {
     return trimmed;
 }
 
+/**
+ * clear() with a name that is not a string closes every instance, which is rarely what the
+ * caller meant (#239): `clear(42)`, or `clear` passed as a callback that receives an exit code
+ * or a resolved value. The behaviour stays as it was; this makes it visible, once per process.
+ * It names only the argument's type, never its value, which could be anything (#239).
+ * Node's --no-deprecation and --throw-deprecation flags apply, as for any DeprecationWarning.
+ * @param {*} name
+ * @returns {void}
+ * @private
+ */
+function warnClearNonString(name) {
+    if (warnedClearNonString) {
+        return;
+    }
+    warnedClearNonString = true;
+    const type = typeof name;
+    const what = name === null ? 'null' : (type === 'object' ? 'an object' : `a ${type}`);
+    process.emitWarning(
+        `VaultClient.clear() was called with ${what} ` +
+        'instead of a string name, so it closed every instance, as it always has. Call clear() with ' +
+        'no argument to clear every instance, or pass the string name of one instance.',
+        { type: 'DeprecationWarning', code: 'NVC_DEP_CLEAR_NON_STRING' }
+    );
+}
+
 class VaultClient {
 
     /**
@@ -360,35 +385,31 @@ class VaultClient {
      *
      * If no name passed all named instances will be cleared.
      *
+     * Only a string names one instance. Any other argument (a number, `null`, an object) clears
+     * every instance, as it always has, and emits a one-time `DeprecationWarning`
+     * (`NVC_DEP_CLEAR_NON_STRING`): call `clear()` with no argument to clear them all.
+     *
      * @param {String} [name] - Vault instance name, all instances will be cleared if no name were passed
-     * @throws {InvalidArgumentsError} when `name` is given but is not a string, number or symbol
      */
     static clear(name) {
-        if (name === undefined) {
-            for (const [key, instance] of vaultInstances) {
-                // Kept for compatibility: the object this replaced was walked with for...in,
-                // which skips symbol keys, so a symbol-named instance has always stayed
-                // registered, with its renewal timer, through clear(), and callers may rely on it.
-                if (typeof key === 'symbol') {
-                    continue;
-                }
+        if (typeof name === 'string') {
+            const instance = vaultInstances.get(name);
+            if (instance !== undefined) {
                 instance.close();
-                vaultInstances.delete(key);
+                vaultInstances.delete(name);
             }
             return;
         }
-        // Only an omitted name means all. A name is keyed as boot() and get() key it; anything
-        // else (null, a boolean, an object) is a mistake, which used to clear every instance.
-        if (!CLEARABLE_NAME_TYPES.has(typeof name)) {
-            throw new errors.InvalidArgumentsError(
-                'Instance name should be a string, number or symbol, or omitted to clear every ' +
-                `instance; got ${name === null ? 'null' : typeof name}`
-            );
+        if (name !== undefined) {
+            warnClearNonString(name);
         }
-
-        const key = instanceKey(name);
-        const instance = vaultInstances.get(key);
-        if (instance !== undefined) {
+        for (const [key, instance] of vaultInstances) {
+            // Kept for compatibility: the object this replaced was walked with for...in,
+            // which skips symbol keys, so a symbol-named instance has always stayed
+            // registered, with its renewal timer, through clear(), and callers may rely on it.
+            if (typeof key === 'symbol') {
+                continue;
+            }
             instance.close();
             vaultInstances.delete(key);
         }

@@ -102,16 +102,14 @@
     symbol-named instances registered, as the old `for...in` loop did. `clear('toString')` and
     the like, which threw a `TypeError`, now do nothing when no such instance was booted.
 
-- **Fixed: `VaultClient.clear()` with a name that is not a string cleared every instance
-  (#239).** Only a string cleared one named instance. Anything else, such as `clear(42)` or
-  `clear(null)`, closed and removed every instance except symbol-named ones. Now only an omitted
-  name (`clear()` or `clear(undefined)`) clears them all. A number, bigint or symbol clears the
-  one instance it names, keyed as `boot()` and `get()` key it. `null`, a boolean, an object or
-  a function throws `InvalidArgumentsError` and leaves every instance in place.
-  - *Compatibility.* `clear()` and `clear(name)` with a string behave as before. Code that passed
-    `null` or another value to mean "all" has to call `clear()`. Code that passed a number now
-    clears that one instance instead of all of them; as an exit listener,
-    `process.on('exit', VaultClient.clear)` clears nothing and does not throw.
+- **A warning when `VaultClient.clear()` gets a name that is not a string (#239).** Only a
+  string clears one named instance; anything else, such as `clear(42)`, `clear(null)` or `clear`
+  used as a callback that receives an exit code or a resolved value, closes and removes every
+  instance except symbol-named ones. That was silent and rarely meant. The behaviour is unchanged,
+  but the first such call in a process now emits a `DeprecationWarning` (code
+  `NVC_DEP_CLEAR_NON_STRING`) that names the argument's type, never its value. Call `clear()` with
+  no argument to clear every instance. Node's `--no-deprecation` silences it, and
+  `--throw-deprecation` turns it into an exception, as for any deprecation.
 
 # 3.1.0 Release notes (2026-11-05)
 

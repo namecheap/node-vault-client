@@ -151,43 +151,56 @@ describe('VaultClient', function () {
         });
     });
 
-    describe('clear() validates its argument (#239)', function () {
+    describe('clear() with a name that is not a string (#239)', function () {
+        // In-process cases stub the warning: it is once per process, so whether this process
+        // still emits it depends on test order. Its content is checked in a child process below.
+        beforeEach(function () {
+            sinon.stub(process, 'emitWarning');
+        });
+
+        afterEach(function () {
+            sinon.restore();
+        });
+
         [
-            ['null', null, 'null'],
-            ['an object', {}, 'object'],
-            ['a boolean', false, 'boolean'],
-            ['a function', () => {}, 'function'],
-        ].forEach(([label, value, type]) => it(`throws for ${label} and leaves every instance in place`, function () {
+            ['null', null],
+            ['undefined', undefined],
+            ['an object', {}],
+            ['a boolean', false],
+            ['a function', () => {}],
+            ['a number', 0],
+            ['a number naming a booted instance', 1],
+            ['a bigint', 1n],
+            ['a symbol', Symbol('not-booted')],
+        ].forEach(([label, value]) => it(`still clears every instance for ${label}, as in 3.1.0`, function () {
             const a = VaultClient.boot('a', bootOpts());
-            const b = VaultClient.boot('b', bootOpts());
+            const one = VaultClient.boot(1, bootOpts());
             const closeA = sinon.spy(a, 'close');
+            const closeOne = sinon.spy(one, 'close');
 
-            expect(() => VaultClient.clear(value)).to.throw(errors.InvalidArgumentsError,
-                'Instance name should be a string, number or symbol, or omitted to clear every instance; ' +
-                `got ${type}`);
+            expect(() => VaultClient.clear(value)).not.to.throw();
 
-            expect(VaultClient.get('a')).to.equal(a);
-            expect(VaultClient.get('b')).to.equal(b);
-            expect(closeA).not.to.have.been.called;
+            expect(closeA).to.have.been.calledOnce;
+            expect(closeOne).to.have.been.calledOnce;
+            expect(() => VaultClient.get('a')).to.throw(errors.InvalidArgumentsError, 'Invalid instance name');
+            expect(() => VaultClient.get('1')).to.throw(errors.InvalidArgumentsError, 'Invalid instance name');
         }));
 
-        it('does not echo the argument, which may be an options object with a token', function () {
-            const options = bootOpts();
-            expect(() => VaultClient.clear(options)).to.throw(errors.InvalidArgumentsError)
-                .with.property('message').that.does.not.include('tok-123');
+        it('leaves a symbol-named instance in place, as in 3.1.0', function () {
+            const key = Symbol('svc');
+            const named = VaultClient.boot(key, bootOpts());
+            const close = sinon.spy(named, 'close');
+            VaultClient.boot('a', bootOpts());
+
+            VaultClient.clear(null);
+
+            expect(close).not.to.have.been.called;
+            expect(VaultClient.get(key)).to.equal(named);
+            expect(() => VaultClient.get('a')).to.throw(errors.InvalidArgumentsError);
+            named.close();
         });
 
-        it('still clears every instance with no argument, or an explicit undefined', function () {
-            VaultClient.boot('a', bootOpts());
-            VaultClient.clear(undefined);
-            expect(() => VaultClient.get('a')).to.throw(errors.InvalidArgumentsError, 'Invalid instance name');
-
-            VaultClient.boot('a', bootOpts());
-            VaultClient.clear();
-            expect(() => VaultClient.get('a')).to.throw(errors.InvalidArgumentsError, 'Invalid instance name');
-        });
-
-        it('still clears exactly the named instance, and nothing for an unknown or empty name', function () {
+        it('still clears exactly the named instance for a string, and nothing for an unknown or empty name', function () {
             const a = VaultClient.boot('a', bootOpts());
             const b = VaultClient.boot('b', bootOpts());
             const empty = VaultClient.boot('', bootOpts());
@@ -205,42 +218,83 @@ describe('VaultClient', function () {
             VaultClient.clear('');
             expect(() => VaultClient.get('')).to.throw(errors.InvalidArgumentsError);
             expect(VaultClient.get('b')).to.equal(b);
+            expect(process.emitWarning, 'a string never warns').not.to.have.been.called;
         });
 
-        [
-            ['a number', 1, '1'],
-            ['a number booted as its string', '1', 1],
-            ['a bigint', 1n, '1'],
-        ].forEach(([label, booted, cleared]) => it(`clears only the instance named by ${label}`, function () {
-            const named = VaultClient.boot(booted, bootOpts());
-            const other = VaultClient.boot('other', bootOpts());
-            const close = sinon.spy(named, 'close');
+        it('used as an exit listener, still closes every instance', function () {
+            const a = VaultClient.boot('a', bootOpts());
+            const close = sinon.spy(a, 'close');
 
-            VaultClient.clear(cleared);
+            VaultClient.clear(0); // what process.on('exit', VaultClient.clear) passes
 
             expect(close).to.have.been.calledOnce;
-            expect(() => VaultClient.get(booted)).to.throw(errors.InvalidArgumentsError);
-            expect(VaultClient.get('other')).to.equal(other);
-        }));
-
-        it('clears only the instance named by a symbol', function () {
-            const key = Symbol('svc');
-            const named = VaultClient.boot(key, bootOpts());
-            const other = VaultClient.boot('other', bootOpts());
-
-            VaultClient.clear(key);
-
-            expect(() => VaultClient.get(key)).to.throw(errors.InvalidArgumentsError);
-            expect(VaultClient.get('other')).to.equal(other);
-            expect(named).to.be.instanceOf(VaultClient);
         });
 
-        it('used as an exit listener, clears no instance named after the exit code and does not throw', function () {
-            VaultClient.boot('a', bootOpts());
+        describe('the deprecation warning (in a child process, so the once-per-process state is fresh)', function () {
+            const script = (body) => `
+                const VaultClient = require(${JSON.stringify(new URL('../src/VaultClient.js', import.meta.url).pathname)});
+                const warnings = [];
+                process.on('warning', (w) => warnings.push({ name: w.name, code: w.code, message: w.message }));
+                const boot = (name) => VaultClient.boot(name, {
+                    api: { url: 'https://example.com/' }, logger: false,
+                    auth: { type: 'token', config: { token: 'tok-123' } },
+                });
+                ${body}
+                setImmediate(() => { process.stdout.write(JSON.stringify(warnings)); VaultClient.clear(); });
+            `;
 
-            expect(() => VaultClient.clear(0)).not.to.throw();
+            async function run(body, args = []) {
+                const { execFile } = await import('node:child_process');
+                return new Promise((resolve, reject) => {
+                    execFile(process.execPath, [...args, '-e', script(body)], (err, stdout, stderr) => {
+                        if (err) {
+                            reject(Object.assign(err, { stderr }));
+                            return;
+                        }
+                        resolve({ warnings: JSON.parse(stdout), stderr });
+                    });
+                });
+            }
 
-            expect(VaultClient.get('a')).to.be.instanceOf(VaultClient);
+            it('is emitted once per process, as a DeprecationWarning with a code', async function () {
+                const { warnings } = await run(`boot('a'); VaultClient.clear(0); boot('b'); VaultClient.clear(null);`);
+
+                expect(warnings).to.have.length(1);
+                expect(warnings[0]).to.deep.equal({
+                    name: 'DeprecationWarning',
+                    code: 'NVC_DEP_CLEAR_NON_STRING',
+                    message: 'VaultClient.clear() was called with a number instead of a string name, so it closed '
+                        + 'every instance, as it always has. Call clear() with no argument to clear every '
+                        + 'instance, or pass the string name of one instance.',
+                });
+            });
+
+            for (const [label, expr, what] of [
+                ['null', 'null', 'null'],
+                ['an object', '{ token: "s3cr3t" }', 'an object'],
+                ['a boolean', 'true', 'a boolean'],
+                ['a bigint', '1n', 'a bigint'],
+                ['a symbol', 'Symbol("x")', 'a symbol'],
+                ['a function', '() => "s3cr3t"', 'a function'],
+            ]) {
+                it(`names the type of ${label}, never its value`, async function () {
+                    const { warnings } = await run(`VaultClient.clear(${expr});`);
+                    expect(warnings).to.have.length(1);
+                    expect(warnings[0].message).to.match(new RegExp(`^VaultClient\\.clear\\(\\) was called with ${what} `));
+                    expect(warnings[0].message).not.to.include('s3cr3t');
+                });
+            }
+
+            it('is not emitted for clear(), clear(undefined) or a string name', async function () {
+                const { warnings } = await run(`boot('a'); VaultClient.clear('a'); VaultClient.clear(); VaultClient.clear(undefined);`);
+                expect(warnings).to.deep.equal([]);
+            });
+
+            it('follows --no-deprecation like any other deprecation', async function () {
+                const { warnings, stderr } = await run(`VaultClient.clear(0);`, ['--no-deprecation']);
+                expect(warnings).to.deep.equal([]);
+                expect(stderr).not.to.include('NVC_DEP_CLEAR_NON_STRING');
+            });
         });
     });
 

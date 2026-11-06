@@ -914,9 +914,14 @@ times with the same name will return the same instance.
 #### VaultClient.clear([name])
 Clear named Vault instance
 
-If no name passed all named instances will be cleared. A number or symbol names an instance as it
-does for `boot()` and `get()`. Any other argument, such as `null`, throws `InvalidArgumentsError`;
-earlier versions cleared every instance for it.
+If no name passed all named instances will be cleared.
+
+Only a string names one instance. Any other argument (a number, `null`, an object, a symbol)
+clears every instance, as it always has. That is rarely what was meant: `clear(42)`, or `clear`
+passed as a callback that receives an exit code (`process.on('exit', VaultClient.clear)`) or a
+resolved value. So the first such call in a process also emits a `DeprecationWarning` with code
+`NVC_DEP_CLEAR_NON_STRING`, naming the argument's type but not its value. Call `clear()` with no
+argument to clear every instance. Node's `--no-deprecation` and `--throw-deprecation` apply.
 
 **Kind**: static method of [<code>VaultClient</code>](#VaultClient)  
 
