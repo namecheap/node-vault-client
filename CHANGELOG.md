@@ -32,6 +32,16 @@
   used, and cancels the timer so the run exits even without `--exit`. `--exit` stays in the
   scripts. Test-only; no library change.
 
+- **Fixed: a missing Kubernetes service-account token file threw out of `read()` (#241).**
+  `kubernetes` auth read the token file before its promise chain, so a missing or unreadable
+  file made `read()`, `write()` and every other operation throw synchronously instead of
+  returning a rejected promise. A caller that only chained `.catch()` got an uncaught
+  exception. The file is now read inside the chain, as `jwt` auth already did with `jwtPath`.
+  The login also turns a synchronous throw from any auth backend into a rejection.
+  - *Compatibility.* The operation now rejects with the same `fs` error (`code: 'ENOENT'` and
+    the same message) instead of throwing it. Vault is still not contacted, and the next call
+    tries the login again, as before.
+
 # 3.1.0 Release notes (2026-11-05)
 
 Upgrading from 3.0.x needs no code change. Two things behave differently; both are covered

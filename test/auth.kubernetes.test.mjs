@@ -5,6 +5,7 @@ import { expect, use } from 'chai';
 import sinonChai from 'sinon-chai';
 import VaultApiClient from '../src/VaultApiClient.js';
 import VaultKubernetesAuth from '../src/auth/VaultKubernetesAuth.js';
+import VaultClient from '../src/VaultClient.js';
 import AuthToken from '../src/auth/AuthToken.js';
 import errors from '../src/errors.js';
 
@@ -72,14 +73,18 @@ describe('VaultKubernetesAuth', function () {
             .to.throw(errors.InvalidArgumentsError, '"role" should be provided for VaultKubernetesAuth');
     });
 
-    it('propagates the fs error when the service-account token file is missing or unreadable, without hitting Vault', function () {
+    it('rejects with the fs error when the service-account token file is missing or unreadable, without hitting Vault (#241)', async function () {
         const fsError = new Error("ENOENT: no such file or directory, open '/var/run/secrets/kubernetes.io/serviceaccount/token'");
         fsError.code = 'ENOENT';
         readFileSync = sinon.stub(fs, 'readFileSync').throws(fsError);
         const api = apiStub();
         const auth = new VaultKubernetesAuth(api, logger, { role: 'r' });
 
-        expect(() => auth._authenticate()).to.throw(fsError);
+        let pending;
+        expect(() => { pending = auth._authenticate(); }, 'must reject, not throw').to.not.throw();
+        const error = await pending.then(() => null, (err) => err);
+
+        expect(error).to.equal(fsError);
         expect(api.makeRequest).to.not.have.been.called;
     });
 
@@ -96,6 +101,50 @@ describe('VaultKubernetesAuth', function () {
                 call.args.some((arg) => typeof arg === 'string'
                     && (arg.includes('super-secret-jwt') || arg.includes('super-secret-vault-token'))));
             expect(leaked, 'JWT and client token must not be logged').to.equal(false);
+        });
+    });
+
+    describe('a missing token file through the public API (#241)', function () {
+        let client;
+
+        afterEach(function () {
+            client?.close();
+            client = undefined;
+        });
+
+        ['read', 'list', 'delete'].forEach((op) => it(`${op}() returns a rejected promise, not a synchronous throw`, async function () {
+            const fetchStub = sinon.stub(globalThis, 'fetch');
+            try {
+                client = new VaultClient({
+                    api: { url: 'http://127.0.0.1:1/' },
+                    logger: false,
+                    auth: { type: 'kubernetes', config: { role: 'r', tokenPath: '/nonexistent/sa/token' } },
+                });
+
+                let pending;
+                expect(() => { pending = client[op]('secret/x'); }, 'must reject, not throw').to.not.throw();
+                const error = await pending.then(() => null, (err) => err);
+
+                expect(error).to.be.instanceOf(Error);
+                expect(error.code).to.equal('ENOENT');
+                expect(fetchStub).to.not.have.been.called;
+            } finally {
+                fetchStub.restore();
+            }
+        }));
+
+        it('reaches a .catch()-only caller, so nothing escapes as an uncaught exception', async function () {
+            client = new VaultClient({
+                api: { url: 'http://127.0.0.1:1/' },
+                logger: false,
+                auth: { type: 'kubernetes', config: { role: 'r', tokenPath: '/nonexistent/sa/token' } },
+            });
+
+            const caught = await new Promise((resolve) => {
+                client.write('secret/x', { a: 1 }).catch(resolve);
+            });
+
+            expect(caught.code).to.equal('ENOENT');
         });
     });
 });

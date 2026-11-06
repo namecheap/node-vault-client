@@ -221,6 +221,21 @@ describe('VaultBaseAuth', function () {
     });
 
     describe('#getAuthToken()', function () {
+        it('rejects, instead of throwing, when a backend\'s _authenticate() throws (#241)', async function () {
+            const boom = new Error('credential source unreadable');
+            const authStub = sinon.stub();
+            authStub.onFirstCall().throws(boom);
+            authStub.onSecondCall().resolves(nonRenewableToken('second'));
+            const auth = new TestAuth(apiStub(), 'mount', { authStub });
+
+            let pending;
+            expect(() => { pending = auth.getAuthToken(); }).to.not.throw();
+            expect(await pending.then(() => null, (err) => err)).to.equal(boom);
+            expect(auth.__pendingLogin).to.equal(null);
+
+            expect((await auth.getAuthToken()).getId()).to.equal('second');
+        });
+
         it('authenticates once and caches the token for subsequent calls', function () {
             const token = nonRenewableToken();
             const authStub = sinon.stub().resolves(token);

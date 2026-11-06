@@ -252,7 +252,15 @@ class VaultBaseAuth {
 
         this._log.info('getting auth token (mount=%s)', this._mount);
 
-        const pendingLogin = this._authenticate().then(authToken => {
+        // A backend that throws instead of rejecting must not throw out of every operation.
+        let authentication;
+        try {
+            authentication = this._authenticate();
+        } catch (err) {
+            authentication = Promise.reject(err);
+        }
+
+        const pendingLogin = authentication.then(authToken => {
             this.__pendingLogin = null;
             this.__authToken = authToken;
             this.__renewalEpoch++;
