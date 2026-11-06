@@ -307,7 +307,15 @@ class VaultBaseAuth {
     _getTokenEntity(tokenId) {
         return this.__apiClient.makeRequest('GET', '/auth/token/lookup-self', null, {'X-Vault-Token': tokenId})
             .then(res => {
-                return AuthToken.fromResponse(res);
+                const authToken = AuthToken.fromResponse(res);
+                // A token with no expiry is not renewable, so the renewal timer never sees it.
+                // Report a renewable one that came without anything to schedule from, as the
+                // timer did while such a lookup still resolved to a NaN deadline.
+                if (this.__renewalEnabled && res.data.renewable === true && res.data.ttl !== 0
+                        && authToken.getExpiresAtMilliseconds() === null) {
+                    warnRenewalStopped(this, authToken, 'token has no usable expiry');
+                }
+                return authToken;
             });
     }
 

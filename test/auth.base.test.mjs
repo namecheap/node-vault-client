@@ -218,6 +218,62 @@ describe('VaultBaseAuth', function () {
                 expect(token.getId()).to.equal('t');
             });
         });
+
+        describe('a renewable token whose lookup has neither expire_time nor ttl (#236)', function () {
+            function lookupWithoutTtl(api, extra = {}) {
+                api.makeRequest.resolves({
+                    data: Object.assign({ id: 'no-ttl', accessor: 'no-ttl-acc', creation_time: 1000, renewable: true }, extra),
+                });
+            }
+
+            it('warns once that it has no usable expiry, arms nothing and keeps using the token', async function () {
+                const api = apiStub();
+                lookupWithoutTtl(api);
+                const auth = new TestAuth(api, 'mount', {});
+                auth.__authStub = () => auth._getTokenEntity('no-ttl');
+                const log = spyLogger();
+                auth._log = log;
+
+                const token = await auth.getAuthToken();
+
+                expect(token.getExpiresAt()).to.equal(null);
+                expect(auth.__refreshTimeout).to.equal(null);
+                expect(log.warn).to.have.been.calledOnceWith(
+                    'token renewal stopped (accessor=%s): %s; client-side expiry is %s; %s',
+                    'no-ttl-acc', 'token has no usable expiry', 'unknown',
+                    'expiry is unknown; the cached token remains in use until it is replaced');
+                expect(await auth.getAuthToken()).to.equal(token);
+                expect(api.makeRequest).to.have.been.calledOnce;
+            });
+
+            it('does not warn with renewal: false', async function () {
+                const api = apiStub();
+                lookupWithoutTtl(api);
+                const auth = new TestAuth(api, 'mount', { config: { renewal: false } });
+                const log = spyLogger();
+                auth._log = log;
+
+                await auth._getTokenEntity('no-ttl');
+
+                expect(log.warn).not.to.have.been.called;
+            });
+
+            [
+                ['a non-renewable token', { renewable: false }],
+                ['a ttl of 0 (a token that never expires)', { ttl: 0 }],
+                ['a ttl to schedule from', { ttl: 3600 }],
+            ].forEach(([label, extra]) => it(`does not warn for ${label}`, async function () {
+                const api = apiStub();
+                lookupWithoutTtl(api, extra);
+                const auth = new TestAuth(api, 'mount', {});
+                const log = spyLogger();
+                auth._log = log;
+
+                await auth._getTokenEntity('no-ttl');
+
+                expect(log.warn).not.to.have.been.called;
+            }));
+        });
     });
 
     describe('#getAuthToken()', function () {

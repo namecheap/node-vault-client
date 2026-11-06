@@ -32,6 +32,18 @@
   used, and cancels the timer so the run exits even without `--exit`. `--exit` stays in the
   scripts. Test-only; no library change.
 
+- **Fixed: a token lookup without `ttl` no longer yields a `NaN` expiry (#236).** Without
+  `expire_time`, the expiry is `creation_time` (or `last_renewal_time`) plus `ttl`. A `lookup-self`
+  answer missing `ttl` or the creation time made that `NaN`, so `getExpiresAt()` returned `NaN`
+  and the token counted as renewable. Such a token now has a `null` expiry, as one with `ttl: 0`
+  and no `expire_time` already had, and is not renewable.
+  - *Compatibility.* The token is still used until it is replaced: a `NaN` deadline never passed,
+    and a `null` one means none. No timer was armed for it before either. The one log line it
+    produced, `token renewal stopped (accessor=…): token has no usable expiry; …`, is unchanged.
+    It is still logged once per login when Vault marks the token renewable and renewal is on. A
+    numeric-string `ttl` or `creation_time` is read as before. Real Vault always sends `ttl`, so
+    this only affects proxies, mocks and test doubles.
+
 # 3.1.0 Release notes (2026-11-05)
 
 Upgrading from 3.0.x needs no code change. Two things behave differently; both are covered
