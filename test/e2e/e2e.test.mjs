@@ -69,6 +69,42 @@ describe('E2E', function () {
         expect(list.getData().keys).to.include('tst-val');
     });
 
+    it('close() with auth.revokeOnClose revokes the token on the Vault server (#202)', async function () {
+        // A child of the dev root token, so revoking it cannot touch the token the rest of
+        // the suite shares.
+        const created = await rp({
+            uri: 'http://127.0.0.1:8200/v1/auth/token/create',
+            method: 'POST',
+            headers: { 'X-Vault-Token': this.bootOpts.auth.config.token },
+            body: {},
+        });
+        const childToken = created.auth.client_token;
+
+        const vaultClient = new VaultClient({
+            api: { url: 'http://127.0.0.1:8200/' },
+            logger: false,
+            auth: { type: 'token', config: { token: childToken }, revokeOnClose: true },
+        });
+
+        await vaultClient.write('/secret/tst-revoke-on-close', {x: 1});
+
+        const revocation = vaultClient.close();
+        expect(revocation, 'the revocation is returned so a caller may await it').to.be.instanceOf(Promise);
+        await revocation;
+
+        // The token is gone server-side: lookup-self with it must now answer 403.
+        let statusCode = null;
+        try {
+            await rp({
+                uri: 'http://127.0.0.1:8200/v1/auth/token/lookup-self',
+                headers: { 'X-Vault-Token': childToken },
+            });
+        } catch (err) {
+            statusCode = err.statusCode;
+        }
+        expect(statusCode, 'the revoked token no longer authenticates').to.equal(403);
+    });
+
     it('Write for ssh backend should return response', async function () {
         const vaultClient = new VaultClient(this.bootOpts);
         // Already mounted by a previous run against the same stack: Vault answers

@@ -1,3 +1,14 @@
+# Unreleased
+
+- **Opt-in `auth.revokeOnClose` (the remaining #202 item).** `close()` now also revokes the held
+  token (`auth/token/revoke-self`) when `auth.revokeOnClose: true` is set on the `auth` block,
+  beside `type` like the renewal keys. The revocation covers the token held at close and the one
+  a login still in flight produces; `close()` returns it as a never-rejecting promise, and a
+  failed revocation is logged (`revokeSelf on close failed`) with the token left live. A repeated
+  `close()` does not revoke the same token twice. Under `token` auth the revoked token is the one
+  from the configuration itself, so the client warns about that combination at construction.
+  Off by default; nothing changes for existing callers.
+
 # 3.2.0 Release notes (2026-11-06)
 
 Upgrading from 3.1.x needs no code change for most setups. What behaves differently is covered

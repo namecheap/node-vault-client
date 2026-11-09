@@ -331,12 +331,56 @@ describe('VaultClient', function () {
             expect(cancel).to.have.been.calledOnce;
         });
 
+        it('starts the revoke-self-on-close the auth provider offers, and returns it (#202)', function () {
+            const client = new VaultClient(bootOpts());
+            const revoke = sinon.stub().returns(Promise.resolve());
+            client.__auth = { cancelTokenRefresh: sinon.stub(), revokeSelfOnClose: revoke };
+
+            expect(client.close(), 'the revocation is returned so a caller may await it').to.be.instanceOf(Promise);
+            expect(revoke).to.have.been.calledOnce;
+        });
+
+        it('returns null when the auth provider has nothing to revoke (#202)', function () {
+            const client = new VaultClient(bootOpts());
+            client.__auth = { cancelTokenRefresh: sinon.stub(), revokeSelfOnClose: () => null };
+
+            expect(client.close()).to.equal(null);
+        });
+
         it('is null-safe when the auth provider lacks cancelTokenRefresh', function () {
             const client = new VaultClient(bootOpts());
             client.__auth = {};
             expect(() => client.close()).to.not.throw();
             client.__auth = null;
             expect(() => client.close()).to.not.throw();
+        });
+
+        it('is null-safe when the auth provider lacks revokeSelfOnClose', function () {
+            const client = new VaultClient(bootOpts());
+            client.__auth = { cancelTokenRefresh: sinon.stub() };
+            expect(() => client.close()).to.not.throw();
+        });
+    });
+
+    describe('auth.revokeOnClose warnings (#202)', function () {
+        it('warns when revokeOnClose is combined with token auth', function () {
+            const logger = createSpyLogger();
+            new VaultClient(bootOpts({
+                auth: { type: 'token', config: { token: 'tok-123' }, revokeOnClose: true },
+                logger,
+            }));
+
+            expect(loggedText(logger)).to.include('auth.revokeOnClose revokes the token from the configuration');
+        });
+
+        it('does not warn for a backend whose token the client itself issued', function () {
+            const logger = createSpyLogger();
+            new VaultClient(bootOpts({
+                auth: { type: 'appRole', config: { role_id: 'r' }, revokeOnClose: true },
+                logger,
+            }));
+
+            expect(loggedText(logger)).to.not.include('auth.revokeOnClose revokes the token from the configuration');
         });
     });
 

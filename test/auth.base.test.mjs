@@ -193,6 +193,137 @@ describe('VaultBaseAuth', function () {
         });
     });
 
+    describe('config.revokeOnClose (#202)', function () {
+        const created = [];
+
+        function makeAuth(opts) {
+            const auth = new TestAuth(apiStub(), 'mount', opts);
+            created.push(auth);
+            return auth;
+        }
+
+        // Same, but with the caller's api stub so the revoke-self request is observable.
+        function makeAuthWith(api, opts) {
+            const auth = new TestAuth(api, 'mount', opts);
+            created.push(auth);
+            return auth;
+        }
+
+        afterEach(function () {
+            created.splice(0).forEach((auth) => auth.cancelTokenRefresh());
+            sinon.restore();
+        });
+
+        it('rejects a non-boolean revokeOnClose at construction', function () {
+            // node-config's custom-environment-variables yields strings: the same strictness
+            // as "renewal", so VAULT_REVOKE_ON_CLOSE=true does not silently stay off.
+            expect(() => makeAuth({ authStub: sinon.stub(), config: { revokeOnClose: 'true' } }))
+                .to.throw(errors.InvalidArgumentsError, '"revokeOnClose" should be a boolean, got true');
+        });
+
+        it('revokes nothing on close by default', async function () {
+            const api = apiStub();
+            const auth = makeAuthWith(api, { authStub: sinon.stub().resolves(nonRenewableToken('tok-1')) });
+
+            await auth.getAuthToken();
+            expect(auth.revokeSelfOnClose(), 'nothing to do by default').to.equal(null);
+            expect(api.makeRequest).to.not.have.been.called;
+        });
+
+        it('returns null when no token was ever obtained', async function () {
+            const api = apiStub();
+            const auth = makeAuthWith(api, { authStub: sinon.stub(), config: { revokeOnClose: true } });
+
+            expect(auth.revokeSelfOnClose()).to.equal(null);
+            expect(api.makeRequest).to.not.have.been.called;
+        });
+
+        it('revokes the held token when enabled, and drops it once revoked', async function () {
+            const api = apiStub();
+            api.makeRequest.resolves({});
+            const auth = makeAuthWith(api, {
+                authStub: sinon.stub().resolves(nonRenewableToken('tok-1')),
+                config: { revokeOnClose: true },
+            });
+
+            await auth.getAuthToken();
+            const revocation = auth.revokeSelfOnClose();
+            expect(revocation).to.be.instanceOf(Promise);
+            await revocation;
+
+            expect(api.makeRequest).to.have.been.calledWith(
+                'POST', '/auth/token/revoke-self', null, { 'X-Vault-Token': 'tok-1' }
+            );
+            expect(auth.__authToken, 'a revoked token is not handed to a further call').to.equal(null);
+        });
+
+        it('a repeated close does not revoke the same token twice', async function () {
+            const api = apiStub();
+            api.makeRequest.resolves({});
+            const auth = makeAuthWith(api, {
+                authStub: sinon.stub().resolves(nonRenewableToken('tok-1')),
+                config: { revokeOnClose: true },
+            });
+
+            await auth.getAuthToken();
+            await Promise.all([auth.revokeSelfOnClose(), auth.revokeSelfOnClose()]);
+
+            expect(api.makeRequest, 'one revoke-self per token').to.have.been.calledOnce;
+        });
+
+        it('revokes the token of a login that was still in flight at close', async function () {
+            const api = apiStub();
+            api.makeRequest.resolves({});
+            let releaseLogin;
+            const login = new Promise((resolve) => { releaseLogin = () => resolve(nonRenewableToken('tok-2')); });
+            const auth = makeAuthWith(api, { authStub: sinon.stub().returns(login), config: { revokeOnClose: true } });
+
+            const pending = auth.getAuthToken();
+            const revocation = auth.revokeSelfOnClose();
+            releaseLogin();
+            await pending;
+            await revocation;
+
+            expect(api.makeRequest).to.have.been.calledWith(
+                'POST', '/auth/token/revoke-self', null, { 'X-Vault-Token': 'tok-2' }
+            );
+        });
+
+        it('a login that fails issues nothing to revoke', async function () {
+            const api = apiStub();
+            const auth = makeAuthWith(api, {
+                authStub: sinon.stub().rejects(new Error('login failed')),
+                config: { revokeOnClose: true },
+            });
+
+            const pending = auth.getAuthToken();
+            const revocation = auth.revokeSelfOnClose();
+            await pending.then(() => null, () => null);
+            await revocation;
+
+            expect(api.makeRequest, 'a failed login issued no token').to.not.have.been.called;
+        });
+
+        it('a failed revocation is logged and never rejects the returned promise', async function () {
+            const api = apiStub();
+            api.makeRequest.rejects(new errors.VaultHttpError(503, 'unavailable', undefined));
+            const log = spyLogger();
+            const auth = new TestAuth(api, 'mount', {
+                authStub: sinon.stub().resolves(nonRenewableToken('tok-1')),
+                config: { revokeOnClose: true },
+            });
+            // TestAuth hardcodes the null logger; swap it for the spying one.
+            auth._log = log;
+            created.push(auth);
+
+            await auth.getAuthToken();
+            await auth.revokeSelfOnClose(); // must resolve, not reject
+
+            expect(loggedText(log)).to.include('revokeSelf on close failed');
+            expect(auth.__authToken, 'the token is still live server-side').to.not.equal(null);
+        });
+    });
+
     describe('abstract members', function () {
         it('_authenticate must be overridden', function () {
             const auth = new VaultBaseAuth(apiStub(), logger, 'mount');
