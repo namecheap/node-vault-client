@@ -254,6 +254,10 @@ class VaultClient {
      * @param {number} [options.auth.renewalIncrement] - Seconds of extra TTL to request on each
      *      renewal, sent as `increment` to `auth/token/renew-self`. Vault caps it at the token's
      *      max TTL. Omitted by default, which lets Vault apply the token's own period.
+     * @param {boolean} [options.auth.revokeOnClose=false] - Set `true` to revoke the held token
+     *      (`auth/token/revoke-self`) when {@link VaultClient#close} runs. The token the
+     *      `token` backend was configured with is revoked too, so only enable it when that
+     *      token is not shared with anything else.
      * @param {Object|false} options.logger - Logger that supports "error", "info", "warn", "trace", "debug" methods. Uses `console` by default. Pass `false` to disable logging.
      */
     constructor(options) {
@@ -287,6 +291,13 @@ class VaultClient {
         // reserving names in it could break an existing caller. Same reasoning that moved
         // `namespace` to `api.namespace`.
         this.__auth.configureRenewal(options.auth);
+
+        if (options.auth && options.auth.revokeOnClose === true && options.auth.type === 'token') {
+            this.__log.warn(
+                'auth.revokeOnClose revokes the token from the configuration itself on close(); ' +
+                'enable it only when that token is not shared with anything else'
+            );
+        }
 
         // KV v2 support
         const kvOpts = (options.api && options.api.kv) || {};
@@ -428,7 +439,15 @@ class VaultClient {
      * login already in flight when `close()` runs still resolves, but arms no timer, and
      * neither does a call that joins that login after `close()`.
      *
-     * @returns {void}
+     * With `auth.revokeOnClose: true` the held token is also revoked on the Vault server
+     * (`auth/token/revoke-self`): the one held now, or the one a login still in flight is
+     * about to produce. The revocation request keeps the event loop open until it lands, so
+     * a short-lived script that ignores the return value still completes it.
+     *
+     * @returns {Promise<void>|null|undefined} `null` (or `undefined` for an auth provider
+     *      without revocation support) when there is nothing to revoke, otherwise a
+     *      promise for the revocation. It never rejects: a failed revocation is logged and
+     *      the token is left live on the Vault server.
      */
     close() {
         if (this.__auth && typeof this.__auth.__markClosed === 'function') {
@@ -437,6 +456,12 @@ class VaultClient {
         }
         if (this.__auth && typeof this.__auth.cancelTokenRefresh === 'function') {
             this.__auth.cancelTokenRefresh();
+        }
+        if (this.__auth && typeof this.__auth.revokeSelfOnClose === 'function') {
+            // null unless auth.revokeOnClose started a revocation. Fire-and-forget when
+            // ignored (clear() does that): the request holds the event loop open until it
+            // lands. Returned so a caller that wants certainty can await it.
+            return this.__auth.revokeSelfOnClose();
         }
     }
 

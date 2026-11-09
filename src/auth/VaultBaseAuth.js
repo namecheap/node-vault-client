@@ -162,6 +162,19 @@ class VaultBaseAuth {
          * @type {{id: string, promise: Promise<boolean>}|null}
          */
         this.__rejectionCheck = null;
+        /**
+         * Whether {@link VaultBaseAuth#revokeSelfOnClose} revokes the held token on the Vault
+         * server (`auth/token/revoke-self`). Off by default; set `auth.revokeOnClose` (see
+         * {@link VaultBaseAuth#configureRenewal}).
+         * @type {boolean}
+         */
+        this.__revokeOnClose = false;
+        /**
+         * The id of the token whose revocation on close has already been started, so a
+         * repeated close() does not revoke it twice.
+         * @type {String|null}
+         */
+        this.__revokedOnCloseId = null;
     }
 
     /**
@@ -173,12 +186,15 @@ class VaultBaseAuth {
      * @param {boolean} [authConfig.renewal=true]
      * @param {number} [authConfig.renewalFraction=0.5]
      * @param {number} [authConfig.renewalIncrement]
+     * @param {boolean} [authConfig.revokeOnClose=false] - revoke the held token
+     *      (`auth/token/revoke-self`) when the client is closed
      * @returns {void}
      */
     configureRenewal(authConfig) {
         this.__renewalEnabled = VaultBaseAuth.__validateRenewal(authConfig);
         this.__renewalFraction = VaultBaseAuth.__validateFraction(authConfig);
         this.__renewalIncrement = VaultBaseAuth.__validateIncrement(authConfig);
+        this.__revokeOnClose = VaultBaseAuth.__validateRevokeOnClose(authConfig);
     }
 
     /**
@@ -202,6 +218,29 @@ class VaultBaseAuth {
         }
 
         return config.renewal;
+    }
+
+    /**
+     * Strict for the same reason as "renewal": node-config's `custom-environment-variables`
+     * yields strings, so a loose check would read `VAULT_REVOKE_ON_CLOSE=true` as `'true'`
+     * and silently leave revocation off -- the exact behaviour the flag exists to request.
+     *
+     * @param {Object} [authConfig]
+     * @returns {boolean}
+     * @private
+     */
+    static __validateRevokeOnClose(config) {
+        if (!config || config.revokeOnClose === undefined) {
+            return false;
+        }
+
+        if (typeof config.revokeOnClose !== 'boolean') {
+            throw new errors.InvalidArgumentsError(
+                `"revokeOnClose" should be a boolean, got ${String(config.revokeOnClose)}`
+            );
+        }
+
+        return config.revokeOnClose;
     }
 
     /**
@@ -347,6 +386,75 @@ class VaultBaseAuth {
     }
 
     /**
+     * Revoke the held token on the Vault server (`POST auth/token/revoke-self`), when
+     * `auth.revokeOnClose` is enabled. Called by `VaultClient#close()`.
+     *
+     * The token to revoke is the one held now, or the one an in-flight login is about to
+     * produce: that login still resolves after a close(), and its token would otherwise
+     * outlive the client by its whole TTL. A login that fails issued no token. A token that
+     * was never obtained, and one whose revocation an earlier close() already started, cost
+     * nothing to leave alone.
+     *
+     * @returns {Promise<void>|null} the revocation, so a caller may await it, or `null` when
+     *      there is nothing to do: the option is off, or no token was ever obtained. The
+     *      returned promise never rejects: `VaultClient.clear()` fires it without awaiting,
+     *      and a failed revocation is logged (`revokeSelf on close failed`) with the token
+     *      left live on the Vault server instead.
+     */
+    revokeSelfOnClose() {
+        if (!this.__revokeOnClose) {
+            return null;
+        }
+        if (this.__pendingLogin === null && this.__authToken === null) {
+            // No token was ever obtained: nothing was issued, so there is nothing to revoke.
+            return null;
+        }
+
+        // The token to revoke: the one held now, or the one the in-flight login resolves
+        // with. The login's own bookkeeping (the token cache, timer decisions) has run by
+        // the time this `then` sees it.
+        const held = this.__pendingLogin !== null
+            ? this.__pendingLogin.then((authToken) => authToken, () => null)
+            : Promise.resolve(this.__authToken);
+
+        return held.then((authToken) => {
+            // An expired token is already dead server-side: revoke-self would answer 403 and log
+            // a failure claiming the token was left live.
+            if (authToken === null || authToken.isExpired() || authToken.getId() === this.__revokedOnCloseId) {
+                return;
+            }
+            const id = authToken.getId();
+            this.__revokedOnCloseId = id;
+            try {
+                this._log.info('revoking the auth token on close (accessor=%s)', authToken.getAccessor());
+            } catch {
+                // a throwing logger must not cancel the revocation
+            }
+            return this.__apiClient
+                .makeRequest('POST', '/auth/token/revoke-self', null, { 'X-Vault-Token': authToken.getId() })
+                .then(() => {
+                    // Gone server-side: do not hand it to a call that keeps using the client.
+                    if (this.__authToken === authToken) {
+                        this.__authToken = null;
+                    }
+                }, (err) => {
+                    // Still live: let a later close() try again.
+                    if (this.__revokedOnCloseId === id) {
+                        this.__revokedOnCloseId = null;
+                    }
+                    try {
+                        this._log.error(
+                            'revokeSelf on close failed (accessor=%s): %s',
+                            authToken.getAccessor(), safeMessage(err)
+                        );
+                    } catch {
+                        // a throwing logger changes nothing: the failure is already lost to the caller
+                    }
+                });
+        });
+    }
+
+    /**
      * Called by VaultClient after Vault answered 403 to a request made with `authToken`.
      * Vault answers 403 both to a token it no longer accepts (revoked, or expired before the
      * local clock says so) and to a policy that denies the request. `lookup-self`, which every
@@ -363,6 +471,12 @@ class VaultBaseAuth {
             return Promise.resolve(false);
         }
         const id = authToken.getId();
+        if (id === this.__revokedOnCloseId) {
+            // close() revoked this token on purpose (auth.revokeOnClose): a request still in
+            // flight that it rejects must not log in again after close() and leave a new,
+            // unrevoked token behind.
+            return Promise.resolve(false);
+        }
         if (this.__authToken === null || this.__authToken.getId() !== id) {
             return Promise.resolve(true);
         }

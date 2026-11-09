@@ -22,7 +22,7 @@ declare class VaultClient {
 
     fillNodeConfig(): Promise<any>;
     getHeaders(token: VaultClient.AuthToken): Record<string, string>;
-    close(): void;
+    close(): Promise<void> | null | undefined;
 }
 
 declare namespace VaultClient {
@@ -103,6 +103,7 @@ declare namespace VaultClient {
         renewal?: boolean;
         renewalFraction?: number;
         renewalIncrement?: number;
+        revokeOnClose?: boolean;
     }
 
     type AuthOptions = AuthOptionsCommon &

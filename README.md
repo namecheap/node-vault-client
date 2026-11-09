@@ -459,6 +459,38 @@ So revoking a client's token no longer locks it out: it logs straight back in wi
 credential. To cut a client off, also revoke or rotate what it logs in with (the AppRole
 `secret_id` or role, the Kubernetes or JWT role binding, the IAM role).
 
+#### Revoking the token on close
+
+By default [`close()`](#VaultClient+close) only cancels the renewal timer: the token stays
+valid on the Vault server until its TTL runs out. Set `revokeOnClose: true` on the `auth` block
+(beside `type`, like the renewal keys) and `close()` also revokes the held token with
+`auth/token/revoke-self`:
+
+```javascript
+auth: {
+    type: 'appRole',
+    revokeOnClose: true,
+    config: { /* ... */ },
+}
+```
+
+The revocation covers the token held when `close()` runs and the one a login still in flight is
+about to produce — that login still resolves after a close, and its token would otherwise
+outlive the client by its whole TTL. `close()` returns the revocation as a promise, so a caller
+that wants certainty can await it; ignoring the return value is fine too, since the request
+itself keeps the process open until it lands. The promise never rejects: a failed revocation is
+logged (`revokeSelf on close failed`) and the token is left live on the Vault server.
+
+Two cautions:
+
+* Under `token` auth the token revoked is the one from your configuration, not one the client
+  issued for itself. The client warns about this combination at construction; only enable it
+  when that token is not shared with anything else.
+* A revoked token cannot be renewed back to life. Calling `close()` and then using the client
+  again logs in once more — with backends that cannot mint a fresh credential (`token`), the
+  next call fails with Vault's 403 (`VaultHttpError`) from `lookup-self`. A request still in
+  flight when the revocation lands surfaces that 403 instead of logging in again.
+
 #### Tuning renewal instead of disabling it
 
 Two further keys, also on `auth`, shape *how* renewal happens. Both are optional, and leaving them
@@ -873,6 +905,11 @@ const secret = await vaultClient.read('secret/tst');
 console.log(secret);
 vaultClient.close(); // process can now exit
 ```
+
+With `auth.revokeOnClose: true` the held token is also revoked on the Vault server
+(`auth/token/revoke-self`), and `close()` returns the revocation as a never-rejecting promise;
+see [Revoking the token on close](#revoking-the-token-on-close). Ignored, the request still
+completes: it keeps the process open until it lands.
 
 **Kind**: instance method of [<code>VaultClient</code>](#VaultClient)  
 
