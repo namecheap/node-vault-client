@@ -322,6 +322,46 @@ describe('VaultBaseAuth', function () {
             expect(loggedText(log)).to.include('revokeSelf on close failed');
             expect(auth.__authToken, 'the token is still live server-side').to.not.equal(null);
         });
+
+        it('a failed revocation is retried by a later close', async function () {
+            const api = apiStub();
+            api.makeRequest.onFirstCall().rejects(new errors.VaultHttpError(503, 'unavailable', undefined));
+            api.makeRequest.onSecondCall().resolves({});
+            const auth = makeAuthWith(api, {
+                authStub: sinon.stub().resolves(nonRenewableToken('tok-1')),
+                config: { revokeOnClose: true },
+            });
+
+            await auth.getAuthToken();
+            await auth.revokeSelfOnClose();
+            await auth.revokeSelfOnClose();
+
+            expect(api.makeRequest, 'the still-live token is revoked on the retry').to.have.been.calledTwice;
+            expect(auth.__authToken).to.equal(null);
+        });
+
+        it('skips a held token that has already expired', async function () {
+            const api = apiStub();
+            const auth = makeAuthWith(api, { authStub: sinon.stub(), config: { revokeOnClose: true } });
+            auth.__authToken = new AuthToken('tok-old', 'acc', 0, 1, 0, 0, false);
+
+            await auth.revokeSelfOnClose();
+
+            expect(api.makeRequest, 'an expired token is already dead server-side').to.not.have.been.called;
+        });
+
+        it('a request rejected with the token revoked on close does not log in again', async function () {
+            const api = apiStub();
+            api.makeRequest.resolves({});
+            const authStub = sinon.stub().resolves(nonRenewableToken('tok-1'));
+            const auth = makeAuthWith(api, { authStub, config: { revokeOnClose: true } });
+
+            const token = await auth.getAuthToken();
+            await auth.revokeSelfOnClose();
+
+            expect(await auth.checkRejectedToken(token), 'the 403 is surfaced, not retried').to.equal(false);
+            expect(authStub, 'no login after close').to.have.been.calledOnce;
+        });
     });
 
     describe('abstract members', function () {

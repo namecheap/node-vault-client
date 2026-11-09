@@ -21,6 +21,7 @@ new VaultClient({
         renewal: true,
         renewalFraction: 0.75,
         renewalIncrement: 3600,
+        revokeOnClose: true,
         config: { role_id: 'r', secret_id: 's' },
     },
     logger: false,
@@ -79,7 +80,7 @@ async function surface(): Promise<void> {
     await client.deleteMetadata('secret/app');
 
     await client.fillNodeConfig();
-    client.close();
+    await client.close();
 
     void [booted, got, str, num, data, renewable, meta];
 }

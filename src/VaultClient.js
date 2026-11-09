@@ -444,7 +444,8 @@ class VaultClient {
      * about to produce. The revocation request keeps the event loop open until it lands, so
      * a short-lived script that ignores the return value still completes it.
      *
-     * @returns {void|Promise<void>} `null` when there is nothing to revoke, otherwise a
+     * @returns {Promise<void>|null|undefined} `null` (or `undefined` for an auth provider
+     *      without revocation support) when there is nothing to revoke, otherwise a
      *      promise for the revocation. It never rejects: a failed revocation is logged and
      *      the token is left live on the Vault server.
      */

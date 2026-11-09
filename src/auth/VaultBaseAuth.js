@@ -418,10 +418,13 @@ class VaultBaseAuth {
             : Promise.resolve(this.__authToken);
 
         return held.then((authToken) => {
-            if (authToken === null || authToken.getId() === this.__revokedOnCloseId) {
+            // An expired token is already dead server-side: revoke-self would answer 403 and log
+            // a failure claiming the token was left live.
+            if (authToken === null || authToken.isExpired() || authToken.getId() === this.__revokedOnCloseId) {
                 return;
             }
-            this.__revokedOnCloseId = authToken.getId();
+            const id = authToken.getId();
+            this.__revokedOnCloseId = id;
             try {
                 this._log.info('revoking the auth token on close (accessor=%s)', authToken.getAccessor());
             } catch {
@@ -435,6 +438,10 @@ class VaultBaseAuth {
                         this.__authToken = null;
                     }
                 }, (err) => {
+                    // Still live: let a later close() try again.
+                    if (this.__revokedOnCloseId === id) {
+                        this.__revokedOnCloseId = null;
+                    }
                     try {
                         this._log.error(
                             'revokeSelf on close failed (accessor=%s): %s',
@@ -464,6 +471,12 @@ class VaultBaseAuth {
             return Promise.resolve(false);
         }
         const id = authToken.getId();
+        if (id === this.__revokedOnCloseId) {
+            // close() revoked this token on purpose (auth.revokeOnClose): a request still in
+            // flight that it rejects must not log in again after close() and leave a new,
+            // unrevoked token behind.
+            return Promise.resolve(false);
+        }
         if (this.__authToken === null || this.__authToken.getId() !== id) {
             return Promise.resolve(true);
         }

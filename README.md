@@ -488,7 +488,8 @@ Two cautions:
   when that token is not shared with anything else.
 * A revoked token cannot be renewed back to life. Calling `close()` and then using the client
   again logs in once more — with backends that cannot mint a fresh credential (`token`), the
-  next call fails with `AuthTokenExpiredError`.
+  next call fails with Vault's 403 (`VaultHttpError`) from `lookup-self`. A request still in
+  flight when the revocation lands surfaces that 403 instead of logging in again.
 
 #### Tuning renewal instead of disabling it
 
