@@ -147,6 +147,52 @@ describe('VaultApiClient', function () {
             );
         });
 
+        it('exposes the Retry-After header of an error response as err.retryAfter', function () {
+            responder = (req, res) => {
+                res.statusCode = 429;
+                res.setHeader('Retry-After', '2');
+                res.end('<html><body>429 Too Many Requests</body></html>');
+            };
+            const api = new VaultApiClient({ url: baseUrl }, logger);
+            return api.makeRequest('GET', '/secret/foo').then(
+                () => { throw new Error('expected rejection'); },
+                (err) => {
+                    expect(err).to.be.instanceOf(errors.VaultHttpError);
+                    expect(err.statusCode).to.equal(429);
+                    expect(err.retryAfter).to.equal('2');
+                    expect(err.retryAfterMs).to.equal(2000);
+                }
+            );
+        });
+
+        it('rejects with VaultHttpError for an error response from a fetch double without headers', async function () {
+            const fetchStub = sinon.stub(globalThis, 'fetch').resolves({ ok: false, status: 503, text: async () => 'sealed' });
+            try {
+                const api = new VaultApiClient({ url: baseUrl }, logger);
+                const err = await api.makeRequest('GET', '/secret/foo').then(() => null, (e) => e);
+                expect(err).to.be.instanceOf(errors.VaultHttpError);
+                expect(err.message).to.equal('503 - sealed');
+                expect(err).to.not.have.property('retryAfter');
+            } finally {
+                fetchStub.restore();
+            }
+        });
+
+        it('leaves err.retryAfter absent when the error response has no Retry-After', function () {
+            responder = (req, res) => {
+                res.statusCode = 503;
+                res.end('sealed');
+            };
+            const api = new VaultApiClient({ url: baseUrl }, logger);
+            return api.makeRequest('GET', '/secret/foo').then(
+                () => { throw new Error('expected rejection'); },
+                (err) => {
+                    expect(err.statusCode).to.equal(503);
+                    expect(err).to.not.have.property('retryAfter');
+                }
+            );
+        });
+
         it('falls back to the raw text on err.error when the error body is not JSON', function () {
             responder = (req, res) => {
                 res.statusCode = 500;

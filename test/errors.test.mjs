@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import sinon from 'sinon';
 import { expect } from 'chai';
 import errors from '../src/errors.js';
 
@@ -67,6 +68,54 @@ describe('errors', function () {
             expect(err).to.be.instanceOf(Error);
             expect(err.name).to.equal('UnsupportedOperationError');
             expect(err.message).to.equal('not supported');
+        });
+
+        describe('VaultHttpError Retry-After', function () {
+            const withRetryAfter = (retryAfter) => new errors.VaultHttpError(429, '', undefined, { retryAfter });
+
+            it('exposes delay-seconds raw and in milliseconds', function () {
+                const err = withRetryAfter('7');
+                expect(err.retryAfter).to.equal('7');
+                expect(err.retryAfterMs).to.equal(7000);
+                expect(withRetryAfter(' 0 ').retryAfterMs).to.equal(0);
+            });
+
+            it('turns an HTTP-date into the delay from now, never negative', function () {
+                const clock = sinon.useFakeTimers(Date.parse('2026-11-11T19:59:30Z'));
+                try {
+                    expect(withRetryAfter('Wed, 11 Nov 2026 20:00:00 GMT').retryAfterMs).to.equal(30000);
+                    expect(withRetryAfter('Wed, 11 Nov 2026 19:00:00 GMT').retryAfterMs).to.equal(0);
+                } finally {
+                    clock.restore();
+                }
+            });
+
+            it('caps the delay at what setTimeout() honours', function () {
+                const err = withRetryAfter('99999999999');
+                expect(err.retryAfter).to.equal('99999999999');
+                expect(err.retryAfterMs).to.equal(2147483647);
+            });
+
+            it('keeps a value it cannot parse raw only', function () {
+                for (const value of ['-5', '30, 120', '1.5', 'soon']) {
+                    const err = withRetryAfter(value);
+                    expect(err.retryAfter, value).to.equal(value);
+                    expect(err, value).to.not.have.property('retryAfterMs');
+                }
+            });
+
+            it('leaves both properties absent when the header was not sent or is empty', function () {
+                for (const err of [
+                    new errors.VaultHttpError(503, 'sealed'),
+                    new errors.VaultHttpError(503, 'sealed', undefined, {}),
+                    withRetryAfter(null),
+                    withRetryAfter(''),
+                    withRetryAfter('   '),
+                ]) {
+                    expect(err).to.not.have.property('retryAfter');
+                    expect(err).to.not.have.property('retryAfterMs');
+                }
+            });
         });
 
         it('VaultHttpError extends VaultError', function () {

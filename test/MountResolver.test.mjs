@@ -365,6 +365,18 @@ describe('MountResolver', function () {
             }
         });
 
+        it('keeps Retry-After of a rate-limited detection on err.cause', async function () {
+            const limited = new errors.VaultHttpError(429, '', undefined, { retryAfter: '7' });
+            const resolver = new MountResolver(sinon.stub().rejects(limited), {}, logger);
+
+            const err = await resolver.resolve('secret/foo').then(() => null, (e) => e);
+            expect(err).to.be.instanceOf(errors.VaultError);
+            expect(err).to.not.be.instanceOf(errors.VaultHttpError);
+            expect(err.cause.statusCode).to.equal(429);
+            expect(err.cause.retryAfter).to.equal('7');
+            expect(err.cause.retryAfterMs).to.equal(7000);
+        });
+
         describe('the error each caller gets (#202)', function () {
             const DENIED = () => new errors.VaultHttpError(403, '{"errors":["permission denied"]}', { errors: ['permission denied'] });
             const message = (path, reason) => `Failed to detect KV engine version for mount "secret" (path: ${path}): ${reason}. ` +
