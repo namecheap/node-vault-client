@@ -16,6 +16,10 @@ const asInvalidArguments: errors.InvalidArgumentsError = aws;
 
 const status: number = http.statusCode;
 const body: unknown = http.error;
+const rateLimited: errors.VaultHttpError = new errors.VaultHttpError(429, '', undefined, { retryAfter: '2' });
+const noHeader: errors.VaultHttpError = new errors.VaultHttpError(503, '', undefined, { retryAfter: null });
+const retryAfter: string | undefined = rateLimited.retryAfter;
+const retryAfterMs: number | undefined = rateLimited.retryAfterMs;
 const name: string = base.name;
 const message: string = base.message;
 
@@ -34,7 +38,7 @@ function narrows(err: unknown): number {
     return -1;
 }
 
-void [structurallyInterchangeable, chained, expired, unsupported, timedOut, limit, asError, asVaultError, asInvalidArguments, status, body, name, message, narrows];
+void [structurallyInterchangeable, chained, expired, unsupported, timedOut, limit, asError, asVaultError, asInvalidArguments, status, body, rateLimited, noHeader, retryAfter, retryAfterMs, name, message, narrows];
 
 // @ts-expect-error statusCode is a number
 const badStatus: string = http.statusCode;
@@ -48,3 +52,14 @@ new errors.RequestTimeoutError();
 
 // @ts-expect-error there is no such export
 new errors.NoSuchError('x');
+
+// @ts-expect-error retryAfter is the raw header string, not a number of seconds
+const badRetryAfter: number | undefined = rateLimited.retryAfter;
+void badRetryAfter;
+
+// @ts-expect-error retryAfterMs is a number of milliseconds, not the raw header
+const badRetryAfterMs: string | undefined = rateLimited.retryAfterMs;
+void badRetryAfterMs;
+
+// @ts-expect-error the header goes in an options object, not as a positional string
+new errors.VaultHttpError(429, '', undefined, '2');

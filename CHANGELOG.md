@@ -8,6 +8,16 @@
   `close()` does not revoke the same token twice. Under `token` auth the revoked token is the one
   from the configuration itself, so the client warns about that combination at construction.
   Off by default; nothing changes for existing callers.
+- **`VaultHttpError` carries `Retry-After`.** Vault's rate-limit quotas answer 429 with a
+  `Retry-After` header in seconds, and a proxy in front of Vault may send one with 429 or 503.
+  A non-2xx response with that header now exposes it as `err.retryAfter` (as sent) and
+  `err.retryAfterMs` (parsed from delay-seconds or an HTTP-date, capped at 2147483647 ms; absent
+  when the value is in neither format, e.g. `-5` or two headers joined as `30, 120`). Both are
+  absent when the header was not sent or is empty. When mount detection is what got rate
+  limited, they are on `err.cause`, next to `err.cause.statusCode`. The constructor takes them
+  as a fourth `{ retryAfter }` argument. `statusCode`, `error` and `message` are unchanged.
+  The client does not wait and retry on `Retry-After` itself; token renewal retries, the one
+  place it retries on a schedule, do not honour it yet.
 
 # 3.2.0 Release notes (2026-11-06)
 

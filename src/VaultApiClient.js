@@ -390,7 +390,10 @@ class VaultApiClient {
                 }
 
                 if (!response.ok) {
-                    throw new errors.VaultHttpError(response.status, text, body);
+                    // headers?.: fetch test doubles in callers' suites often have no headers
+                    throw new errors.VaultHttpError(response.status, text, body, {
+                        retryAfter: response.headers?.get('retry-after'),
+                    });
                 }
 
                 // Do not log the response body: Vault responses carry secret
