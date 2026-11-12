@@ -1,4 +1,11 @@
-# Unreleased
+# 3.3.0 Release notes (2026-11-12)
+
+Upgrading from 3.2.x needs no code change. Both additions are opt-in or additive:
+
+- `auth.revokeOnClose` is off by default.
+- `VaultHttpError` gains `retryAfter` / `retryAfterMs` only when the response carried `Retry-After`.
+
+Changes in this release:
 
 - **Opt-in `auth.revokeOnClose` (the remaining #202 item).** `close()` now also revokes the held
   token (`auth/token/revoke-self`) when `auth.revokeOnClose: true` is set on the `auth` block,
@@ -18,6 +25,7 @@
   as a fourth `{ retryAfter }` argument. `statusCode`, `error` and `message` are unchanged.
   The client does not wait and retry on `Retry-After` itself; token renewal retries, the one
   place it retries on a schedule, do not honour it yet.
+- **Dependencies.** `@aws-sdk/credential-providers` 3.1161.0 → 3.1164.0 (#259).
 
 # 3.2.0 Release notes (2026-11-06)
 
