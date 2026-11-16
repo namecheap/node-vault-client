@@ -102,13 +102,23 @@ describe('Node.js 20 deprecation warning', function () {
     });
 
     it('checks the running process by default', function () {
+        // On Node.js 20 another suite has loaded the client by now, so this process has warned.
+        const WARNED = Symbol.for('node-vault-client.NVC_DEP_NODE_20');
+        const warned = process[WARNED];
+        delete process[WARNED];
         const emitWarning = sinon.stub(process, 'emitWarning');
         try {
             const onNode20 = process.versions.node.startsWith('20.');
             expect(warnIfNode20()).to.equal(onNode20);
+            expect(warnIfNode20(), 'a second call').to.equal(false);
             expect(emitWarning.callCount).to.equal(onNode20 ? 1 : 0);
         } finally {
             emitWarning.restore();
+            if (warned === undefined) {
+                delete process[WARNED];
+            } else {
+                process[WARNED] = warned;
+            }
         }
     });
 
