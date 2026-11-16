@@ -22,8 +22,10 @@ Node.js project); see [CHANGELOG.md](CHANGELOG.md) for details.
 
 Node.js 22 or later is recommended. Node.js 20 still works in 3.x, but it reached end-of-life on
 2026-04-30 and the next major release will require Node.js 22 or later. On Node.js 20 the client
-emits a `DeprecationWarning` with code `NVC_DEP_NODE_20`, once per process, when it is loaded.
-Nothing else changes; `--no-deprecation` silences it, as for any deprecation.
+emits a `DeprecationWarning` with code `NVC_DEP_NODE_20` when it is loaded: once per process, and
+once more in each worker thread that loads it. The client behaves the same otherwise.
+`--no-deprecation` silences the warning, as for any deprecation. Under `--throw-deprecation` it is
+emitted as a plain `Warning` with the same code, so loading the client does not end the process.
 
 Upgrading from 2.x? [MIGRATION.md](MIGRATION.md) lists what can need a change and what to check.
 

@@ -4,6 +4,8 @@
  * warning is emitted once per process, when the client is loaded, and changes nothing else.
  */
 import { execFile } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import sinon from 'sinon';
 import { expect, use } from 'chai';
@@ -63,6 +65,42 @@ describe('Node.js 20 deprecation warning', function () {
         expect(warnIfNode20(proc)).to.equal(false);
     });
 
+    it('warns once for one process object, however often it is called', function () {
+        const proc = fakeProcess('20.19.0');
+
+        expect(warnIfNode20(proc)).to.equal(true);
+        expect(warnIfNode20(proc)).to.equal(false);
+
+        expect(proc.emitWarning).to.have.been.calledOnce;
+    });
+
+    it('emits a plain Warning under --throw-deprecation, which would otherwise end the process', function () {
+        const proc = Object.assign(fakeProcess('20.19.0'), { throwDeprecation: true });
+
+        expect(warnIfNode20(proc)).to.equal(true);
+
+        expect(proc.emitWarning).to.have.been.calledOnceWithExactly(NODE_20_DEPRECATION_MESSAGE, {
+            type: 'Warning',
+            code: NODE_20_DEPRECATION_CODE,
+        });
+    });
+
+    it('stays a DeprecationWarning when --no-deprecation is set as well, so Node drops it', function () {
+        const proc = Object.assign(fakeProcess('20.19.0'), { throwDeprecation: true, noDeprecation: true });
+
+        expect(warnIfNode20(proc)).to.equal(true);
+
+        expect(proc.emitWarning.firstCall.args[1].type).to.equal('DeprecationWarning');
+    });
+
+    it('does not throw where there is no process global', function () {
+        const source = readFileSync(new URL('../src/checkNodeVersion.js', import.meta.url), 'utf8');
+        const module = { exports: {} };
+        vm.runInNewContext(source, { module });
+
+        expect(module.exports.warnIfNode20()).to.equal(false);
+    });
+
     it('checks the running process by default', function () {
         const emitWarning = sinon.stub(process, 'emitWarning');
         try {
@@ -95,6 +133,10 @@ describe('Node.js 20 deprecation warning', function () {
             new VaultClient(options);
             new VaultClient(options);
             require(${clientPath});
+            // What a test runner that resets modules does, and what a second copy of the package
+            // amounts to: the client's files are evaluated again.
+            for (const id of Object.keys(require.cache)) delete require.cache[id];
+            require(${clientPath});
             setImmediate(() => process.stdout.write(JSON.stringify(warnings)));
         `;
 
@@ -110,7 +152,7 @@ describe('Node.js 20 deprecation warning', function () {
             });
         }
 
-        it('warns once on Node.js 20, however many clients are created', async function () {
+        it('warns once on Node.js 20, however many clients are created or times it is loaded', async function () {
             const { warnings, stderr } = await run('20.19.0');
 
             expect(warnings).to.deep.equal([{
@@ -133,6 +175,28 @@ describe('Node.js 20 deprecation warning', function () {
 
             expect(warnings.map((w) => w.code)).to.deep.equal(
                 process.versions.node.startsWith('20.') ? [NODE_20_DEPRECATION_CODE] : []);
+        });
+
+        it('still loads under --throw-deprecation, and warns with a plain Warning', async function () {
+            const { warnings } = await run('20.19.0', ['--throw-deprecation']);
+
+            expect(warnings).to.deep.equal([{
+                name: 'Warning',
+                code: NODE_20_DEPRECATION_CODE,
+                message: NODE_20_DEPRECATION_MESSAGE,
+            }]);
+        });
+
+        it('warns once more in a worker thread that loads the client', async function () {
+            const worker = `
+                const { Worker } = require('node:worker_threads');
+                new Worker(${JSON.stringify(script('20.19.0'))}, { eval: true, stdout: false });
+            `;
+            const stdout = await new Promise((resolve, reject) => {
+                execFile(process.execPath, ['-e', worker], (err, out) => (err ? reject(err) : resolve(out)));
+            });
+
+            expect(JSON.parse(stdout).map((w) => w.code)).to.deep.equal([NODE_20_DEPRECATION_CODE]);
         });
 
         it('follows --no-deprecation like any other deprecation', async function () {
