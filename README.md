@@ -20,6 +20,11 @@ Node.js >= 20.19.0 — the client uses the native `fetch` API. Node 18 support w
 (Node 18 reached end-of-life on 2025-04-30 and no longer receives security patches from the
 Node.js project); see [CHANGELOG.md](CHANGELOG.md) for details.
 
+Node.js 22 or later is recommended. Node.js 20 still works in 3.x, but it reached end-of-life on
+2026-04-30 and the next major release will require Node.js 22 or later. On Node.js 20 the client
+emits a `DeprecationWarning` with code `NVC_DEP_NODE_20`, once per process, when it is loaded.
+Nothing else changes; `--no-deprecation` silences it, as for any deprecation.
+
 Upgrading from 2.x? [MIGRATION.md](MIGRATION.md) lists what can need a change and what to check.
 
 ### TypeScript
