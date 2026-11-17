@@ -239,7 +239,10 @@ describe('VaultClient', function () {
             const script = (body) => `
                 const VaultClient = require(${JSON.stringify(fileURLToPath(new URL('../src/VaultClient.js', import.meta.url)))});
                 const warnings = [];
-                process.on('warning', (w) => warnings.push({ name: w.name, code: w.code, message: w.message }));
+                // On Node.js 20 the client also warns about the runtime itself (#221); that
+                // warning is not what these cases are about.
+                process.on('warning', (w) => w.code !== 'NVC_DEP_NODE_20'
+                    && warnings.push({ name: w.name, code: w.code, message: w.message }));
                 const boot = (name) => VaultClient.boot(name, {
                     api: { url: 'https://example.com/' }, logger: false,
                     auth: { type: 'token', config: { token: 'tok-123' } },

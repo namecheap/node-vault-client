@@ -14,6 +14,9 @@ const MountResolver = require('./MountResolver');
 const { rewritePath, normalizeResponse } = require('./kvTransform');
 const safeMessage = require('./safeMessage');
 const { trimTrailingSlashes } = require('./slashes');
+const { warnIfNode20 } = require('./checkNodeVersion');
+
+warnIfNode20();
 
 const noop = () => {};
 // Named instances. A Map, so a name such as "toString" or "constructor" is not found on

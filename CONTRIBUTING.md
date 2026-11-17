@@ -10,7 +10,8 @@ By participating in this project you agree to abide by our [Code of Conduct](COD
 
 - Node.js >= 20.19.0 — the client uses the native `fetch` API. CI runs against 20, 22, 24 and 26
   (`.nvmrc` pins 22 for local development). Node 18 support was dropped in 3.0.0; see
-  CHANGELOG.md.
+  CHANGELOG.md. Node 20 is past its end-of-life: the client warns once per process (and per worker thread) there
+  (`NVC_DEP_NODE_20`), and the next major release will require Node 22 or later.
 - npm (the repo ships a committed `package-lock.json`; use `npm ci`).
 - Docker — used to run a local dev Vault server for the integration and end-to-end tests
   (see `docker-compose.yml`).
